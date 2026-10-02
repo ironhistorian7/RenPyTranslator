@@ -1,4 +1,5 @@
 # Distribution archives are published separately from the source repository.
+/portable/
 *.zip
 *.zip.tmp
 
