@@ -1,0 +1,17 @@
+{
+  "unrpyc": {
+    "version": "2.0.4",
+    "commit": "3ae8334ed71a05535927dcc559663d3aca51215b",
+    "source": "https://github.com/CensoredUsername/unrpyc/tree/3ae8334ed71a05535927dcc559663d3aca51215b",
+    "license": "MIT",
+    "license_file": "unrpyc/LICENSE"
+  },
+  "fonts": {
+    "version": "content-addressed: see asset-lock.json",
+    "license": "SIL Open Font License 1.1",
+    "sources": [
+      "fonts/nanum-sources.json",
+      "fonts/sources.json"
+    ]
+  }
+}

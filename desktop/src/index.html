@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>RenPyTranslator</title><link rel="stylesheet" href="style.css"></head>
+<body>
+<header class="titlebar"><span class="app-mark" aria-hidden="true">文</span><span>RenPyTranslator</span></header>
+<div class="app-shell">
+  <aside class="sidebar"><nav aria-label="주 메뉴">
+    <button class="nav-item selected" data-page="basic" aria-current="page"><svg viewBox="0 0 24 24"><path d="m3 11 9-8 9 8M5 10v11h5v-7h4v7h5V10"/></svg><span>기본</span></button>
+    <button class="nav-item" data-page="advanced"><svg viewBox="0 0 24 24"><path d="M3 5h18M3 12h18M3 19h18"/><circle cx="8" cy="5" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="9" cy="19" r="2"/></svg><span>고급 설정</span></button>
+    <button class="nav-item" data-page="models"><svg viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="4"/><path d="M9 1v4m6-4v4M9 19v4m6-4v4M1 9h4m-4 6h4m14-6h4m-4 6h4M9 10h6m-6 4h4"/></svg><span>AI 모델</span></button>
+  </nav><button class="nav-item info-nav" data-page="info"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v1"/></svg><span>설정 및 정보</span></button></aside>
+  <main>
+    <div class="page-header"><h1 id="page-title">기본</h1><div class="actions" id="run-actions"><button id="cancel" class="secondary" disabled>취소</button><button id="start" class="primary" disabled>번역 시작</button></div><div class="actions" id="info-actions" hidden><button id="refresh" class="secondary">상태 새로고침</button><button id="save" class="primary" disabled>설정 저장</button></div></div>
+    <div id="message" role="status" hidden></div>
+    <section id="work-page" class="work-page">
+      <div class="source-section"><h2>번역할 게임</h2><fieldset class="inline-options" id="source-kind"><legend class="sr-only">폴더 종류</legend><label><input type="radio" name="source" value="source" checked>원본 게임</label><label><input type="radio" name="source" value="project">기존 프로젝트</label></fieldset>
+        <div class="path-row"><input id="source-path" aria-label="게임 또는 기존 프로젝트 폴더" placeholder="게임 폴더를 선택하세요" spellcheck="false"><button id="browse-source" class="secondary">찾아보기</button></div>
+        <p class="help">원본 게임 또는 기존 번역 결과 폴더를 선택하세요.</p></div>
+      <div id="basic-options"><h2>결과 저장 위치</h2><input id="output-preview" readonly aria-label="결과 저장 위치"><p class="help">저장 위치는 고급 설정에서 바꿀 수 있습니다.</p></div>
+      <div id="advanced-options" class="advanced-scroll" hidden>
+        <section><h2>실행할 작업</h2><p class="help">번역은 완료한 부분을 이어서 진행합니다. 재번역은 선택한 모델로 처음부터 번역해 별도 결과로 저장합니다. 기존 결과는 그대로 남습니다.</p><div id="tasks" class="check-grid"></div><p class="help">재번역은 준비된 프로젝트가 필요하며, 비교용 작업 사본을 만들 공간을 추가로 사용합니다. 취소한 재번역은 같은 모델로 다시 실행하면 이어집니다.</p></section>
+        <section class="separated"><h2>저장 및 표시</h2><div class="form-rows">
+          <label for="output">결과 저장 위치</label><div class="path-row"><input id="output" spellcheck="false"><button id="browse-output" class="secondary">찾아보기</button></div>
+          <label for="suffix">폴더 접미사</label><input id="suffix" class="short-field" spellcheck="false">
+          <label for="scale">대화창 높이 배율</label><div><input id="scale" class="short-field" spellcheck="false"><p class="help">default는 게임 기본값, 1.2는 기본 높이의 120%입니다.</p></div>
+          <label for="corner">언어 패널 위치</label><div class="inline-options"><select id="corner"><option value="right">오른쪽 아래</option><option value="left">왼쪽 아래</option></select><label class="margin-label" for="margin">여백</label><input id="margin" type="number" min="0" max="300" class="number-field"><span class="help">px</span></div>
+        </div></section>
+        <details id="repairs" class="separated"><summary>번역 보정 <span id="repair-count"></span></summary><p class="help">번역 결과에서 문제가 보이면 필요한 부분만 골라 다시 적용하세요.</p><div id="fixes" class="check-grid"></div></details>
+      </div>
+      <p id="selection-summary" class="selection-summary" hidden></p>
+      <section class="log-section"><div class="log-header"><h2>작업 기록</h2><div class="log-status"><span id="status" aria-live="polite">대기 중</span><button id="open-result" class="text-button" disabled>결과 폴더 열기 <span aria-hidden="true">↗</span></button></div></div>
+        <progress id="progress" max="100" value="0" aria-label="번역 진행"></progress>
+        <pre id="log" role="log" aria-label="작업 기록" tabindex="0">게임 폴더를 선택한 뒤 번역을 시작하세요.
+기존 번역을 보정하려면 고급 설정에서 필요한 작업을 선택하세요.</pre></section>
+    </section>
+    <section id="models-page" class="info-page" hidden>
+      <section><h2>사용할 번역 모델</h2><div class="path-row"><select id="installed-model" aria-label="사용할 번역 모델"><option value="">선택 안 함</option></select><button class="primary" id="apply-model">적용</button><button class="secondary" id="delete-model">삭제</button></div><p id="model-selection" class="help">모델을 선택해 주세요.</p><p id="installed-warning" class="warning" hidden></p>
+        <div class="model-toolbar"><button class="text-button" id="model-folder">모델 폴더 열기 ↗</button><button class="text-button" id="scan-models">목록 새로고침</button></div><p id="local-models-help" class="help">받은 GGUF 파일을 models 폴더에 넣고 목록을 새로고침하세요.</p></section>
+      <section class="separated"><h2>모델 다운로드</h2><div class="path-row"><input id="model-query" placeholder="모델 이름 또는 제작자 검색" aria-label="모델 검색"><button class="secondary" id="search-models">검색</button></div>
+        <div class="model-picker"><button id="repo-toggle" class="picker-toggle" aria-expanded="false" aria-controls="repo-options">모델 선택 <span>⌄</span></button><div id="repo-options" class="picker-options" role="listbox" aria-label="다운로드할 모델" hidden></div></div>
+        <div id="model-detail" hidden><div class="model-picker"><button id="file-toggle" class="picker-toggle" aria-expanded="false" aria-controls="file-options">파일 선택 <span>⌄</span></button><div id="file-options" class="picker-options" role="listbox" aria-label="모델 파일" hidden></div></div>
+          <p id="model-warning" class="warning" hidden></p><dl id="model-facts" class="information"></dl><p class="help">메모리는 가중치와 실행 여유를 포함한 추정치입니다. 실제 사용량은 문맥 길이와 실행 방식에 따라 달라집니다.</p>
+          <details class="model-description"><summary>제작자 설명</summary><pre id="model-description"></pre></details>
+          <button id="download-model" class="primary">다운로드</button><p class="help">다운로드한 뒤 위에서 사용할 모델을 선택하고 적용하세요.</p>
+        </div><p id="catalog-status" class="help" role="status"></p></section>
+      <section id="model-transfer" class="separated" hidden><div class="section-head"><h2 id="model-transfer-stage">다운로드</h2><button id="model-cancel" class="secondary">취소</button></div><progress id="model-progress" max="100" value="0"></progress><p id="model-transfer-size" class="help"></p><p id="model-transfer-error" class="warning" hidden></p></section>
+    </section>
+    <section id="info-page" class="info-page" hidden>
+      <section><h2>화면</h2><div class="settings-row"><div><label id="theme-label">테마</label><p class="help">시스템 설정을 따르거나 직접 선택할 수 있습니다.</p></div><div class="segmented" role="group" aria-labelledby="theme-label"><button data-theme="system">시스템</button><button data-theme="light">라이트</button><button data-theme="dark">다크</button></div></div></section>
+      <section class="separated"><div class="section-head"><h2>번역 모델</h2><span id="model-state" class="quiet-state">확인 중</span></div><dl class="information"><dt>기본 모델</dt><dd id="default-model">—</dd><dt>현재 실행 중</dt><dd id="active-model">확인 중…</dd><dt>실행 환경</dt><dd id="runtime">—</dd><dt>모델 메모리</dt><dd id="model-memory">—</dd></dl><p class="help">이 프로그램이 실행한 로컬 모델의 상태입니다. 작업을 마치거나 취소하면 모델을 정리합니다.</p></section>
+      <section class="separated"><div class="section-head"><h2>GPU</h2><span id="gpu-count" class="quiet-state">확인 중</span></div>
+        <div id="gpu-list" class="gpu-list"></div>
+        <fieldset class="gpu-policy"><legend>사용 방식</legend><label><input name="gpu-mode" type="radio" value="auto">자동</label><label><input name="gpu-mode" type="radio" value="all">지원 GPU 모두 사용</label><label><input name="gpu-mode" type="radio" value="selected">장치 직접 선택</label></fieldset>
+        <div id="gpu-select" class="device-choices" hidden></div>
+        <p id="gpu-help" class="help">자동 선택은 모델이 한 GPU에 들어가면 해당 장치를 우선 사용합니다.</p><p class="help">장치 사용량은 시스템 전체 수치입니다. ‘번역에 사용 중’은 이 프로그램의 모델 프로세스가 확인된 장치에만 표시합니다.</p>
+        <p id="device-warning" class="warning" hidden></p>
+      </section>
+      <section class="separated"><h2>번역 과정</h2><ol class="pipeline"><li><strong>원문 정리</strong><span>스크립트에서 대사·선택지·UI를 모으고, 변수와 서식 태그를 보존합니다.</span></li><li><strong>로컬 번역</strong><span>선택한 모델이 주변 원문과 인명 표기를 참고해 한국어로 번역합니다. 전체 줄거리 사전 분석은 자동 실행하지 않습니다.</span></li><li><strong>검사와 보정</strong><span>태그·변수 누락을 검사하고, 실패한 항목을 복구한 뒤 인명·폰트·표시를 보정합니다.</span></li><li><strong>결과 저장</strong><span>저장된 번역은 재사용하고 결과 폴더와 복사용 패치를 만듭니다. 정답·선택지 힌트는 선택했을 때만 추가합니다.</span></li></ol></section>
+      <section class="separated"><div class="section-head"><h2>프로그램 위치</h2><button id="open-logs" class="text-button">로그 폴더 열기 ↗</button></div><p id="tool-root" class="path-text"></p><p class="help">프로그램·설정·모델은 포터블 폴더에 보관합니다. 다른 PC로 옮길 때는 폴더 전체를 복사하세요.</p></section>
+    </section>
+  </main>
+</div><script src="renderer.js"></script></body></html>

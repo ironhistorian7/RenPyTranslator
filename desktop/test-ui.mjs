@@ -1,0 +1,107 @@
+import {_electron as electron} from 'playwright';
+import {createRequire} from 'node:module';
+import {mkdir,writeFile} from 'node:fs/promises';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+const require=createRequire(import.meta.url);
+const root=path.resolve('..');
+const out=path.join(root,'build','electron-ui-review');await mkdir(out,{recursive:true});
+const launchEnv={...process.env,RPT_TOOL_ROOT:root};delete launchEnv.ELECTRON_RUN_AS_NODE;
+const app=await electron.launch({executablePath:require('electron'),args:[process.cwd()],env:launchEnv,timeout:30000});
+const errors=[];const page=await app.firstWindow();
+page.on('pageerror',e=>errors.push(e.message));
+try{
+  await page.waitForFunction(()=>document.querySelector('#start')?.disabled===false,{timeout:30000});
+  await page.locator('#start').click();
+  assert.match(await page.locator('#message').innerText(),/폴더를 선택/);
+  const initial=await page.evaluate(()=>window.rpt.info());assert.equal(initial.ok,true);
+  await page.locator('[data-page=info]').click();
+  await page.locator('button[data-theme=light]').click();
+  await page.locator('[data-page=basic]').click();
+  await page.screenshot({path:path.join(out,'basic-light.png')});
+  await page.locator('[data-page=info]').click();
+  await page.locator('button[data-theme=dark]').click();
+  await page.locator('[data-page=basic]').click();
+  await page.screenshot({path:path.join(out,'basic-dark.png')});
+  await page.locator('[data-page=advanced]').click();assert.equal(await page.locator('#start').isDisabled(),true);
+  await page.locator('[data-task=retranslate]').check();
+  assert.equal(await page.locator('#start').isEnabled(),true);
+  await page.locator('[data-task=run]').check();
+  assert.equal(await page.locator('[data-task=retranslate]').isChecked(),false);
+  await page.locator('[data-task=retranslate]').check();
+  assert.equal(await page.locator('[data-task=run]').isChecked(),false);
+  await page.locator('[data-task=retranslate]').uncheck();
+  await page.locator('[data-task=routes]').check();
+  assert.equal(await page.locator('#start').isEnabled(),true);
+  await page.locator('#repairs summary').click();
+  await page.locator('[data-task=failed]').check();
+  await page.locator('[data-page=info]').click();
+  await page.locator('[data-page=advanced]').click();
+  assert.equal(await page.locator('[data-task=routes]').isChecked(),true);
+  await page.screenshot({path:path.join(out,'advanced-dark.png')});
+  await page.locator('[data-page=basic]').click();
+  await page.locator('[data-page=advanced]').click();assert.equal(await page.locator('#start').isDisabled(),true);
+  assert.equal(await page.locator('#repairs').getAttribute('open'),null);
+  await page.locator('[data-page=info]').click();
+  await page.waitForFunction(()=>!document.querySelector('#refresh').disabled);
+  await page.screenshot({path:path.join(out,'info-dark-real-hardware.png')});
+  // Inject only a synthetic status response in this test process. No persistent settings or model work.
+  const mock=structuredClone(initial.value);
+  mock.gpus=[0,1].map(i=>({id:`GPU-00000000-0000-0000-0000-00000000000${i}`,name:`Synthetic GPU ${i+1}`,total:12288,used:1024,utilization:0,driver:'test',selectable:true,active:false}));
+  await app.evaluate(({ipcMain},data)=>{ipcMain.removeHandler('rpt:info');ipcMain.handle('rpt:info',()=>({ok:true,value:data}));},mock);
+  await page.locator('#refresh').click();
+  await page.waitForFunction(()=>document.querySelectorAll('[data-gpu]').length===2);
+  await page.locator('input[name=gpu-mode][value=selected]').check();
+  await page.locator('[data-gpu]').nth(0).check();await page.locator('[data-gpu]').nth(1).check();
+  assert.equal(await page.locator('[data-gpu]:checked').count(),2);
+  await page.locator('#refresh').click();await page.waitForFunction(()=>!document.querySelector('#refresh').disabled);
+  assert.equal(await page.locator('[data-gpu]:checked').count(),2);
+  await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].setSize(920,720));
+  await page.locator('[data-page=advanced]').click();
+  await page.locator('#repairs summary').click();
+  await page.locator('[data-task=layout]').scrollIntoViewIfNeeded();
+  await page.screenshot({path:path.join(out,'advanced-small.png')});
+  const boxes=await page.evaluate(()=>['#start','#source-path','#log'].map(s=>{const r=document.querySelector(s).getBoundingClientRect();return {s,x:r.x,y:r.y,right:r.right,bottom:r.bottom,w:innerWidth,h:innerHeight};}));
+  for(const r of boxes){assert(r.x>=0&&r.y>=0&&r.right<=r.w+1&&r.bottom<=r.h+1,JSON.stringify(r));}
+  assert.equal(await page.evaluate(()=>typeof window.require),'undefined');
+  assert.equal(await page.evaluate(()=>typeof window.process),'undefined');
+  // Exercise the real controller and cancel marker with an in-memory worker only.
+  await app.evaluate(()=>{
+    const require=process.getBuiltinModule('node:module').createRequire(process.cwd()+'/test.js');
+    const cp=require('node:child_process'),fs=require('node:fs');
+    const {EventEmitter}=require('node:events'),{PassThrough,Writable}=require('node:stream');
+    const original=cp.spawn;
+    const originalExec=cp.execFile;
+    cp.execFile=(exe,args,opts,callback)=>{
+      if(!args.includes('--desktop-models'))return originalExec(exe,args,opts,callback);
+      const p=new EventEmitter();p.stdin=new Writable({write(_chunk,_enc,cb){cb();setTimeout(()=>callback(null,'{"result":null}',''),0);}});return p;
+    };
+    cp.spawn=(exe,args,opts)=>{
+      if(!args.includes('--desktop-run'))return original(exe,args,opts);
+      const p=new EventEmitter();p.stdout=new PassThrough();p.stderr=new PassThrough();
+      p.stdin=new Writable({write(chunk,_enc,cb){
+        const request=JSON.parse(chunk.toString());
+        globalThis.testRequest=request;
+        setTimeout(()=>p.stdout.write('8/16 entries, batch 0.1s\n'),30);cb();
+      }});
+      const timer=setInterval(()=>{if(fs.existsSync(opts.env.RPT_CANCEL_FILE)){clearInterval(timer);p.stdout.end();p.stderr.end();p.emit('close',130);}},20);
+      return p;
+    };
+  });
+  await page.locator('[data-page=basic]').click();
+  await page.locator('#source-path').fill('X:/SYNTHETIC-NOT-A-GAME');
+  await page.locator('#start').click();
+  await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('8 / 16'));
+  assert.equal(await page.locator('#source-path').isDisabled(),true);
+  assert.equal(await page.locator('#start').isDisabled(),true);
+  await page.locator('#cancel').click();
+  await page.waitForFunction(()=>document.querySelector('#status').textContent==='취소됨');
+  assert.equal(await page.locator('#start').isEnabled(),true);
+  const request=await app.evaluate(()=>globalThis.testRequest);
+  assert.deepEqual(request.tasks,['run']);assert.equal(request.path,'X:/SYNTHETIC-NOT-A-GAME');
+  assert.equal(request.settings.gpu_ids.length,2);
+  assert.deepEqual(errors,[]);
+  const report={passed:true,screenshots:5,checks:['empty path blocked','explicit advanced task selection','repair collapse/reset','info navigation preserves tasks','theme switching','two synthetic GPU selections preserved on refresh','920x720 layout','isolated renderer'],realGPU:initial.value.gpus.map(g=>g.name),modelStarted:false,gameRead:false};
+  report.checks.push('synthetic worker handoff, progress, locking and cancellation');
+  await writeFile(path.join(out,'report.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2));
+}finally{await app.close();}

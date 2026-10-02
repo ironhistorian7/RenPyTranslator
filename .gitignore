@@ -1,0 +1,36 @@
+# Distribution archives are published separately from the source repository.
+*.zip
+*.zip.tmp
+
+# Generated executables and bundled runtimes.
+/RenPyTranslator.exe
+/RenPyTranslator-cli.exe
+/_internal/
+/_desktop/
+/runtimes/
+/build/dist/
+/build/work/
+/dist/
+/build/bootstrap-smoke/
+/build/renpy-validation/
+# Build evidence, SDK downloads and generated fixtures are local-only.
+/build/*
+!/build/*.py
+!/build/portable.spec
+
+# Local models, games, preferences, translation caches and diagnostics.
+/benchmarks/
+/models/
+/project/
+/projects/
+/data/
+/logs/
+*.evtx
+*.wer
+
+# Development dependencies and generated files.
+/.venv/
+node_modules/
+/desktop/dist/
+__pycache__/
+*.py[cod]

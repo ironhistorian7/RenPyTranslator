@@ -1,0 +1,22 @@
+{
+  "NanumSquareNeo-Regular.ttf": {
+    "url": "https://hangeul.pstatic.net/hangeul_static/webfont/NanumSquareNeo/NanumSquareNeoTTF-bRg.ttf",
+    "sha256": "febd47394486a7dade8980461238fed53c5cbf4b9cb2791957d56f58feacdff7",
+    "bytes": 2189832
+  },
+  "NanumSquareNeo-Bold.ttf": {
+    "url": "https://hangeul.pstatic.net/hangeul_static/webfont/NanumSquareNeo/NanumSquareNeoTTF-cBd.ttf",
+    "sha256": "1bfcb932c60974155d2e30bf8be9b0dd36f6a4a1868e24e2af2ccde2790c3140",
+    "bytes": 2173448
+  },
+  "NanumPenScript-Regular.ttf": {
+    "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/nanumpenscript/NanumPenScript-Regular.ttf",
+    "sha256": "6f0d1ab29c7894010dc88831fb7a0a51edb79136e450344183de5b1a8b52bd43",
+    "bytes": 3201664
+  },
+  "NanumPen-OFL.txt": {
+    "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/nanumpenscript/OFL.txt",
+    "sha256": "eeacf16032901d0ed0456876ec77b8f0fda6b3fecec7d972f8543eb602e6c30f",
+    "bytes": 4534
+  }
+}
