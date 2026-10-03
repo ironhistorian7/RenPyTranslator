@@ -2,6 +2,7 @@
 import json
 import re
 from engine import save_json
+from source_language import letters
 
 
 def items(metadata):
@@ -59,7 +60,7 @@ def validated(entries,records,prompts):
     return result
 
 
-def translate(project,entries,records,prompts,names,ask,report):
+def translate(project,entries,records,prompts,names,ask,report,cfg=None):
     path=project/'data/input-defaults.json'
     clean=validated(entries,records,prompts)
     pending={}
@@ -68,7 +69,7 @@ def translate(project,entries,records,prompts,names,ask,report):
         if not value or kind=='answer':continue
         if kind=='name' and value in names:
             clean[item['key']]=dict(source=value,text=names[value],kind=kind,variable=item.get('variable'))
-        if item['key'] not in clean and re.search('[A-Za-z]',value):pending.setdefault(group_key(item),[]).append(item)
+        if item['key'] not in clean and letters(value):pending.setdefault(group_key(item),[]).append(item)
     # Quarantine old question echoes even if the request is cancelled or fails.
     save_json(path,clean)
     queue=list(pending.values())
@@ -78,7 +79,8 @@ def translate(project,entries,records,prompts,names,ask,report):
         for offset in range(0,len(queue),4):
             batch=queue[offset:offset+4]
             schema={'type':'object','properties':{str(i):{'type':'string'} for i in range(len(batch))},'required':[str(i) for i in range(len(batch))],'additionalProperties':False}
-            instruction=('입력란 기본값 번역 작업입니다. text 필드만 한국어로 번역하세요. '
+            from source_language import instruction as language_instruction
+            instruction=(language_instruction(cfg or {})+'입력란 기본값 번역 작업입니다. text 필드만 한국어로 번역하세요. '
                          'context는 의미를 구분하는 참고이며 번역 대상이 아닙니다. '
                          '인명은 음역하고 호칭과 일반 명사는 뜻을 번역하세요. '
                          '원문이 단어나 명사구라면 번역도 단어나 명사구로만 쓰세요. '

@@ -130,6 +130,7 @@ function route(name:string,fn:(...args:any[])=>unknown){
   });
 }
 route('info',info);
+route('project',(r:{path:string;source:boolean})=>helper('--desktop-project',r));
 route('state',()=>({job,log,modelJob,dark:nativeTheme.shouldUseDarkColors}));
 route('appearance',setAppearance);
 route('browse',async()=>{const r=await dialog.showOpenDialog(window!,{title:'폴더 선택',properties:['openDirectory']});return r.canceled?null:r.filePaths[0];});

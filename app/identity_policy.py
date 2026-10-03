@@ -61,7 +61,8 @@ def repair_terms(project,rows,known,saved,types,ask,cfg):
     for row in rows:
         entry=known.get(row['id'])
         if not entry or entry.get('status')=='source_fallback':continue
-        terms={n:v for n,v in rejected.items() if re.search(r'(?<!\w)'+re.escape(n)+r'(?!\w)',row['source'],re.I) and v and v in entry['text']}
+        from source_language import occurrences
+        terms={n:v for n,v in rejected.items() if occurrences(row['source'].casefold(),n.casefold()) and v and v in entry['text']}
         if not terms:continue
         key=signature(terms)
         old=edits.get(row['id'],{})

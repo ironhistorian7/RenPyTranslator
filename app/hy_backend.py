@@ -18,12 +18,13 @@ def is_hy(cfg):
 
 
 def body(inputs, context, cfg, glossary, retry_note):
+    from source_language import instruction
     from label_policy import LABEL_USES, context_for
     labels_only=bool(inputs) and all(item.get('usage') in LABEL_USES for item in inputs)
     if labels_only:
         # Also protect direct callers, not only the regular translation queue.
         context,_=context_for([dict(item,source=item['text']) for item in inputs],context)
-    prompt = ('자연스러운 한국어로 번역하세요. 의미와 말투를 유지하고 내용을 추가하거나 누락하지 마세요. '
+    prompt = (instruction(cfg)+'자연스러운 한국어로 번역하세요. 의미와 말투를 유지하고 내용을 추가하거나 누락하지 마세요. '
               '설명 없이 번역만 출력하세요. 각 항목의 [ID]를 유지하세요.\n')
     if labels_only:
         prompt += ('이 항목들은 화자 이름표 또는 UI 라벨이며 대사가 아닙니다. '

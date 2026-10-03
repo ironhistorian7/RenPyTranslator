@@ -65,12 +65,15 @@ class DeploymentTests(unittest.TestCase):
             (root/'desktop/node_modules/electron/dist/electron.exe').write_bytes(b'fixture')
             for name in ('translate.ps1','gui.ps1','README.md','runtime-lock.json','THIRD_PARTY_NOTICES.md','licenses/Hy-MT2-LICENSE.txt','docs/grok-context-preparation.txt','docs/context-runtime.md','vendor/asset-lock.json','vendor/versions.json'):
                 p=root/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_text('fixture')
+            (root/'runtime-lock.json').write_text(json.dumps({'release':{'version':'0.1.0'}}),encoding='utf-8')
             def build(*args,**kwargs):
                 (root/'dist/RenPyTranslator').mkdir(parents=True,exist_ok=True)
-            with patch('build_portable.ROOT',root),patch('build_portable.verify_vendor'),patch('build_portable.runtime_executable',return_value=root/'node.exe'),patch('build_portable.load_lock',return_value={'ollama':{'directory':'runtimes/ollama-fixture'}}),patch('build_portable.subprocess.run',side_effect=build),patch('build_portable.export_model',side_effect=AssertionError('LIGHT must not access models')),patch('build_portable.publish_local'):
+            with patch('build_portable.ROOT',root),patch('build_portable.verify_vendor'),patch('build_portable.runtime_executable',return_value=root/'node.exe'),patch('build_portable.load_lock',return_value={'release':{'version':'0.1.0'},'ollama':{'directory':'runtimes/ollama-fixture'}}),patch('build_portable.subprocess.run',side_effect=build),patch('build_portable.export_model',side_effect=AssertionError('LIGHT must not access models')),patch('build_portable.publish_local'):
                 build_portable.main([])
-            with zipfile.ZipFile(root/'dist/RenPyTranslator-light.zip') as archive:
+            with zipfile.ZipFile(root/'portable/V0.1.0/RenPyTranslator-light.zip') as archive:
                 self.assertFalse(any('/models/ollama/' in name for name in archive.namelist()))
+                package=json.loads(archive.read('RenPyTranslator/_desktop/resources/app/package.json'))
+                self.assertEqual(package['version'],'0.1.0')
             self.assertFalse((root/'models').exists())
 
 

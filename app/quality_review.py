@@ -20,7 +20,7 @@ for row in rows:
     for source_term,target_term in checks.items():
         if re.search(r'\b'+re.escape(source_term),row['source'],re.IGNORECASE) and target_term not in text:
             reasons.append(f'Term {source_term} expected {target_term}')
-    if row['kind']=='dialogue' and re.search(r'[\u4e00-\u9fff]',text):reasons.append('Unexpected Chinese characters')
+    if row['kind']=='dialogue' and re.search(r'[\u3040-\u30ff\u3400-\u9fff]',text):reasons.append('Japanese/CJK characters remain; review names or intentional originals')
     if row['kind']=='dialogue' and translated[row['id']]['model']!='reviewed override' and re.search(r'(?:습니다|입니다|세요)[.!?]?',text):reasons.append('Formal politeness differs from narration style')
     if reasons and row['source'] not in accepted:warnings.append(dict(row,translation=text,reasons=reasons))
 save_json(project/'data/quality-review.json',warnings)

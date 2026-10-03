@@ -5,19 +5,20 @@ const input=(id:string)=>$<HTMLInputElement>(id);
 const button=(id:string)=>$<HTMLButtonElement>(id);
 let page='basic',workMode='basic';
 let snapshot:Snapshot|null=null;
-let settings:Settings={output:'project',suffix:'-kr',scale:'default',language_corner:'right',language_margin:12,theme:'system',gpu_mode:'auto',gpu_ids:[]};
+let settings:Settings={output:'project',suffix:'-kr',scale:'default',language_corner:'right',language_margin:12,source_language:'english',theme:'system',gpu_mode:'auto',gpu_ids:[]};
 let job:Job={running:false,canceling:false,exitCode:null,result:null,stage:'대기 중',completed:null,total:null,started:null};
 let selected=new Set<string>();
 let refreshing=false,submitting=false,dirty=false;
 let gpuSignature='';
 let modelBusy=false;
+let restoringLanguage=0;
 const models=new ModelsPanel(busy=>{modelBusy=busy;updateControls();},message);
 function message(text:string,error=false){$('message').hidden=!text;$('message').textContent=text;$('message').classList.toggle('error',error);}
 function value<T>(reply:Reply<T>):T|undefined{if(!reply.ok){message(reply.error,true);return undefined;}return reply.value;}
 function applyTheme(dark:boolean){document.documentElement.dataset.theme=dark?'dark':'light';}
-function getSettings():Settings{return {...settings,output:input('output').value,suffix:input('suffix').value,scale:input('scale').value,language_corner:($('corner') as HTMLSelectElement).value as 'left'|'right',language_margin:Number(input('margin').value)};}
+function getSettings():Settings{return {...settings,source_language:($('source-language') as HTMLSelectElement).value as Settings['source_language'],output:input('output').value,suffix:input('suffix').value,scale:input('scale').value,language_corner:($('corner') as HTMLSelectElement).value as 'left'|'right',language_margin:Number(input('margin').value)};}
 function changed(){dirty=true;updateControls();preview();}
-function fillSettings(s:Settings){settings={...s,gpu_ids:[...s.gpu_ids]};input('output').value=s.output;input('suffix').value=s.suffix;input('scale').value=s.scale;($('corner') as HTMLSelectElement).value=s.language_corner;input('margin').value=String(s.language_margin);renderThemeButtons();renderGPUPolicy();preview();}
+function fillSettings(s:Settings){settings={...s,gpu_ids:[...s.gpu_ids]};($('source-language') as HTMLSelectElement).value=s.source_language||'english';input('output').value=s.output;input('suffix').value=s.suffix;input('scale').value=s.scale;($('corner') as HTMLSelectElement).value=s.language_corner;input('margin').value=String(s.language_margin);renderThemeButtons();renderGPUPolicy();preview();}
 function renderThemeButtons(){document.querySelectorAll<HTMLButtonElement>('button[data-theme]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.theme===settings.theme)));}
 function preview(){
   if(!snapshot)return;
@@ -66,12 +67,12 @@ function navigate(next:string){
 function updateControls(){
   const locked=job.running||submitting||modelBusy;
   models.locked=job.running||submitting;models.controls();
-  button('start').disabled=!snapshot||locked||!currentTasks().length;
+  button('start').disabled=!snapshot||locked||restoringLanguage>0||!currentTasks().length;
   button('start').textContent=workMode==='advanced'?'선택 작업 실행':'번역 시작';
   button('cancel').disabled=!job.running||job.canceling;
   button('save').disabled=!snapshot||locked||!dirty;
   button('open-result').disabled=!job.result;
-  for(const id of ['source-path','output','suffix','scale','margin','corner','browse-source','browse-output'])($<HTMLInputElement>(id)).disabled=locked;
+  for(const id of ['source-path','source-language','output','suffix','scale','margin','corner','browse-source','browse-output'])($<HTMLInputElement>(id)).disabled=locked;
   document.querySelectorAll<HTMLInputElement>('input[name=source],input[name=gpu-mode],[data-task],[data-gpu]').forEach(c=>c.disabled=locked||!snapshot);
 }
 function renderJob(next:Job){
@@ -137,10 +138,25 @@ async function refresh(){
   }catch(e){message(String(e),true);}finally{refreshing=false;button('refresh').disabled=false;}
 }
 document.querySelectorAll<HTMLButtonElement>('[data-page]').forEach(b=>b.addEventListener('click',()=>navigate(b.dataset.page!)));
-for(const [id,target] of [['browse-source','source-path'],['browse-output','output']])button(id).addEventListener('click',async()=>{const p=value(await window.rpt.browse());if(p){input(target).value=p;if(target==='output')changed();else preview();}});
-for(const id of ['output','suffix','scale','margin','corner'])$(id).addEventListener('input',changed);
+async function restoreProjectLanguage(){
+  if(job.running||submitting)return;
+  const path=input('source-path').value.trim();
+  if(!path)return;
+  const source=document.querySelector<HTMLInputElement>('input[name=source]:checked')?.value==='source';
+  const before=($('source-language') as HTMLSelectElement).value;
+  restoringLanguage++;updateControls();
+  try{
+    const result=value(await window.rpt.project({path,source}));
+    if(result?.source_language&&path===input('source-path').value.trim()&&source===(document.querySelector<HTMLInputElement>('input[name=source]:checked')?.value==='source')&&before===($('source-language') as HTMLSelectElement).value&&!job.running&&!submitting){
+      ($('source-language') as HTMLSelectElement).value=result.source_language;changed();
+    }
+  }finally{restoringLanguage--;updateControls();}
+}
+for(const [id,target] of [['browse-source','source-path'],['browse-output','output']])button(id).addEventListener('click',async()=>{const p=value(await window.rpt.browse());if(p){input(target).value=p;if(target==='output')changed();else{preview();await restoreProjectLanguage();}}});
+for(const id of ['source-language','output','suffix','scale','margin','corner'])$(id).addEventListener('input',changed);
 input('source-path').addEventListener('input',preview);
-document.querySelectorAll<HTMLInputElement>('input[name=source]').forEach(c=>c.addEventListener('change',preview));
+input('source-path').addEventListener('change',()=>void restoreProjectLanguage());
+document.querySelectorAll<HTMLInputElement>('input[name=source]').forEach(c=>c.addEventListener('change',()=>{preview();void restoreProjectLanguage();}));
 document.querySelectorAll<HTMLButtonElement>('button[data-theme]').forEach(b=>b.addEventListener('click',async()=>{settings.theme=b.dataset.theme as Settings['theme'];const dark=value(await window.rpt.appearance(settings.theme));if(dark!==undefined)applyTheme(dark);renderThemeButtons();changed();}));
 document.querySelectorAll<HTMLInputElement>('input[name=gpu-mode]').forEach(c=>c.addEventListener('change',()=>{settings.gpu_mode=c.value as Settings['gpu_mode'];renderGPUPolicy();changed();}));
 button('refresh').addEventListener('click',()=>void refresh());

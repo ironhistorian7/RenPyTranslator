@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 from engine import save_json
 from name_hints import discover as name_hints, literal, ensure_metadata, INTERPOLATION
 from translation import QUOTED,TOKENS,FORMATS,read_catalog,cache,request
+from source_language import letters, occurrences as name_occurrences, instruction as language_instruction
 
 # Generic roles are not personal names. No game-specific characters are embedded here.
 ROLES={'narrator','unknown','man','woman','girl','boy','everyone','player','father','mother','dad','mom',
@@ -21,7 +22,7 @@ def visible(text):return TOKENS.sub('',text).strip()
 def personal(text):
     text=visible(text)
     return (1<=len(text)<=64 and text.casefold() not in ROLES and
-            bool(re.fullmatch(r"[A-Za-zÀ-ž][A-Za-zÀ-ž .’'\-]{0,63}",text)) and
+            letters(text) and all(c.isalpha() or c in " .’'·-" for c in text) and
             len(text.split())<=4)
 
 def collect(scripts,rows,metadata=None):
@@ -90,7 +91,7 @@ def apply_names(project,rows,known):
     return known
 
 def occurrences(text,name):
-    return list(re.finditer(r'(?<![\w])'+re.escape(name)+r'(?![A-Za-z])',text))
+    return name_occurrences(text,name)
 
 def candidate_spans(source,target,names,aliases):
     """Only known old spellings in rows that actually mention a registered name."""
@@ -190,7 +191,7 @@ def run(project,cfg):
                     'required':[str(i) for i in range(len(batch))],'additionalProperties':False}
             prompt=('다음은 게임 스크립트에서 추출한 인물의 고유 이름이다. 각 이름을 발음대로 한국어로 음역하라. '
                 '뜻풀이, 국가명 번역, 직업명 번역은 금지한다. 예: 인물 India는 인디아, 국가 인도가 아니다. '
-                '이름에 없는 성이나 호칭을 추가하지 마라. JSON의 ID별 값에는 음역한 이름만 써라.\n'+
+                '이름에 없는 성이나 호칭을 추가하지 마라. 한자 이름은 제공된 읽기 근거가 있으면 우선하고 없으면 가장 일반적인 읽기를 사용하라. JSON의 ID별 값에는 음역한 이름만 써라.\n'+language_instruction(cfg)+
                 json.dumps(dict(enumerate(batch)),ensure_ascii=False))
             result=ask(prompt,schema)
             for i,name in enumerate(batch):
@@ -198,19 +199,22 @@ def run(project,cfg):
                 attempted.add(name)
                 if isinstance(value,str) and re.fullmatch(r'[가-힣][가-힣 ·\-]{0,63}',value.strip()):
                     automatic[name]=value.strip();report['new_names']+=1
+                    if re.search(r'[\u3400-\u9fff]',name):
+                        report.setdefault('reading_notes',[]).append({'name':name,'spelling':value.strip(),
+                            'basis':'model-inferred reading; not independently verified'})
                 else:report['issues'].append({'name':name,'reason':'No usable transliteration; kept original result'})
             save_json(project/'data/name-transliterations.json',{'names':automatic,'attempted':sorted(attempted),'sources':inventory})
             print('Name transliteration: %d/%d'%(min(offset+8,len(pending)),len(pending)),flush=True)
         # Input prompts are often Python strings absent from Ren'Py's catalog.
         # Translate only newly discovered input prompts, not the full script.
-        missing_prompts=sorted(p for p in originals if p not in prompts and re.search('[A-Za-z]',p))
+        missing_prompts=sorted(p for p in originals if p not in prompts and letters(TOKENS.sub('',p)))
         from translation import protect,restore,validate_text
         for offset in range(0,len(missing_prompts),4):
             batch=missing_prompts[offset:offset+4]
             protected=[protect(p) for p in batch]
             schema={'type':'object','properties':{str(i):{'type':'string'} for i in range(len(batch))},
                     'required':[str(i) for i in range(len(batch))],'additionalProperties':False}
-            instruction='텍스트 입력 안내문을 자연스러운 한국어로 번역하세요. 답이나 이름을 만들어 넣지 마세요. JSON ID별 번역만 반환하세요.'
+            instruction=language_instruction(cfg)+'텍스트 입력 안내문을 자연스러운 한국어로 번역하세요. 답이나 이름을 만들어 넣지 마세요. JSON ID별 번역만 반환하세요.'
             if any(tokens for text,tokens in protected):instruction+=' 입력에 있는 <rpt000/> 형식 표시는 그대로 보존하세요.'
             result=ask(instruction+'\n'+json.dumps({str(i):v[0] for i,v in enumerate(protected)},ensure_ascii=False),schema)
             for i,prompt in enumerate(batch):
@@ -222,7 +226,7 @@ def run(project,cfg):
                     report['issues'].append({'input_prompt':prompt,'reason':'Kept original prompt'})
             save_json(promptsfile,prompts)
         names=mapping(project)
-        translate_defaults(project,input_items,input_defaults,prompts,names,ask,report)
+        translate_defaults(project,input_items,input_defaults,prompts,names,ask,report,cfg=cfg)
         semantic={}
         if not cfg.get('_names_only'):
             semantic=repair_terms(project,rows,known,saved,types,ask,cfg)

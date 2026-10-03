@@ -1,6 +1,6 @@
 {
   "name": "renpy-translator-desktop",
-  "version": "1.0.0",
+  "version": "0.1.1",
   "private": true,
   "main": "dist/main.js",
   "scripts": {"build": "node build.mjs", "check": "tsc --noEmit", "test": "node test-ui.mjs"},

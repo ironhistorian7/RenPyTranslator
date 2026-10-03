@@ -187,6 +187,11 @@ class BridgeTests(unittest.TestCase):
                     if family=='8.5.3':loader.arc_files=[]
                     engine=SimpleNamespace(loader=loader,config=config)
                     install(engine,settings);loader.index_archives()
+                    for callback in (loader.transfn,loader.listdirfiles,loader.index_archives):
+                        for protocol in (0,2,pickle.HIGHEST_PROTOCOL):
+                            self.assertIs(pickle.loads(pickle.dumps(callback,protocol)),callback)
+                    # The engine also serializes the complete module snapshot.
+                    self.assertEqual(pickle.loads(pickle.dumps(vars(loader),2))['index_archives'],loader.index_archives)
                     self.assertEqual(loader.transfn('images/EXAMPLE.png'),str(image))
                     self.assertEqual(loader.transfn(str(original)),str(original))
                     self.assertEqual(list(loader.archives[1][1]),['images/archived.png'])
@@ -209,7 +214,12 @@ class BridgeTests(unittest.TestCase):
                 'def index_archives():\n    return None\n')
             media=root/'assets/game/image.png';media.parent.mkdir(parents=True);media.write_bytes(b'invented')
             launcher=stage/'Game.py'
-            launcher.write_text('import renpy.loader\nimport sys\n'
+            launcher.write_text('import renpy.loader\nimport sys\nimport pickle\n'
+                'for callback in (renpy.loader.transfn, renpy.loader.listdirfiles, renpy.loader.index_archives):\n'
+                '    assert callback.__module__ == "rpt_workspace_assets"\n'
+                '    for protocol in (0, 2, pickle.HIGHEST_PROTOCOL):\n'
+                '        assert pickle.loads(pickle.dumps(callback, protocol)) is callback\n'
+                'assert pickle.loads(pickle.dumps(vars(renpy.loader), 2))["index_archives"] is renpy.loader.index_archives\n'
                 'assert renpy.loader.transfn("image.png").endswith("image.png")\n'
                 'assert sys.argv[1:] == [%r, "compile"]\nprint("fixture bridge ready")\n' % str(stage))
             record=root/'data/workspace-files.json'
@@ -220,6 +230,18 @@ class BridgeTests(unittest.TestCase):
                 capture_output=True,text=True,timeout=10)
             self.assertEqual(result.returncode,0,result.stderr)
             self.assertIn('fixture bridge ready',result.stdout)
+
+    def test_install_twice_keeps_original_callbacks_and_assets(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);image=root/'image.png';image.write_bytes(b'invented')
+            def original(name):raise IOError(name)
+            loader=SimpleNamespace(transfn=original,listdirfiles=lambda:[],index_archives=lambda:None,
+                                   archives=[],lower_map={},loadable_cache={})
+            engine=SimpleNamespace(loader=loader,config=SimpleNamespace(archives=[]))
+            settings={'source_game':str(root),'source_root':str(root),'loose_assets':['image.png'],
+                      'archives':[],'original_archive_scripts':[]}
+            install(engine,settings);install(engine,settings)
+            self.assertEqual(loader.transfn('image.png'),str(image))
 
 
 if __name__=='__main__':unittest.main()

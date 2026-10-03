@@ -6,18 +6,18 @@ import re
 import tokenize
 from script_literals import literal_eval,parse_expression
 
-EXPR = r'[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*'
+EXPR = r'(?:[^\W\d]|_)\w*(?:\.(?:[^\W\d]|_)\w*)*'
 INTERPOLATION = re.compile(r'(?<!\[)\[(' + EXPR + r')(?:![a-z]+)?\]')
-VERSION = 6
+VERSION = 7
 NAME_WORD = re.compile(r'(?:^|_)(?:name|firstname|lastname|surname|nickname|petname|alias)(?:$|_)|^(?:playername|mcname|firstname|lastname)$', re.I)
-NAME_PROMPT = re.compile(r'\b(?:name|nickname|pet\s*name)\b|\b(?:call|address)\s+(?:me|you|him|her|them|each other)\b|이름|별명|애칭|호칭', re.I)
+NAME_PROMPT = re.compile(r'\b(?:name|nickname|pet\s*name)\b|\b(?:call|address)\s+(?:me|you|him|her|them|each other)\b|이름|별명|애칭|호칭|名前|氏名|ニックネーム|あだ名|愛称|呼び名|呼び方', re.I)
 
 
 def input_kind(expr, prompt):
     text=(expr or '')+' '+(prompt or '')
-    if re.search(r'password|passcode|\bcode\b|answer|solution|암호|정답|비밀번호',text,re.I):return 'answer'
-    if re.search(r'nick.?name|pet.?name|alias|\bcall\b|\baddress\b|별명|애칭|호칭',text,re.I):return 'address'
-    if is_name(expr or '') or re.search(r'\bname\b|이름',prompt or '',re.I):return 'name'
+    if re.search(r'password|passcode|\bcode\b|answer|solution|암호|정답|비밀번호|パスワード|暗証番号|合言葉|正解|答え',text,re.I):return 'answer'
+    if re.search(r'nick.?name|pet.?name|alias|\bcall\b|\baddress\b|별명|애칭|호칭|ニックネーム|あだ名|愛称|呼び名|呼び方|どう呼',text,re.I):return 'address'
+    if is_name(expr or '') or re.search(r'\bname\b|이름|名前|氏名',prompt or '',re.I):return 'name'
     return 'text'
 
 

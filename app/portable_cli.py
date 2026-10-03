@@ -39,6 +39,10 @@ def main():
         import json
         from desktop_bridge import read_request,save_settings
         print(json.dumps(save_settings(read_request()),ensure_ascii=False));return
+    if sys.argv[1:] == ['--desktop-project']:
+        import json
+        from desktop_bridge import project_language,read_request
+        print(json.dumps(project_language(read_request()),ensure_ascii=False));return
     if sys.argv[1:] == ['--desktop-models']:
         import json
         from desktop_bridge import read_request

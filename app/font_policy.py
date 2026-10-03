@@ -2,6 +2,7 @@
 import ast
 import hashlib
 import io
+import json
 import re
 import shutil
 import zlib
@@ -13,6 +14,7 @@ ASSETS=('NanumSquareNeo-Regular.ttf','NanumSquareNeo-Bold.ttf','NanumPenScript-R
         'NanumSquareNeo-OFL.txt','NanumPen-OFL.txt','NotoSansCJKkr-Regular.otf','OFL.txt')
 EXTENSIONS={'.ttf','.otf','.ttc','.otc'}
 KOREAN=((0x1100,0x11ff),(0x3130,0x318f),(0xa960,0xa97f),(0xac00,0xd7ff))
+JAPANESE=((0x3000,0x30ff),(0x31f0,0x31ff),(0x3400,0x9fff),(0xff00,0xffef))
 ICONS=('fontawesome','materialicons','materialsymbols','fontello','icomoon','icofont','emoji')
 HAND=('permanent marker','permanentmarker','handwriting','handwritten','hand script','brush script','cursive','nanum pen')
 
@@ -40,6 +42,7 @@ def details(font):
     else:kind,reason='regular','default regular (no reliable handwriting evidence)'
     cmap=font.getBestCmap() or {}
     return dict(family=family,name=full,kind=kind,reason=reason,
+                japanese_coverage=ranges(c for c in cmap if any(a<=c<=b for a,b in JAPANESE)),
                 hangul_syllables=sum(c in cmap for c in range(0xac00,0xd7a4))),cmap
 
 def archive_fonts(path):
@@ -110,6 +113,9 @@ def installed(project,language):
         if 'presentation_runtime' not in support and 'def _rpt_font_group(' not in support:return None
         if '\n    _rpt_language_fonts()\n' not in support:return None
         data=json.loads((game/'tl'/language/'_rpt_presentation.json').read_text(encoding='utf-8'))['fonts']
+        cfgpath=project/'project.json'
+        if cfgpath.exists() and json.loads(cfgpath.read_text(encoding='utf-8-sig')).get('source_language')=='japanese':
+            if data.get('source_language')!='japanese' or 'japanese_missing' not in data:return None
         if not all(k in data for k in ('fonts','coverage','preferred','fallback','bold')):return None
         if not all(data['coverage'].get(k) for k in ('regular','hand')):return None
         paths=list(data['preferred'].values())+[data['fallback'],data['bold']]
@@ -144,6 +150,16 @@ def install(project,language):
     for info in report['fonts'].values():
         info['replacement']=preferred.get(info['kind'],'keep original icon font')
     save_json(project/'output/font-report.json',report)
-    return dict(fonts={k:v['kind'] for k,v in report['fonts'].items()},coverage=coverage,
+    result=dict(fonts={k:v['kind'] for k,v in report['fonts'].items()},coverage=coverage,
                 preferred=preferred,fallback=prefix+'NotoSansCJKkr-Regular.otf',
                 bold=prefix+'NanumSquareNeo-Bold.ttf')
+    cfgpath=project/'project.json'
+    if cfgpath.exists() and json.loads(cfgpath.read_text(encoding='utf-8-sig')).get('source_language')=='japanese':
+        with TTFont(target/'NotoSansCJKkr-Regular.otf') as font:
+            fallback={c for c in font.getBestCmap() if any(a<=c<=b for a,b in JAPANESE)}
+        missing={}
+        for name,info in report['fonts'].items():
+            supported={c for a,b in info.get('japanese_coverage',[]) for c in range(a,b+1)}
+            if info['kind']!='icon':missing[name]=ranges(fallback-supported)
+        result.update(source_language='japanese',japanese_missing=missing)
+    return result

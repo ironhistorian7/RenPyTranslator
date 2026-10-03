@@ -9,10 +9,75 @@ import os
 import sys
 
 SCRIPT_SUFFIXES = ('.rpy', '.rpyc', '.rpym', '.rpymc', '.py', '.pyc', '.pyo', '.rpe')
+_state = None
+
+
+def transfn(name):
+    state = _state
+    try:
+        return state['original_transfn'](name)
+    except Exception:
+        normalized = name.replace('\\', '/').lstrip('/')
+        relative = state['assets'].get(normalized.lower())
+        if relative is not None:
+            path = os.path.join(state['game'], relative.replace('/', os.sep))
+            if os.path.isfile(path):
+                return path
+        if os.path.normcase(os.path.abspath(name)) in state['archive_paths'] and os.path.isfile(name):
+            return name
+        raise
+
+
+def listdirfiles(*args, **kwargs):
+    state = _state
+    loader = state['loader']
+    rows = list(state['original_listdirfiles'](*args, **kwargs))
+    # Old indexers build filename caches before returning their indexes.
+    rows = [(directory, name) for directory, name in rows
+            if not (directory is None and name.lower().endswith(SCRIPT_SUFFIXES)
+                    and name not in state['original_scripts']
+                    and not (state['owned_game'] and os.path.isfile(os.path.join(state['owned_game'], name))))]
+    include_game = kwargs.get('game', args[1] if len(args) > 1 else True)
+    if not include_game:
+        return rows
+    seen = set(name for _, name in rows)
+    for name in state['settings']['loose_assets']:
+        if name in seen or name.lower().endswith(SCRIPT_SUFFIXES):
+            continue
+        rows.append((state['game'], name)); seen.add(name)
+        loader.loadable_cache[name.lower()] = True
+        loader.lower_map[name.lower()] = name
+    return rows
+
+
+def index_archives():
+    state = _state
+    loader = state['loader']
+    if hasattr(loader, 'arc_files'):
+        known = set(os.path.normcase(os.path.abspath(row[2])) for row in loader.arc_files)
+        for path in state['archives']:
+            if os.path.normcase(os.path.abspath(path)) not in known:
+                loader.arc_files.append((os.path.basename(path)[:-4], '.rpa', path))
+    else:
+        for path in state['archives']:
+            if path[:-4] not in state['renpy'].config.archives:
+                state['renpy'].config.archives.append(path[:-4])
+    result = state['original_index']()
+    for path, index in loader.archives:
+        physical = path if path.lower().endswith('.rpa') else path + '.rpa'
+        if os.path.normcase(os.path.abspath(physical)) in state['archive_paths']:
+            for name in list(index):
+                text = name.decode('utf-8') if isinstance(name, bytes) else name
+                if text.lower().endswith(SCRIPT_SUFFIXES):
+                    del index[name]
+    return result
 
 
 def install(renpy, settings):
+    global _state
     loader = renpy.loader
+    if _state is not None and _state['loader'] is loader and loader.index_archives is index_archives:
+        return
     original_transfn = loader.transfn
     original_listdirfiles = loader.listdirfiles
     original_index = loader.index_archives
@@ -24,63 +89,11 @@ def install(renpy, settings):
     owned_game = os.path.join(os.path.dirname(settings['_record']), '..', 'staging', 'game') if '_record' in settings else None
     original_scripts = set(settings.get('original_archive_scripts', []))
 
-    def transfn(name):
-        try:
-            return original_transfn(name)
-        except Exception:
-            normalized = name.replace('\\', '/').lstrip('/')
-            relative = assets.get(normalized.lower())
-            if relative is not None:
-                path = os.path.join(game, relative.replace('/', os.sep))
-                if os.path.isfile(path):
-                    return path
-            if os.path.normcase(os.path.abspath(name)) in archive_paths and os.path.isfile(name):
-                return name
-            raise
-
-    def listdirfiles(*args, **kwargs):
-        rows = list(original_listdirfiles(*args, **kwargs))
-        # Old indexers build filename caches before returning their indexes.
-        # Keep external archive code out even during that intermediate scan.
-        rows = [(directory, name) for directory, name in rows
-                if not (directory is None and name.lower().endswith(SCRIPT_SUFFIXES)
-                        and name not in original_scripts
-                        and not (owned_game and os.path.isfile(os.path.join(owned_game,name))))]
-        # Older loaders expose only common=; newer ones also expose game=.
-        include_game = kwargs.get('game', args[1] if len(args) > 1 else True)
-        if not include_game:
-            return rows
-        seen = set(name for _, name in rows)
-        for name in settings['loose_assets']:
-            if name in seen or name.lower().endswith(SCRIPT_SUFFIXES):
-                continue
-            rows.append((game, name)); seen.add(name)
-            loader.loadable_cache[name.lower()] = True
-            loader.lower_map[name.lower()] = name
-        return rows
-
-    def index_archives():
-        if hasattr(loader, 'arc_files'):
-            # Ren'Py 8.5 uses (stem, extension, physical path), not config.archives.
-            known = set(os.path.normcase(os.path.abspath(row[2])) for row in loader.arc_files)
-            for path in archives:
-                if os.path.normcase(os.path.abspath(path)) not in known:
-                    loader.arc_files.append((os.path.basename(path)[:-4], '.rpa', path))
-        else:
-            # Ren'Py 7.x / earlier 8.x accept absolute archive prefixes.
-            for path in archives:
-                if path[:-4] not in renpy.config.archives:
-                    renpy.config.archives.append(path[:-4])
-        result = original_index()
-        for path, index in loader.archives:
-            physical = path if path.lower().endswith('.rpa') else path + '.rpa'
-            if os.path.normcase(os.path.abspath(physical)) in archive_paths:
-                for name in list(index):
-                    text = name.decode('utf-8') if isinstance(name, bytes) else name
-                    if text.lower().endswith(SCRIPT_SUFFIXES):
-                        del index[name]
-        return result
-
+    # This state is deliberately outside renpy.* modules, which Ren'Py pickles.
+    _state = dict(loader=loader, renpy=renpy, settings=settings,
+                  original_transfn=original_transfn, original_listdirfiles=original_listdirfiles,
+                  original_index=original_index, game=game, assets=assets, archives=archives,
+                  archive_paths=archive_paths, owned_game=owned_game, original_scripts=original_scripts)
     loader.transfn = transfn
     loader.listdirfiles = listdirfiles
     loader.index_archives = index_archives
@@ -88,6 +101,17 @@ def install(renpy, settings):
 
 def main():
     import runpy
+    import types
+    # run_path temporarily replaces __main__. Register the callbacks under a
+    # stable non-renpy module before the launcher's engine backup runs.
+    module_name = 'rpt_workspace_assets'
+    bridge = sys.modules.get(module_name)
+    if bridge is None:
+        bridge = types.ModuleType(module_name)
+        bridge.__file__ = os.path.abspath(__file__)
+        sys.modules[module_name] = bridge
+        with open(__file__, 'rb') as stream:
+            exec(compile(stream.read(), __file__, 'exec'), bridge.__dict__)
     try:
         import builtins
     except ImportError:
@@ -107,7 +131,7 @@ def main():
         if not installed[0] and loader is not None and all(hasattr(loader, name) for name in
                       ('transfn', 'listdirfiles', 'index_archives', 'archives', 'lower_map', 'loadable_cache')):
             installed[0] = True
-            install(sys.modules['renpy'], settings)
+            bridge.install(sys.modules['renpy'], settings)
             builtins.__import__ = original_import
         return module
 

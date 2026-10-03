@@ -3,6 +3,7 @@ import type {DesktopAPI,Event} from './types';
 const api:DesktopAPI = {
   info:()=>ipcRenderer.invoke('rpt:info'), state:()=>ipcRenderer.invoke('rpt:state'),
   browse:()=>ipcRenderer.invoke('rpt:browse'), save:s=>ipcRenderer.invoke('rpt:save',s),
+  project:r=>ipcRenderer.invoke('rpt:project',r),
   start:r=>ipcRenderer.invoke('rpt:start',r), cancel:()=>ipcRenderer.invoke('rpt:cancel'),
   open:w=>ipcRenderer.invoke('rpt:open',w), appearance:t=>ipcRenderer.invoke('rpt:appearance',t),
   model:r=>ipcRenderer.invoke('rpt:model',r),modelWork:r=>ipcRenderer.invoke('rpt:modelWork',r),modelCancel:()=>ipcRenderer.invoke('rpt:modelCancel'),

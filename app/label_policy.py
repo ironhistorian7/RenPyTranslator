@@ -49,9 +49,10 @@ def context_for(rows,context):
     if not label_batch(rows):return dict(context),{'mode':'story_or_text'}
     # Keep spellings only, not narrative explanations of the terms themselves.
     terms=[]
+    from source_language import occurrences
     for term in context.get('translation_guidance',{}).get('terms',[]):
         source=term.get('source')
-        if isinstance(source,str) and any(re.search(r'(?<!\w)'+re.escape(source)+r'(?!\w)',r['source'],re.I) for r in rows):
+        if isinstance(source,str) and any(occurrences(r['source'].casefold(),source.casefold()) for r in rows):
             terms.append({k:term[k] for k in ('source','target') if k in term})
     result={'translation_guidance':{'terms':terms}} if terms else {}
     for key in ('variable_identities','person_name_spellings'):

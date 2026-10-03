@@ -14,6 +14,7 @@ PREPARED = (
     'static-screen-literals.json', 'source-outline.json', 'source-manifest.json',
     'stage-manifest.json', 'inspection.json', 'extracted-scripts.json',
     'recovered-source-files.json', 'source-input-scope.json', 'tool-options.json',
+    'literal-policy.json',
 )
 
 

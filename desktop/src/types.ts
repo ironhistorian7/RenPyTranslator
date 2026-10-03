@@ -1,4 +1,5 @@
 export type Settings = {
+  source_language:'english'|'japanese';
   output:string; suffix:string; scale:string; language_corner:'left'|'right'; language_margin:number;
   theme:'system'|'light'|'dark'; gpu_mode:'auto'|'all'|'selected'; gpu_ids:string[];
 };
@@ -22,6 +23,7 @@ export interface DesktopAPI {
   info():Promise<Reply<Snapshot>>;
   state():Promise<Reply<{job:Job;log:string;dark:boolean;modelJob:ModelJob}>>;
   browse():Promise<Reply<string|null>>;
+  project(request:{path:string;source:boolean}):Promise<Reply<{source_language:Settings['source_language']|null}>>;
   save(settings:Settings):Promise<Reply<Settings>>;
   start(request:Request):Promise<Reply<Job|null>>;
   cancel():Promise<Reply<Job>>;

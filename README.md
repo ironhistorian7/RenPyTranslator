@@ -7,6 +7,7 @@ Ren’Py 게임을 로컬 AI로 한국어 번역하고, 복사해서 적용할 �
 ### 일반 사용자: 포터블 ZIP 실행
 
 1. Releases에서 ZIP을 받고 폴더 전체를 압축 해제합니다.
+   FULL은 `.zip`과 모든 `.z01`, `.z02` 등의 파일을 같은 폴더에 받은 뒤 알집 또는 반디집으로 `.zip` 파일을 열어 압축을 풉니다.
 2. `RenPyTranslator.exe`를 실행합니다. EXE만 따로 옮기지 마세요.
 3. **AI 모델** 탭에서 설치된 모델을 선택하고 적용합니다. LIGHT에는 모델이 없으므로 먼저 다운로드하거나 GGUF를 넣어야 합니다.
 4. 게임 실행 파일이 있는 폴더를 선택하고 **번역 시작**을 누릅니다.
@@ -22,6 +23,14 @@ Ren’Py 게임을 로컬 AI로 한국어 번역하고, 복사해서 적용할 �
 번역 요청은 로컬에서 처리합니다. 준비 스크립트와 모델 목록 조회·다운로드에는 인터넷을 사용합니다. Grok 등의 외부 서비스로 문맥을 만드는 작업은 별도이며 자동으로 실행하지 않습니다.
 
 ### 모델 보관
+
+원문 언어는 기본 화면에서 **영어 / 일본어** 중 선택합니다. 출력은 한국어로 고정됩니다. 기존 프로젝트의 선택은 복원되며, 이전 버전의 프로젝트는 영어로 취급합니다. 일본어 입력 안내·기본값과 인명을 처리하고, 표준 메뉴 사전에 없는 커스텀 메뉴는 원문을 유지합니다. 아래쪽 참고 문장은 선택한 게임의 원문입니다.
+
+```powershell
+.\translate.ps1 -Command run -Source 'D:\Games\YourGame' -SourceLanguage japanese
+```
+
+CLI에서 `-SourceLanguage`를 생략하면 기존 프로젝트의 선택을 유지합니다. 새 프로젝트의 기본값은 `english`입니다. 정상 번역 캐시는 재사용하며, 원문 언어 변경만으로 전체 재번역하지 않습니다.
 
 `models` 아래 어느 하위 폴더에든 단일 GGUF를 넣고 AI 모델 탭에서 새로고침할 수 있습니다. 앱에서 받은 모델은 `models/ollama/blobs`에 저장합니다. 모델 선택·적용, 설치됨 표시, 중복 다운로드 방지, 폴더 열기와 삭제 기능을 제공합니다. 모델을 선택하지 않으면 번역을 시작하지 않고 AI 모델 탭으로 안내합니다.
 
@@ -56,7 +65,9 @@ Python을 직접 지정하려면:
 .\build.ps1 -Edition Both      # 동일한 앱 빌드로 두 배포본 생성
 ```
 
-결과는 `dist/RenPyTranslator-light.zip`, `dist/RenPyTranslator-full.zip`과 `dist/RenPyTranslator/`에 생성합니다. FULL에 필요한 HY가 없으면 고정된 공식 파일만 다운로드하고 해시를 검증합니다. 다른 모델이나 게임·설정·번역 캐시는 배포본에 넣지 않습니다. 기존 루트의 보관 ZIP은 유지합니다.
+배포 파일은 `runtime-lock.json`의 릴리즈 버전에 따라 `portable/V<버전>/`에 생성합니다. 현재 버전은 `0.1.1`이며 빌드만으로 버전을 올리지 않습니다. LIGHT는 일반 ZIP으로, FULL은 조각당 1,900,000,000바이트 이하의 분할 ZIP(`.zip`, `.z01`, `.z02` 등)으로 생성합니다. 기존 동일 버전 배포 파일과 예전 `dist` ZIP은 `portable/backup/`에 옮겨 보존합니다. SHA-256 목록과 압축 해제 안내도 함께 생성합니다.
+
+실행 폴더는 `dist/RenPyTranslator/`에 생성합니다. FULL에 필요한 HY가 없으면 고정된 공식 파일만 다운로드하고 해시를 검증합니다. 다른 모델이나 게임·설정·번역 캐시는 배포본에 넣지 않습니다. 큰 DLL과 EXE도 표준 ZIP Deflate로 압축하며, 기능이나 GPU 실행 라이브러리를 빼서 용량을 줄이지 않습니다. FULL 빌드용 반디집과 7-Zip 도구는 고정 해시를 확인해 `build/tools`에만 준비하며 시스템에 설치하거나 배포본에 포함하지 않습니다.
 
 빌드한 EXE와 앱 실행 폴더는 저장소 루트에도 갱신하여 바로 실행할 수 있게 합니다. ZIP은 소스 레포에 넣지 말고 Releases에 게시하세요. `.gitignore`는 ZIP·`dist`·런타임·모델·캐시를 제외합니다. Git 저장소를 자동 생성하지 않습니다.
 
@@ -151,6 +162,14 @@ Translation requests run locally. Developer setup, model discovery and downloads
 
 ### Model storage
 
+Select **English / Japanese** as the source language on the main screen. Output is always Korean. Existing projects restore their selection; legacy projects default to English. Japanese input prompts, defaults and names are supported. Custom menus outside the standard dictionary retain their original text. The smaller reference line shows the game's original language.
+
+```powershell
+.\translate.ps1 -Command run -Source 'D:\Games\YourGame' -SourceLanguage japanese
+```
+
+Omit `-SourceLanguage` to keep an existing project's selection. New projects default to `english`. Completed translations are reused; changing this setting does not trigger a whole-game retranslation.
+
 Place a single GGUF anywhere below `models`, then refresh the AI Model list. In-app downloads go into `models/ollama/blobs`. The GUI supports selection and application, installed indicators, duplicate-download prevention, opening the model folder, and deletion. Translation without an applied model shows guidance to the AI Model tab.
 
 The tool starts its bundled Ollama with its own port and model store. It does not rely on a system Ollama installation. Move the entire portable folder to move its models with it.
@@ -184,7 +203,9 @@ To specify Python explicitly:
 .\build.ps1 -Edition Both      # Produce both editions from the same app build
 ```
 
-Outputs are `dist/RenPyTranslator-light.zip`, `dist/RenPyTranslator-full.zip`, and `dist/RenPyTranslator/`. FULL downloads only the pinned official HY file when missing and verifies its hash. Other models, games, personal settings and translation caches are excluded. Previously saved ZIPs in the repository root are retained.
+Release assets are written to `portable/V<version>/`, using the release version in `runtime-lock.json`. The current version is `0.1.1`; building does not increment it. LIGHT is a regular ZIP. FULL is a standard split ZIP (`.zip`, `.z01`, `.z02`, etc.), with each volume at most 1,900,000,000 bytes. Existing assets for the same version and legacy ZIPs in `dist` are moved to `portable/backup/`. SHA-256 checksums and extraction instructions are included beside the archives. Download ALL FULL volumes into the same folder, then open the `.zip` file with Bandizip or ALZip.
+
+The runnable bundle is generated in `dist/RenPyTranslator/`. FULL downloads only the pinned official HY file when missing and verifies its hash. Other models, games, personal settings and translation caches are excluded. Large DLLs and executables are compressed with standard ZIP Deflate; application features and GPU runtimes are retained. The pinned Bandizip and 7-Zip packaging tools are downloaded with hash verification into `build/tools` only; they are neither installed system-wide nor shipped in the distribution.
 
 The builder also updates the local EXEs and application runtime folders beside the source so they can be launched directly. Publish ZIPs in Releases rather than committing them. `.gitignore` excludes archives, `dist`, runtimes, models and caches. No Git repository is created automatically.
 

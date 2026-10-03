@@ -1,6 +1,28 @@
 {
   "schema": 1,
   "python": "3.12",
+  "release": {
+    "version": "0.1.1"
+  },
+  "build_tools": {
+    "bandizip": {
+      "version": "7.46",
+      "source": "https://www.bandisoft.com/bandizip/",
+      "url": "https://bandisoft.app/bandizip/BANDIZIP-SETUP-STD-ALL.EXE?20260821181728",
+      "sha256": "ec36ce75ffe8c0194e4b41986e2b3533c1e061256c3722509bb54426e74643d2",
+      "files": {
+        "bz.x64.exe": "c887e307972807fda5e8df030b1ca3a90c493e0badff112ddeb91f51b18928c0",
+        "ark.x64.dll": "196bd7418c6ca90eb75dfb675ec1f66910dc8df920f956adec41837c2e47fe9b",
+        "ark.x64.lgpl.dll": "f84d22d9a75c7ff0ad3efc37705c92701a0f2fea64b1ee976bf13174be3b61f2",
+        "data/ArkLicense.txt": "681a174ba9b2200816962eee5bb0ada0bff12d2a5f6de5cf412e0c908a988158"
+      }
+    },
+    "sevenzr": {
+      "version": "26.03",
+      "url": "https://www.7-zip.org/a/7zr.exe",
+      "sha256": "ad4c82fadcbdf93c03b4fc440f300509c7d60c5c2f4d183e35d9d70d6957037d"
+    }
+  },
   "node": {
     "version": "24.21.0",
     "directory": "runtimes/node-v24.21.0-win-x64",

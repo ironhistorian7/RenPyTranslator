@@ -24,7 +24,12 @@ try{
   await page.locator('[data-page=advanced]').click();assert.equal(await page.locator('#start').isDisabled(),true);
   const library=await page.evaluate(()=>window.rpt.model({op:'inventory'}));assert.equal(library.ok,true);assert.equal(library.value.selected,null);assert.deepEqual(library.value.installed,[]);
   await app.evaluate(({dialog})=>{dialog.showMessageBox=async()=>({response:0});});
-  await page.locator('[data-page=basic]').click();await page.locator('#source-path').fill('X:/DO-NOT-READ');await page.locator('#start').click();
+  await page.locator('[data-page=basic]').click();await page.locator('#source-path').fill('X:/DO-NOT-READ');
+  // Project-language restoration runs when the path field loses focus.
+  // Wait for that metadata-only operation before testing the Start action.
+  await page.locator('#source-path').press('Tab');
+  await page.waitForFunction(()=>!document.querySelector('#start').disabled);
+  await page.locator('#start').click();
   await page.waitForFunction(()=>document.querySelector('#page-title').textContent==='AI 모델');
   assert.equal((await page.evaluate(()=>window.rpt.state())).value.job.running,false);
   const remote=await page.evaluate(()=>window.rpt.model({op:'details',repo:'tencent/Hy-MT2-7B-GGUF'}));assert.equal(remote.ok,true);assert(remote.value.files.some(f=>f.recommended));

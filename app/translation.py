@@ -17,6 +17,7 @@ from script_literals import literal_eval
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from contextvars import copy_context
 from engine import engine_command, save_json, verify_source
+from source_language import letters, normalize, instruction as language_instruction, source_units
 
 QUOTED = re.compile(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'')
 TOKENS = re.compile(r'\{\{|\[\[|\{[^{}]*\}|\[[^\[\]\n]*\]|%\([^)]+\)[#0 +\-]*\d*(?:\.\d+)?[a-zA-Z]')
@@ -32,6 +33,7 @@ def trace_event(cfg, request_id, event, **details):
     """Append exact local requests/responses; retries and concurrent calls keep IDs."""
     if not cfg.get('_trace_dir'): return
     record = dict(request_id=request_id, event=event,
+                  source_language=normalize(cfg.get('source_language')),target_language='korean',
                   phase=cfg.get('_trace_phase','translation'),
                   recorded_at=datetime.now(timezone.utc).isoformat(), **details)
     if cfg.get('_runtime_pid'):
@@ -224,6 +226,10 @@ def validate_text(source, target, cfg, *, check_link_content=False):
         # Numeric keys, URLs, and short acronyms may legitimately remain unchanged.
         if not re.fullmatch(r'(?:https?://\S+|[A-Z0-9 .:/_+\-]+)', TOKENS.sub('', source)):
             errors.append('no Korean translation')
+    if normalize(cfg.get('source_language'))=='japanese' and letters(visible_source) and not HANGUL.search(visible_target):
+        # Tiny labels, symbols and deliberate originals must not abort a game.
+        if len([c for c in visible_source if c.isalpha()])>=5 and re.search(r'[\u3040-\u30ff\u3400-\u9fff]',visible_source):
+            if 'no Korean translation' not in errors:errors.append('no Korean translation')
     return errors
 
 def validate_entry(source, entry, cfg):
@@ -256,6 +262,7 @@ def request(endpoint, route, body):
 def fingerprint(cfg):
     relevant = {k:cfg.get(k) for k in ('model','language','style','glossary','num_ctx')}
     if cfg.get('analysis_digest'):relevant['analysis_digest']=cfg['analysis_digest']
+    if normalize(cfg.get('source_language'))!='english':relevant['source_language']=normalize(cfg.get('source_language'))
     return hashlib.sha256(json.dumps(relevant, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 def cache(project, cfg):
@@ -265,7 +272,7 @@ def cache(project, cfg):
     active_fingerprint=fingerprint(cfg)
     for r in rows:
         bare=TOKENS.sub('',r['source'])
-        if FORMATS.search(bare) and not re.search(r'[A-Za-z가-힣]',FORMATS.sub('',bare)):
+        if FORMATS.search(bare) and not letters(FORMATS.sub('',bare)):
             out[r['id']]={'id':r['id'],'source':r['source'],'text':r['source'],
                           'model':'literal format','fingerprint':fingerprint(cfg)}
     if path.exists():
@@ -279,6 +286,9 @@ def cache(project, cfg):
                     raise
                 if (row['fingerprint'] == active_fingerprint or row['fingerprint'] == cfg.get('imported_cache_fingerprint') or
                     (cfg.get('_reuse_completed') and (row.get('model')==cfg['model'] or cfg.get('_reuse_previous_models')) and sources.get(row['id'])==row.get('source'))):
+                    # Old format-only entries may contain visible Japanese prose.
+                    if row.get('model')=='literal format' and letters(FORMATS.sub('',TOKENS.sub('',row.get('source','')))):
+                        continue
                     out[row['id']] = row
     recovered=project/'data/recovered-translations.json'
     if recovered.exists():
@@ -333,7 +343,7 @@ def translate_batch(rows, context, cfg, retry_note=''):
     relevant_glossary={k:v for k,v in terms.items() if any(k.casefold() in r['source'].casefold() for r in rows)}
     from name_translation import occurrences
     person_names={k:v for k,v in cfg.get('_person_names',{}).items() if any(occurrences(r['source'],k) for r in rows)}
-    system = ('You translate game text into Korean from its original language. Translate EVERY input item fully. '
+    system = (language_instruction(cfg)+'You translate game text into Korean from its original language. Translate EVERY input item fully. '
         'Return only the required JSON object. IDs must be copied exactly. Never merge or omit items. '
         'Do not add facts, quotation marks, commentary or English alternatives. '
         'For interface strings use concise conventional Korean UI labels. '
@@ -363,7 +373,7 @@ def translate_batch(rows, context, cfg, retry_note=''):
         'required':[str(i) for i in range(len(rows))],'additionalProperties':False}
     body = {'model':cfg['model'],'stream':False,'think':False,'format':schema,'keep_alive':'10m',
         'options':{'temperature':0.2,'num_ctx':cfg.get('num_ctx',8192),
-            'num_predict':min(2048, 256+sum(len(r['source'].split()) for r in rows)*7),
+            'num_predict':min(2048, 256+sum(source_units(r['source']) for r in rows)*7),
             'repeat_penalty':1.1,'seed':42},
         'messages':[{'role':'system','content':system},{'role':'user','content':json.dumps({
             'context_do_not_translate':context,'items':inputs,'retry_note':retry_note},ensure_ascii=False)}]}
@@ -511,7 +521,7 @@ def _translate(project, cfg, sample=False, rows=None, known=None):
     print(f'Translating {len(pending)} remaining entries with {cfg["model"]}',flush=True)
     queue=[]
     for row in pending:
-        if not queue or len(queue[-1])>=size or not context_index.same_scope(queue[-1][-1],row) or sum(len(r['source'].split()) for r in queue[-1])+len(row['source'].split())>cfg.get('max_batch_source_words',240) or sum(len(r['source'].encode('utf-8')) for r in queue[-1])+len(row['source'].encode('utf-8'))>min(5000,cfg.get('num_ctx',8192)//2):
+        if not queue or len(queue[-1])>=size or not context_index.same_scope(queue[-1][-1],row) or sum(source_units(r['source']) for r in queue[-1])+source_units(row['source'])>cfg.get('max_batch_source_words',240) or sum(len(r['source'].encode('utf-8')) for r in queue[-1])+len(row['source'].encode('utf-8'))>min(5000,cfg.get('num_ctx',8192)//2):
             queue.append([])
         queue[-1].append(row)
     queue=deque((batch,0) for batch in queue)

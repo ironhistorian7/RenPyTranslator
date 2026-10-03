@@ -17,7 +17,7 @@ from hy_backend import DEFAULT_MODEL
 from task_plan import TASKS, FIXES, arguments
 
 DEFAULTS = dict(output='project', suffix='-kr', scale='default', language_corner='right',
-                language_margin=12, theme='system', gpu_mode='auto', gpu_ids=[])
+                language_margin=12, source_language='english', theme='system', gpu_mode='auto', gpu_ids=[])
 
 
 def preferences():
@@ -30,6 +30,8 @@ def preferences():
 
 def validate_settings(data):
     result = dict(DEFAULTS, **{k:v for k,v in data.items() if k in DEFAULTS})
+    from source_language import normalize
+    result['source_language']=normalize(result['source_language'])
     for key in ('output', 'suffix', 'scale'):
         if not isinstance(result[key], str) or len(result[key]) > 4096:
             raise ValueError('저장 설정을 확인하세요.')
@@ -195,7 +197,7 @@ def snapshot():
 def run_request(data):
     settings = validate_settings(data.get('settings',{}))
     args = arguments(data.get('tasks',[]),data.get('path',''),data.get('source',False),
-        settings['output'],settings['suffix'],settings['scale'],settings['language_corner'],settings['language_margin'])
+        settings['output'],settings['suffix'],settings['scale'],settings['language_corner'],settings['language_margin'],settings['source_language'])
     from model_store import needs_model,require_selected
     if needs_model(data.get('tasks',[])):args+=['--model',require_selected()]
     save_settings(settings)
@@ -203,6 +205,34 @@ def run_request(data):
     sys.argv = [sys.argv[0]]+args
     from translate_game import main
     main()
+
+
+def project_language(data,root=None):
+    """Read only explicitly selected project metadata, never infer from a script."""
+    from source_language import normalize
+    root=ROOT if root is None else root
+    path=Path(data.get('path',''))
+    if not data.get('path'):return {'source_language':None}
+    if data.get('source'):
+        from automatic import source_key
+        key=source_key(path.resolve())
+        for parent in (root/'projects',root/'data/projects'):
+            registry=parent/'index.json'
+            if not registry.is_file():continue
+            relative=json.loads(registry.read_text(encoding='utf-8')).get(key)
+            if relative:
+                candidate=(parent/relative).resolve()
+                if not candidate.is_relative_to(parent.resolve()):raise ValueError('Invalid project registry path')
+                path=candidate
+                break
+        else:return {'source_language':None}
+    if path.is_dir():
+        link=path/'project-link.json'
+        if link.is_file():path=(path/json.loads(link.read_text(encoding='utf-8'))['project']).resolve()
+        path=path/'project.json'
+    if not path.is_file() or path.name!='project.json':return {'source_language':None}
+    cfg=json.loads(path.read_text(encoding='utf-8-sig'))
+    return {'source_language':normalize(cfg.get('source_language'))}
 
 
 def read_request():

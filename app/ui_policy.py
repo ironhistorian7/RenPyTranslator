@@ -5,8 +5,11 @@ import hashlib
 import json
 import re
 from engine import save_json
+from source_language import JAPANESE_MENUS, normalize
 
 STANDARD = dict([
+('NEW GAME','새 게임'),('CHAPTER SELECT','챕터 선택'),('CLOSE','닫기'),
+('Chapter Select','챕터 선택'),('Close','닫기'),
 ('Replay','다시보기'),('Achievements','업적'),('Gallery','갤러리'),
 ('gallery','갤러리'),('GALLERY','갤러리'),
 ('Start','시작'),('New Game','새 게임'),('Continue','계속하기'),('Load','불러오기'),
@@ -88,10 +91,10 @@ def action_caption(line):
         return None
     return resolve(node) or None
 
-def menu_translations(result):
+def menu_translations(result,source_language='english'):
     menu={}
     for source,uses in result['uses'].items():
-        target=standard(source)
+        target=standard(source,source_language)
         # Only compact controls with confirmed built-in actions become text.
         # Never interpret a game's descriptive/custom caption from its action alone.
         compact=key(source) in ('Hist','Q.S','Q.L') or re.fullmatch(r'[ Aa▶◀■▼▲▷◁▸▹◂◃►◄|+\-<>]+',source)
@@ -104,11 +107,13 @@ def menu_translations(result):
 def key(source):
     return re.sub(r'\{#[^{}]*\}', '', source)
 
-def standard(source):
+def standard(source,source_language='english'):
     clean=key(source)
-    if clean in STANDARD:
+    dictionary=dict(STANDARD)
+    if normalize(source_language)=='japanese':dictionary.update(JAPANESE_MENUS)
+    if clean in dictionary:
         # Disambiguation tags carry no visible text, but preserve them for validators.
-        return ''.join(re.findall(r'\{#[^{}]*\}',source))+STANDARD[clean]
+        return ''.join(re.findall(r'\{#[^{}]*\}',source))+dictionary[clean]
     return None
 
 def discover(scripts):
@@ -178,13 +183,15 @@ def discover(scripts):
 def policy(project):
     from automatic import script_sources
     scripts=script_sources(project)
-    digest=hashlib.sha256(json.dumps([scripts,STANDARD],sort_keys=True).encode()).hexdigest()
+    config=project/'project.json'
+    source_language=normalize(json.loads(config.read_text(encoding='utf-8-sig')).get('source_language')) if config.exists() else 'english'
+    digest=hashlib.sha256(json.dumps([scripts,STANDARD,JAPANESE_MENUS,source_language],sort_keys=True).encode()).hexdigest()
     path=project/'data/ui-policy.json'
     if path.exists():
         old=json.loads(path.read_text(encoding='utf-8'))
-        if old.get('digest')==digest and old.get('version')==4:return old
-    result=discover(scripts);result.update(version=4,digest=digest)
-    result['menu']=menu_translations(result)
+        if old.get('digest')==digest and old.get('version')==5:return old
+    result=discover(scripts);result.update(version=5,digest=digest,source_language=source_language)
+    result['menu']=menu_translations(result,source_language)
     save_json(path,result)
     return result
 
@@ -200,7 +207,7 @@ def apply_policy(project,rows,known,preserve_choices=False,cached_only=False):
         source=row['source']
         if preserve_choices and source in p['choices']:continue
         target=p['menu'].get(source)
-        if target is None and row.get('file','').endswith('common.rpy'):target=standard(source)
+        if target is None and row.get('file','').endswith('common.rpy'):target=standard(source,p.get('source_language','english'))
         if target is None:continue
         known[row['id']]=dict(known.get(row['id'],{}),id=row['id'],source=source,text=target,
                               status='ui_fixed' if target!=source else 'ui_original')

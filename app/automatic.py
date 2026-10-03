@@ -10,6 +10,7 @@ import time
 from engine import ROOT, save_json
 from translation import QUOTED, TOKENS, read_catalog, request, fingerprint, cache
 from hy_backend import DEFAULT_MODEL, is_hy
+from source_language import letters, normalize
 
 DEFAULT_STYLE='Preserve meaning and each speaker\'s register. Infer tone from the supplied scene evidence. Do not invent world facts or explanations. Use concise Korean for interface text.'
 VERSION=1
@@ -19,7 +20,7 @@ def digest(value):
 
 def source_key(source):return hashlib.sha256(str(source).casefold().encode()).hexdigest()[:12]
 
-def resolve_project(source=None,config=None,model=None):
+def resolve_project(source=None,config=None,model=None,source_language=None):
     if config:
         config=config.resolve(strict=True)
         cfg=json.loads(config.read_text(encoding='utf-8-sig'));project=config.parent
@@ -52,6 +53,7 @@ def resolve_project(source=None,config=None,model=None):
         if Path(cfg['source']).resolve()!=source:raise ValueError('Registry source mismatch')
         if parent==ROOT/'data/projects':index[key]=project.name;save_json(index_path,index)
     if model is not None:cfg['model']=model
+    cfg['source_language']=normalize(source_language if source_language is not None else cfg.get('source_language'))
     if is_hy(cfg):
         cfg.update(num_ctx=16384,batch_size=8,parallel=2,max_batch_source_words=400,
                    _reuse_previous_models=True)
@@ -119,7 +121,7 @@ def outline(project):
                 q=QUOTED.match(m[2])
                 if q:
                     s=literal_eval(q.group())
-                    if re.search(r'[A-Za-z가-힣]',TOKENS.sub('',s)):
+                    if letters(TOKENS.sub('',s)):
                         widget=m[1]
                         result['screen_literals'].append({'source':s,'file':name,'line':number,'widget':widget})
             elif re.match(r'\s*(?:text|textbutton)\s+(?!_\()[A-Za-z_]',line):
@@ -132,7 +134,7 @@ def add_literal_templates(project,cfg):
     from translation import quote, catalog
     rows=read_catalog(project);known={r['source'] for r in rows if r['kind']=='string'}
     structure=outline(project)
-    names={s for s in structure['characters'].values() if s!='(dynamic or unnamed)' and re.search(r'[A-Za-z가-힣]',TOKENS.sub('',s))}
+    names={s for s in structure['characters'].values() if s!='(dynamic or unnamed)' and letters(TOKENS.sub('',s))}
     names.update(r['speaker_name'] for r in rows if r.get('speaker_name'))
     literal_sources=sorted(({r['source'] for r in structure['screen_literals']}|names)-known)
     if literal_sources:
@@ -143,6 +145,7 @@ def add_literal_templates(project,cfg):
         (project/'data/templates'/name).write_text(text,encoding='utf-8')
         catalog(project,cfg)
     save_json(project/'data/static-screen-literals.json',structure['screen_literals'])
+    save_json(project/'data/literal-policy.json',{'version':2})
     # Preserve purposes for both engine-collected and additive string templates.
     save_json(project/'data/catalog.json',read_catalog(project))
 

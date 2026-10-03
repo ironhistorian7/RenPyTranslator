@@ -7,9 +7,9 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
-import zipfile
 from development_setup import prepare_full_model, verify_vendor
 from runtime_assets import inside, load_lock, runtime_executable
+from release_archives import package_editions
 
 ROOT=Path(__file__).resolve().parents[1]
 
@@ -45,23 +45,6 @@ def export_model(bundle):
     manifest.write_text(json.dumps(model),encoding='utf-8')
 
 
-def write_archive(bundle, edition):
-    archive=ROOT/'dist'/('RenPyTranslator-'+edition+'.zip');temp=archive.with_suffix('.zip.tmp')
-    files=[p for p in bundle.rglob('*') if p.is_file()]
-    total=sum(p.stat().st_size for p in files);done=0
-    with zipfile.ZipFile(temp,'w',allowZip64=True) as z:
-        for relative in ('project/','data/','models/'):
-            z.writestr('RenPyTranslator/'+relative,b'')
-        for path in files:
-            relative=path.relative_to(bundle);size=path.stat().st_size
-            compression=zipfile.ZIP_STORED if size>100_000_000 or 'blobs' in relative.parts else zipfile.ZIP_DEFLATED
-            z.write(path,'RenPyTranslator/'+relative.as_posix(),compress_type=compression,compresslevel=1)
-            done+=size
-            if size>100_000_000:print(edition+' ZIP %.1f%%: %s'%(done*100/total,relative),flush=True)
-    temp.replace(archive)
-    print('PORTABLE_ZIP '+str(archive)+'; BYTES '+str(archive.stat().st_size),flush=True)
-
-
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--edition',choices=('light','full','both'),type=str.lower,default='light')
@@ -79,7 +62,7 @@ def main(argv=None):
     (ui/'electron.exe').rename(ui/'RenPyTranslator-UI.exe')
     ui_app=ui/'resources/app'
     shutil.copytree(desktop/'dist',ui_app,dirs_exist_ok=True)
-    (ui_app/'package.json').write_text(json.dumps({'name':'renpy-translator-desktop','version':'1.0.0','main':'main.js'}),encoding='utf-8')
+    (ui_app/'package.json').write_text(json.dumps({'name':'renpy-translator-desktop','version':load_lock(ROOT)['release']['version'],'main':'main.js'}),encoding='utf-8')
     def copy(source,relative):
         target=bundle/relative;target.parent.mkdir(parents=True,exist_ok=True)
         shutil.copy2(source,target)
@@ -110,11 +93,8 @@ def main(argv=None):
         path=Path(sys.base_prefix)/name
         if path.exists():copy(path,Path('licenses/Python-'+name))
     # A fresh PyInstaller collection contains no models. LIGHT never reads models.
-    if args.edition in ('light','both'):
-        write_archive(bundle,'light')
-    if args.edition in ('full','both'):
-        export_model(bundle)
-        write_archive(bundle,'full')
+    editions=['light','full'] if args.edition=='both' else [args.edition]
+    package_editions(ROOT,bundle,editions,export_model)
     publish_local(bundle)
 
 

@@ -3,6 +3,7 @@ param(
     [string]$Project,
     [ValidateSet('run','retranslate','analyze','rebuild','repair','status','review','verify-source','prepare','catalog','sample','translate','render','preview','support','seal-stage','validate','package','tasks','answers','routes','language')][string]$Command,
     [string]$Model,
+    [ValidateSet('english','japanese','en','ja')][string]$SourceLanguage,
     [ValidateSet('all','font','names','failed','display','layout')][string]$Fix,
     [ValidateSet('run','retranslate','font','names','failed','display','layout','answers','routes','language')][string[]]$Tasks,
     [string]$Output,
@@ -49,7 +50,8 @@ Repair scopes (-Fix):
   layout  Textbox height only; -TextboxScale default or e.g. 1.2
   all     All fixes (may use a local model)
 
-Other options: -Model <name>, -Sample <count> (analyze only), -Help
+Other options: -Model <name>, -SourceLanguage <english|japanese>, -Sample <count> (analyze only), -Help
+Output is Korean. Omit -SourceLanguage to retain an existing project's language.
 Tasks: run OR retranslate, answers, routes, language, and repair scopes.
 Retranslate requires a prepared project; interrupted runs resume with the same model.
 Advanced: -Output <folder>, -Suffix <suffix>, -TextboxScale <default|number>
@@ -65,6 +67,7 @@ $cliArgs = @($Command)
 if ($Source) { $cliArgs += @('--source', $Source) }
 if ($Project) { $cliArgs += @('--project', $Project) }
 if ($Model) { $cliArgs += @('--model', $Model) }
+if ($SourceLanguage) { $cliArgs += @('--source-language', $SourceLanguage) }
 if ($Fix) { $cliArgs += @('--fix', $Fix) }
 if ($Tasks) { $cliArgs += @('--tasks') + $Tasks }
 if ($Sample) { $cliArgs += @('--sample', $Sample) }

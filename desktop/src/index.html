@@ -16,7 +16,8 @@
     <section id="work-page" class="work-page">
       <div class="source-section"><h2>번역할 게임</h2><fieldset class="inline-options" id="source-kind"><legend class="sr-only">폴더 종류</legend><label><input type="radio" name="source" value="source" checked>원본 게임</label><label><input type="radio" name="source" value="project">기존 프로젝트</label></fieldset>
         <div class="path-row"><input id="source-path" aria-label="게임 또는 기존 프로젝트 폴더" placeholder="게임 폴더를 선택하세요" spellcheck="false"><button id="browse-source" class="secondary">찾아보기</button></div>
-        <p class="help">원본 게임 또는 기존 번역 결과 폴더를 선택하세요.</p></div>
+        <p class="help">원본 게임 또는 기존 번역 결과 폴더를 선택하세요.</p>
+        <div class="inline-options"><label for="source-language">원문 언어</label><select id="source-language"><option value="english">영어</option><option value="japanese">일본어</option></select><span class="help">한국어로 번역합니다.</span></div></div>
       <div id="basic-options"><h2>결과 저장 위치</h2><input id="output-preview" readonly aria-label="결과 저장 위치"><p class="help">저장 위치는 고급 설정에서 바꿀 수 있습니다.</p></div>
       <div id="advanced-options" class="advanced-scroll" hidden>
         <section><h2>실행할 작업</h2><p class="help">번역은 완료한 부분을 이어서 진행합니다. 재번역은 선택한 모델로 처음부터 번역해 별도 결과로 저장합니다. 기존 결과는 그대로 남습니다.</p><div id="tasks" class="check-grid"></div><p class="help">재번역은 준비된 프로젝트가 필요하며, 비교용 작업 사본을 만들 공간을 추가로 사용합니다. 취소한 재번역은 같은 모델로 다시 실행하면 이어집니다.</p></section>

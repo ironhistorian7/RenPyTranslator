@@ -38,6 +38,11 @@ def _rpt_font_group(original):
         group.add(_rpt_fontdata['preferred'][kind], start, end)
     for start, end in ((0x1100, 0x11ff), (0x3130, 0x318f), (0xa960, 0xa97f), (0xac00, 0xd7ff)):
         group.add(_rpt_fontdata['fallback'], start, end)
+    # Preserve supported Japanese glyphs in the original font. Fill only known gaps.
+    missing = _rpt_fontdata.get('japanese_missing', {})
+    if isinstance(original,basestring):
+        for start, end in missing.get(original, missing.get('fonts/' + original, [])):
+            group.add(_rpt_fontdata['fallback'], start, end)
     # Latin, punctuation and game-specific symbols retain the original font.
     try:
         group.add(original, None, None)

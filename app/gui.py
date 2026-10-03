@@ -34,10 +34,13 @@ class App:
         self.scale = tk.StringVar(value='default')
         self.corner = tk.StringVar(value='right')
         self.margin = tk.StringVar(value='12')
+        self.source_language = tk.StringVar(value='영어')
         settings = ROOT / 'data/gui-settings.json'
         if settings.exists():
             try:
                 data = json.loads(settings.read_text(encoding='utf-8'))
+                from source_language import LANGUAGES,normalize
+                self.source_language.set(LANGUAGES[normalize(data.get('source_language'))])
                 for var, key, default in ((self.output, 'output', 'project'),
                         (self.suffix, 'suffix', '-kr'), (self.scale, 'scale', 'default'),
                         (self.corner, 'language_corner', 'right'), (self.margin, 'language_margin', 12)):
@@ -88,15 +91,22 @@ class App:
         kinds.grid(row=1, column=0, columnspan=2, sticky='w', pady=(5, 7))
         self.kind_buttons = []
         for title, value in (('원본 게임', '원본 게임 폴더'), ('기존 프로젝트', '기존 프로젝트 / 결과 폴더')):
-            item = ttk.Radiobutton(kinds, text=title, variable=self.kind, value=value)
+            item = ttk.Radiobutton(kinds, text=title, variable=self.kind, value=value,command=self.restore_language)
             item.pack(side='left', padx=(0, 24))
             self.kind_buttons.append(item)
         self.entry = ttk.Entry(source, textvariable=self.path)
         self.entry.grid(row=2, column=0, sticky='ew')
+        self.entry.bind('<FocusOut>',lambda event:self.restore_language())
         self.browse = ttk.Button(source, text='찾아보기', command=self.select)
         self.browse.grid(row=2, column=1, padx=(10, 0))
         self.source_help = ttk.Label(source, text='원본 게임 또는 기존 번역 결과 폴더를 선택하세요.', style='Muted.TLabel')
         self.source_help.grid(row=3, column=0, columnspan=2, sticky='w', pady=(7, 0))
+        langrow=ttk.Frame(source)
+        langrow.grid(row=4,column=0,columnspan=2,sticky='w',pady=(10,0))
+        ttk.Label(langrow,text='원문 언어').pack(side='left',padx=(0,12))
+        self.language_choice=ttk.Combobox(langrow,textvariable=self.source_language,values=('영어','일본어'),state='readonly',width=12)
+        self.language_choice.pack(side='left')
+        ttk.Label(langrow,text='한국어로 번역합니다.',style='Muted.TLabel').pack(side='left',padx=12)
 
         self.pages = ttk.Frame(frame)
         self.pages.grid(row=3, column=0, sticky='nsew')
@@ -257,6 +267,16 @@ class App:
         path = filedialog.askdirectory(parent=self.window, title=self.kind.get())
         if path:
             self.path.set(path)
+            self.restore_language()
+
+    def restore_language(self):
+        if self.proc or not self.path.get().strip():return
+        from desktop_bridge import project_language
+        from source_language import LANGUAGES
+        try:
+            result=project_language({'path':self.path.get(),'source':self.kind.get()=='원본 게임 폴더'},root=ROOT)
+            if result['source_language']:self.source_language.set(LANGUAGES[result['source_language']])
+        except (OSError,ValueError,KeyError):pass
 
     def select_output(self):
         path = filedialog.askdirectory(parent=self.window, title='결과 저장 위치')
@@ -332,7 +352,8 @@ class App:
             return
         try:
             args = arguments(self.selected(), self.path.get(), self.kind.get() == '원본 게임 폴더',
-                             self.output.get(), self.suffix.get(), self.scale.get(), self.corner.get(), self.margin.get())
+                             self.output.get(), self.suffix.get(), self.scale.get(), self.corner.get(), self.margin.get(),
+                             'japanese' if self.source_language.get()=='일본어' else 'english')
             scale = self.scale.get().strip() or 'default'
             if scale != 'default' and not .25 <= float(scale) <= 4:
                 raise ValueError('높이 배율은 0.25~4 또는 default입니다.')
@@ -341,7 +362,8 @@ class App:
             return
         from engine import save_json
         save_json(ROOT/'data/gui-settings.json', {'output': self.output.get(), 'suffix': self.suffix.get(),
-                  'scale': scale, 'language_corner': self.corner.get(), 'language_margin': int(self.margin.get())})
+                  'scale': scale, 'language_corner': self.corner.get(), 'language_margin': int(self.margin.get()),
+                  'source_language':'japanese' if self.source_language.get()=='일본어' else 'english'})
         control = ROOT/'data/control'
         control.mkdir(parents=True, exist_ok=True)
         self.cancel_path = control/(str(os.getpid())+'-'+str(time.time_ns())+'.cancel')
@@ -357,6 +379,7 @@ class App:
         self.result = None
         self.open_button.configure(state='disabled')
         self.start.configure(state='disabled')
+        self.language_choice.configure(state='disabled')
         self.stop.configure(state='normal')
         self.status.set('작업 중')
         self.progress.configure(mode='indeterminate')
@@ -401,6 +424,7 @@ class App:
                     self.write('완료.\n' if value == 0 else ('취소됨.\n' if value == 130 else '작업 실패. 위 로그를 확인하세요.\n'))
                     self.status.set('완료' if value == 0 else '취소됨' if value == 130 else '작업 실패')
                     self.proc = None
+                    self.language_choice.configure(state='readonly')
                     self.progress.stop()
                     self.progress.configure(mode='determinate', value=0)
                     self.update_summary()

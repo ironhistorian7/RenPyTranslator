@@ -125,12 +125,14 @@ def selected_tasks(args,parser):
             base['model']=selected()
     else:
         project,base=resolve_project(args.source,None,args.model)
+    from source_language import apply as apply_language
+    base=apply_language(project,base,args.source_language)
     stage('selected tasks',project,base,tasks=jobs)
     if any(job in FIXES for job in jobs) and not (project/'data/translations.jsonl').exists():
         parser.error('This project has no translation cache. Run translation first, or select guides only.')
     options=[]
     for key,value in (('--output',args.output),('--suffix',args.suffix),('--textbox-scale',args.textbox_scale),('--model',args.model),
-                      ('--language-corner',args.language_corner),('--language-margin',args.language_margin)):
+                      ('--language-corner',args.language_corner),('--language-margin',args.language_margin),('--source-language',args.source_language)):
         if value is not None:options.append(key+'='+str(value))
     if 'retranslate' in jobs:
         from retranslation import comparison
@@ -186,6 +188,8 @@ No command, or repair without --fix: help only, no project access.''')
     parser.add_argument('--source',type=Path,help='The one game folder you authorize reading')
     parser.add_argument('--project',type=Path,help='Optional existing project path; not required for new games')
     parser.add_argument('--model',help='Installed tool-local model; otherwise use the AI Model tab selection')
+    from source_language import LANGUAGES,ALIASES
+    parser.add_argument('--source-language',choices=list(LANGUAGES)+list(ALIASES),help='Original language: english/en or japanese/ja; existing projects retain their selection, new projects default to English')
     parser.add_argument('--fix',choices=['all','font','names','failed','display','layout'],help='required repair scope; omission prints help')
     from task_plan import TASKS
     parser.add_argument('--tasks',nargs='+',choices=list(TASKS),help='Explicit tasks; required with tasks command')
@@ -221,6 +225,8 @@ No command, or repair without --fix: help only, no project access.''')
         if not args.project or args.source:parser.error('repair requires --project and does not read --source')
         project=args.project.resolve(strict=True).parent
         base=json.loads(args.project.read_text(encoding='utf-8-sig'))
+        from source_language import apply as apply_language
+        base=apply_language(project,base,args.source_language)
         stage('repair',project,base)
         if args.model:base['model']=args.model
         with project_lock(project):
@@ -229,9 +235,13 @@ No command, or repair without --fix: help only, no project access.''')
             base=panel_options(project,base,args.language_corner,args.language_margin)
             repair(project,base,args.fix)
         return
-    project,base=resolve_project(args.source,args.project,args.model)
+    project,base=resolve_project(args.source,args.project,args.model,args.source_language)
+    from source_language import normalize
+    base=dict(base,source_language=normalize(base.get('source_language')))
     stage(args.command,project,base)
     print('Project: '+str(project),flush=True)
+    from source_language import LANGUAGES
+    print('Source language: '+LANGUAGES[base['source_language']]+'; output: 한국어',flush=True)
     with model_session(), project_lock(project):
         base=apply_options(project,base,args.output,args.suffix,args.textbox_scale)
         from language_panel import options as panel_options
@@ -252,7 +262,9 @@ No command, or repair without --fix: help only, no project access.''')
                 seal_stage(project)
             else:
                 if not (project/'data/catalog-format.json').exists():catalog(project,base)
-                if not (project/'data/static-screen-literals.json').exists():
+                literal_policy=project/'data/literal-policy.json'
+                if not (project/'data/static-screen-literals.json').exists() or (base['source_language']=='japanese' and
+                        (not literal_policy.exists() or json.loads(literal_policy.read_text(encoding='utf-8')).get('version')!=2)):
                     add_literal_templates(project,base)
                     seal_stage(project)
             if args.command=='prepare':return
