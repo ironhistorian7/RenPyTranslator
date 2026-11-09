@@ -1,0 +1,98 @@
+{
+  "schema": 1,
+  "python": "3.12",
+  "release": {
+    "version": "0.3.0"
+  },
+  "build_tools": {
+    "bandizip": {
+      "version": "7.46",
+      "source": "https://www.bandisoft.com/bandizip/",
+      "url": "https://bandisoft.app/bandizip/BANDIZIP-SETUP-STD-ALL.EXE?20260821181728",
+      "sha256": "ec36ce75ffe8c0194e4b41986e2b3533c1e061256c3722509bb54426e74643d2",
+      "files": {
+        "bz.x64.exe": "c887e307972807fda5e8df030b1ca3a90c493e0badff112ddeb91f51b18928c0",
+        "ark.x64.dll": "196bd7418c6ca90eb75dfb675ec1f66910dc8df920f956adec41837c2e47fe9b",
+        "ark.x64.lgpl.dll": "f84d22d9a75c7ff0ad3efc37705c92701a0f2fea64b1ee976bf13174be3b61f2",
+        "data/ArkLicense.txt": "681a174ba9b2200816962eee5bb0ada0bff12d2a5f6de5cf412e0c908a988158"
+      }
+    },
+    "sevenzr": {
+      "version": "26.03",
+      "url": "https://www.7-zip.org/a/7zr.exe",
+      "sha256": "ad4c82fadcbdf93c03b4fc440f300509c7d60c5c2f4d183e35d9d70d6957037d"
+    }
+  },
+  "node": {
+    "version": "24.21.0",
+    "directory": "runtimes/node-v24.21.0-win-x64",
+    "executable": "node.exe",
+    "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-win-x64.zip",
+    "sha256": "158f7685b44de51f6c0df1d153526cbcd3e1bc739a8dfc607721cef75de9e541",
+    "prefix": "node-v24.21.0-win-x64/"
+  },
+  "ollama": {
+    "version": "0.40.15",
+    "directory": "runtimes/ollama-0.40.15",
+    "executable": "ollama.exe",
+    "url": "https://github.com/ollama/ollama/releases/download/v0.40.15/ollama-windows-amd64.zip",
+    "sha256": "9ca74a7ab66ec86870b1eecac7df160df08dc4e3a291ab5d2d59bcf9310221c6",
+    "prefix": ""
+  },
+  "full_model": {
+    "repository": "tencent/Hy-MT2-7B-GGUF",
+    "revision": "ab8472660ac61fac25f1af43fac2599d52a8a775",
+    "filename": "HY-MT2-7B-Q6_K.gguf",
+    "url": "https://huggingface.co/tencent/Hy-MT2-7B-GGUF/resolve/ab8472660ac61fac25f1af43fac2599d52a8a775/HY-MT2-7B-Q6_K.gguf",
+    "sha256": "88ef0aba59952a4cfe4be36cb5baf797dbb370bc60e9dcbd7297036021e52831",
+    "size": 6164482720,
+    "alias": "rpt-hymt2-7b:q6_k",
+    "manifest_path": "models/ollama/manifests/registry.ollama.ai/library/rpt-hymt2-7b/q6_k",
+    "manifest": {
+      "schemaVersion": 2,
+      "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+      "config": {
+        "mediaType": "application/vnd.docker.container.image.v1+json",
+        "digest": "sha256:305fdab99a17655cb612702242f76facbb227d7b1bdbcb43ad43acc8106cefcc",
+        "size": 427
+      },
+      "layers": [
+        {
+          "mediaType": "application/vnd.ollama.image.model",
+          "digest": "sha256:88ef0aba59952a4cfe4be36cb5baf797dbb370bc60e9dcbd7297036021e52831",
+          "size": 6164482720
+        },
+        {
+          "mediaType": "application/vnd.ollama.image.template",
+          "digest": "sha256:e6f90cca9cf797bd327195e5bd4d0410d4c49f56dace464751c178c17e9409f5",
+          "size": 173
+        },
+        {
+          "mediaType": "application/vnd.ollama.image.params",
+          "digest": "sha256:83c19bfaecc9d9deae77f5bf23863bd24180d9110573ebb6f5a04a04a920c08b",
+          "size": 31
+        }
+      ]
+    },
+    "text_blobs": {
+      "sha256:305fdab99a17655cb612702242f76facbb227d7b1bdbcb43ad43acc8106cefcc": "{\"model_format\":\"gguf\",\"model_family\":\"hunyuan-dense\",\"model_families\":[\"hunyuan-dense\"],\"model_type\":\"7.5B\",\"file_type\":\"Q6_K\",\"architecture\":\"amd64\",\"os\":\"linux\",\"rootfs\":{\"type\":\"layers\",\"diff_ids\":[\"sha256:88ef0aba59952a4cfe4be36cb5baf797dbb370bc60e9dcbd7297036021e52831\",\"sha256:e6f90cca9cf797bd327195e5bd4d0410d4c49f56dace464751c178c17e9409f5\",\"sha256:83c19bfaecc9d9deae77f5bf23863bd24180d9110573ebb6f5a04a04a920c08b\"]}}\n",
+      "sha256:e6f90cca9cf797bd327195e5bd4d0410d4c49f56dace464751c178c17e9409f5": "{{ range .Messages }}{{ if eq .Role \"user\" }}<|startoftext|>{{ .Content }}<|extra_0|>{{ else if eq .Role \"assistant\" }}{{ .Content }}<|eos|>{{ end }}{{ end }}{{ .Response }}",
+      "sha256:83c19bfaecc9d9deae77f5bf23863bd24180d9110573ebb6f5a04a04a920c08b": "{\"stop\":[\"\\u003c|eos|\\u003e\"]}\n"
+    },
+    "license": {
+      "path": "licenses/Hy-MT2-LICENSE.txt",
+      "url": "https://huggingface.co/tencent/Hy-MT2-7B/resolve/9b0eb4e8f001def3e5ff6469a0ac96fdb39ec223/LICENSE.txt",
+      "sha256": "fccbe004b9870859aa97ba932e647cb1ac39f54716ef008ddf666d86a34ffd98"
+    }
+  },
+  "ollama_compatibility": [
+    {
+      "version": "0.34.2",
+      "directory": "runtimes/ollama-0.34.2",
+      "executable": "ollama.exe",
+      "url": "https://github.com/ollama/ollama/releases/download/v0.34.2/ollama-windows-amd64.zip",
+      "sha256": "8f3fd071a2a2f9497b562f43502c77c2b701a99d1ee5dfda28da8c786373063b",
+      "prefix": ""
+    }
+  ]
+}

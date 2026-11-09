@@ -1,0 +1,141 @@
+gameloc — 함께 쓰는 다른 사람의 코드에 대한 고지
+==================================================================
+
+gameloc 은 GNU General Public License v3.0 으로 배포됩니다 (LICENSE 파일).
+아래 라이브러리들을 함께 씁니다. 모두 GPL 과 함께 쓸 수 있는 조건이며,
+각 라이선스가 요구하는 저작권 고지를 여기에 그대로 옮깁니다.
+
+------------------------------------------------------------------
+UnityPy  —  MIT License
+유니티 파일을 읽고 쓰는 데 씁니다.
+https://github.com/K0lb3/UnityPy
+
+Copyright (c) 2019-2026 K0lb3
+
+------------------------------------------------------------------
+TypeTreeGeneratorAPI  —  MIT License
+게임 DLL 에서 타입 정보를 되살리는 데 씁니다.
+https://github.com/K0lb3/TypeTreeGeneratorAPI
+
+Copyright (c) 2025-2025 K0lb3
+
+------------------------------------------------------------------
+openpyxl  —  MIT License
+엑셀 파일을 만들고 읽는 데 씁니다.
+https://openpyxl.readthedocs.io/
+
+Copyright (c) 2010 openpyxl
+
+------------------------------------------------------------------
+click  —  BSD 3-Clause License
+명령줄 인터페이스에 씁니다.
+https://palletsprojects.com/p/click/
+
+Copyright 2014 Pallets
+
+------------------------------------------------------------------
+위 MIT / BSD 라이선스 전문(공통)
+------------------------------------------------------------------
+
+MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+------------------------------------------------------------------
+
+BSD 3-Clause License
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its contributors
+   may be used to endorse or promote products derived from this software
+   without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+------------------------------------------------------------------
+글꼴에 대하여
+------------------------------------------------------------------
+gameloc 은 글꼴 파일을 함께 배포하지 않습니다. [한글 폰트 넣기] 는 사용자
+컴퓨터에 이미 설치된 글꼴을 읽어 씁니다. 그 글꼴의 사용 조건은 각 글꼴의
+라이선스를 따릅니다.
+
+울프RPG 의 Shift-JIS 게임에는 이 컴퓨터에 설치된 한글 글꼴(나눔고딕 등 SIL Open Font License 글꼴을 먼저 씁니다)에서 글자 모양만 빌려 새 글꼴 파일(GamelocKo.ttf)을 사용자 컴퓨터에서 만들어 게임 폴더에 넣습니다. gameloc 이 글꼴을 함께 배포하는 것은 아니며, 만든 글꼴은 그 게임에서만 쓰세요.
+
+------------------------------------------------------------------
+같이 넣어 배포하는 프로그램 (gameloc/bundled/)
+------------------------------------------------------------------
+아래 둘은 고치지 않은 원본 그대로를 압축째 넣어 배포합니다.
+[마지막 수단] 을 쓸 때만 게임 폴더에 풀립니다. 안 쓰면 아무 일도
+일어나지 않습니다. 지울 때는 넣은 파일만 지웁니다.
+
+------------------------------------------------------------------
+BepInEx  —  GNU Lesser General Public License v2.1
+유니티 게임에 플러그인을 올려 주는 틀입니다.
+https://github.com/BepInEx/BepInEx
+넣은 판: BepInEx-Unity.IL2CPP-win-x64-6.0.0-be.785+6abdba4
+
+Copyright (c) 2018 Bepis
+
+LGPL-2.1 전문: https://github.com/BepInEx/BepInEx/blob/master/LICENSE
+원본 소스는 위 주소에서 받을 수 있습니다. 우리는 고친 데가 없습니다.
+
+------------------------------------------------------------------
+XUnity.AutoTranslator  —  MIT License
+게임이 글자를 그리는 순간 가로채 우리 번역으로 바꿔 줍니다.
+https://github.com/bbepis/XUnity.AutoTranslator
+넣은 판: XUnity.AutoTranslator-BepInEx-IL2CPP-5.6.1
+
+Copyright (c) 2018 bbepis
+
+------------------------------------------------------------------
+UberWolf  —  MIT License
+울프RPG 에디터의 Data.wolf 암호 방식과 데이터 파일 구조를 참고해 파이썬으로
+새로 옮겼습니다 (gameloc/wolfarc.py, gameloc/wolftext.py). 코드를 그대로
+넣지 않았고, 알고리즘을 보고 다시 썼습니다.
+https://github.com/Sinflower/UberWolf
+
+Copyright (c) 2024 Sinflower
+
+(MIT 전문은 위 "MIT / BSD 라이선스 전문(공통)" 과 같습니다.)
+
+------------------------------------------------------------------
+DX Library (DXArchive · Huffman)  —  山田 巧
+Data.wolf 의 바탕인 DxLib 아카이브·허프만 압축 푸는 방법을 참고해 파이썬으로
+새로 옮겼습니다. DxLib 은 소스를 쓰는 프로그램에 저작권 표시를 요구합니다.
+https://dxlib.xsrv.jp/
+
+DX Library Copyright (C) 2001-2024 Takumi Yamada.

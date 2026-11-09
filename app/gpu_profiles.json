@@ -1,0 +1,25 @@
+{
+  "version": 2,
+  "preserve_from_mib": 12032,
+  "model_budget_fraction": 0.85,
+  "estimated_graph_bytes": 536870912,
+  "profiles": [
+    {"id": "6gb", "minimum_total_mib": 5888, "num_ctx": 4096, "parallel": 2, "kv_cache_type": "q8_0", "context_txt_enabled": false, "support": "capacity_simulation"},
+    {"id": "8gb", "minimum_total_mib": 7936, "num_ctx": 8192, "parallel": 2, "kv_cache_type": "q8_0", "context_txt_enabled": false, "support": "capacity_simulation"},
+    {"id": "12gb", "minimum_total_mib": 12032, "num_ctx": 16384, "parallel": 2, "kv_cache_type": "q8_0", "context_txt_enabled": true, "support": "measured"},
+    {"id": "16gb", "minimum_total_mib": 16128, "num_ctx": 16384, "parallel": 3, "kv_cache_type": "q8_0", "context_txt_enabled": true, "support": "estimated"},
+    {"id": "24gb", "minimum_total_mib": 24320, "num_ctx": 16384, "parallel": 4, "kv_cache_type": "q8_0", "context_txt_enabled": true, "support": "estimated"},
+    {"id": "32gb", "minimum_total_mib": 32512, "num_ctx": 16384, "parallel": 6, "kv_cache_type": "q8_0", "context_txt_enabled": true, "support": "estimated"}
+  ],
+  "calibrated_models": {
+    "88ef0aba59952a4cfe4be36cb5baf797dbb370bc60e9dcbd7297036021e52831": {
+      "family": "hy-mt2-7b", "repo": "tencent/Hy-MT2-7B-GGUF", "protocol": "hy", "quantization": "Q6_K", "bytes": 6164482720,
+      "filename": "HY-MT2-7B-Q6_K.gguf", "gpu_bytes": {}
+    },
+    "9f96256500f3fc1ab4d64336b58f52a949a95ad7516b0c229476eef782f9f77b": {
+      "family": "hy-mt2-7b", "repo": "tencent/Hy-MT2-7B-GGUF", "protocol": "hy", "quantization": "Q4_K_M", "bytes": 4624648896,
+      "filename": "Hy-MT2-7B-Q4_K_M.gguf", "gpu_bytes": {"6gb": 5422543011, "8gb": 6001356963}
+    }
+  },
+  "notes": "6/8GB are capacity-budget simulations on RTX 4070 SUPER 12GB, not actual smaller-card validation. Q4 buffer sizes were measured. 12GB keeps existing settings. 16/24/32GB worker counts are estimates, not measured throughput; they never enlarge context automatically. Allow user overrides. Profiles use total dedicated capacity, never currently free VRAM; tolerate small capacity reporting differences."
+}

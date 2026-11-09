@@ -1,0 +1,42 @@
+[project]
+name = "gameloc"
+version = "3.1.1"
+description = "게임 폴더 -> 번역 -> 다시 게임으로 (RPG Maker / Ren'Py / TyranoScript / Unity / WOLF RPG)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE", "THIRD-PARTY-NOTICES.txt"]
+authors = [{ name = "하진" }]
+keywords = ["game", "translation", "localization", "unity", "rpgmaker", "renpy"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Topic :: Games/Entertainment",
+    "Topic :: Software Development :: Localization",
+]
+dependencies = [
+    "UnityPy>=1.20",
+    "openpyxl>=3.1",
+    "click>=8.1",
+    # 유니티 배포 빌드에는 MonoBehaviour 타입 정보가 없습니다.
+    # 게임 DLL 에서 되살리는 데 씁니다. 없어도 프로그램은 돌아갑니다.
+    "TypeTreeGeneratorAPI>=0.0.10",
+    # 일부 PC 에서 윈도우의 낡은 인증서 때문에 DeepL 등이 '인증서 만료' 로
+    # 거절될 때, 최신 인증서 묶음으로 한 번 더 시도하는 데 씁니다.
+    "certifi",
+    # 그림 속 글자를 찾고 한글로 바꿔 그리는 기능(images 명령)에 씁니다(UnityPy 가 이미 함께 설치합니다).
+    "Pillow>=9.0",
+]
+
+[project.scripts]
+gameloc = "gameloc.cli:main"
+gameloc-gui = "gameloc.webui:serve"
+
+[tool.setuptools]
+packages = ["gameloc", "gameloc.engines"]
+
+[tool.setuptools.package-data]
+"gameloc" = ["web/*.html"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"

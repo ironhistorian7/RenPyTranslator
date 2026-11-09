@@ -1,0 +1,130 @@
+import {_electron as electron} from 'playwright';
+import {createRequire} from 'node:module';
+import {mkdir,writeFile} from 'node:fs/promises';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+const require=createRequire(import.meta.url),root=path.resolve('..'),out=path.join(root,'build','wizard-ui-review');
+await mkdir(path.join(out,'runtime'),{recursive:true});
+const env={...process.env,RPT_TOOL_ROOT:path.join(out,'runtime')};delete env.ELECTRON_RUN_AS_NODE;
+const app=await electron.launch({executablePath:require('electron'),args:[process.cwd()],env,timeout:30000});
+const page=await app.firstWindow(),errors=[];page.on('pageerror',e=>errors.push(e.message));
+try{
+  await app.evaluate(({BrowserWindow,ipcMain},root)=>{
+    BrowserWindow.getAllWindows()[0].hide();
+    const settings={output:'project',suffix:'-kr',scale:'default',source_language:'english',show_reference:true,language_corner:'right',language_margin:12,theme:'light',gpu_mode:'auto',gpu_ids:[],inference_preset:'auto',inference_overrides:{}};
+    const values={num_ctx:16384,parallel:2,kv_cache_type:'q8_0',context_txt_enabled:true};
+    const snapshot={root,settings,tasks:{run:'번역',retranslate:'재번역',font:'폰트·메뉴 보정',names:'이름·호칭·입력 보정',failed:'미번역 복구',display:'원문 참고 표시 보정',layout:'대화창·선택지 표시 조정',answers:'입력 정답 표시',routes:'선택지 힌트',language:'언어 전환 패널'},fixes:['font','names','failed','display','layout'],defaultModel:'test-hy',runtime:'Ollama · test',gpus:[{id:'GPU-0001',name:'NVIDIA GeForce RTX 4070 SUPER',total:12288,used:0,utilization:0,driver:'test',selectable:true,active:false}],models:[],warnings:[],inference:{presets:[{...values,id:'12gb',minimum_total_mib:11264,support:'measured'}],detected_profile:'12gb',total_mib:12288,support:'measured',recommended:values,effective:values,selected_preset:'auto',overrides:{},reduced_only:false,warnings:[],estimated:false}};
+    const library={selected:'test-hy',installed:[{id:'test-hy',title:'HY-MT2-7B',size:6000000000,ready:true,quantization:'Q6_K',estimatedMemory:8000000000},{id:'test-other',title:'테스트 모델',size:4000000000,ready:true,estimatedMemory:6000000000}],pending:[],folder:root+'/models'};
+    const idle={running:false,canceling:false,exitCode:null,result:null,stage:'대기 중',completed:null,total:null,started:null};
+    let job=idle;const reply=fn=>async(_e,...args)=>({ok:true,value:await fn(...args)});
+    const handle=(id,fn)=>{ipcMain.removeHandler('rpt:'+id);ipcMain.handle('rpt:'+id,reply(fn));};
+    handle('info',()=>snapshot);
+    handle('appearance',theme=>theme==='dark');handle('save',s=>s);
+    handle('model',r=>{if(r.op==='search')return [];if(r.op==='select'){library.selected=r.model;snapshot.defaultModel=r.model;}return library;});
+    handle('project',r=>{const rpg=r.path.includes('RPG'),source=!r.path.endsWith('-kr');return {source,game_name:rpg?'SampleRPG':'SampleVN',engine:rpg?'rpgmaker':'renpy',engine_label:rpg?'RPG Maker MZ':'Ren’Py',supported:!r.path.includes('Unknown'),stop_message:r.path.includes('Unknown')?'지원되지 않는 게임입니다.':null,supported_tasks:rpg?['run','retranslate','font','failed','display','layout']:null,source_language:source?null:'japanese'};});
+    // Real start/cancel/reset/open handlers; the child process and OS folder opener are synthetic.
+    const require=process.getBuiltinModule('node:module').createRequire(process.cwd()+'/test.js');
+    const cp=require('node:child_process'),fs=require('node:fs'),{EventEmitter}=require('node:events'),{PassThrough,Writable}=require('node:stream');
+    const exec=cp.execFile,spawn=cp.spawn;
+    cp.execFile=(exe,args,opts,callback)=>{
+      if(!args.includes('--desktop-project')&&!args.includes('--desktop-models'))return exec(exe,args,opts,callback);
+      const p=new EventEmitter();p.stdin=new Writable({write(chunk,_enc,done){const r=JSON.parse(chunk.toString());const result=args.includes('--desktop-models')?{result:null}:{engine:'rpgmaker',supported:true,supported_tasks:['run','retranslate','font','failed','display','layout'],stop_message:null};done();setTimeout(()=>callback(null,JSON.stringify(result),''),0);}});return p;
+    };
+    cp.spawn=(exe,args,opts)=>{
+      if(!args.includes('--desktop-run'))return spawn(exe,args,opts);
+      const p=new EventEmitter();p.stdout=new PassThrough();p.stderr=new PassThrough();
+      p.stdin=new Writable({write(chunk,_enc,done){globalThis.testRequest=JSON.parse(chunk.toString());done();setTimeout(()=>p.stdout.write('8/16 entries, batch 0.1s\n'),10);}});
+      const timer=setInterval(()=>{if(fs.existsSync(opts.env.RPT_CANCEL_FILE))globalThis.finishTestJob(130);},20);
+      globalThis.finishTestJob=(code)=>{clearInterval(timer);if(code===0)p.stdout.write('Output folder: '+root+'/project/SampleRPG-kr\n');if(code===1)p.stderr.write('Synthetic test failure\n');p.stdout.end();p.stderr.end();p.emit('close',code);};
+      return p;
+    };
+    const {shell}=require('electron');shell.openPath=async target=>{globalThis.openedFolder=target;return globalThis.failOpen?'Synthetic folder-open error':'';};
+
+  },root);
+  await page.reload();await page.waitForFunction(()=>document.body.dataset.ready==='true');
+  await page.locator('[data-page=info]').click();await page.locator('button[data-theme=light]').click();await page.locator('[data-page=translate]').click();
+  assert.equal(await page.locator('[data-page=advanced]').count(),0);
+  assert.equal(await page.locator('input[name=source]').count(),0);
+  assert.equal(await page.locator('#wizard-next').isDisabled(),true);
+  const choose=async(folder)=>{await page.locator('#source-path').fill(folder);await page.locator('#source-path').press('Tab');await page.waitForFunction(()=>!document.querySelector('#wizard-next').disabled);};
+  const next=async()=>{await page.locator('#wizard-next').click();};
+  const back=async()=>{await page.locator('#back').click();};
+  await choose('X:/SampleVN-kr');assert.match(await page.locator('#engine-note').innerText(),/기존 프로젝트/);
+  assert.equal(await page.locator('#source-language').inputValue(),'japanese');
+  await page.locator('#task-options summary').first().click();
+  await page.locator('[data-task=retranslate]').check();assert.equal(await page.locator('[data-task=run]').isChecked(),false);
+  await page.locator('#repairs summary').click();await page.locator('[data-task=display]').check();assert.equal(await page.locator('[data-task=retranslate]').isChecked(),false);
+  await page.locator('[data-task=display]').uncheck();assert.equal(await page.locator('#wizard-next').isDisabled(),true);
+  await page.locator('[data-task=run]').check();await page.locator('[data-task=routes]').check();
+  await page.locator('#task-options summary').first().click();
+  await page.screenshot({path:path.join(out,'01-game-light.png')});
+  await next();await page.waitForFunction(()=>document.querySelector('#wizard-model').options.length===3);
+  await page.locator('#wizard-model').selectOption('test-other');await page.waitForFunction(()=>!document.querySelector('#wizard-next').disabled);
+  await page.screenshot({path:path.join(out,'02-model-light.png')});
+  await next();await page.locator('#display-options summary').first().click();
+  assert.equal(await page.locator('#renpy-display').isVisible(),true);
+  await page.screenshot({path:path.join(out,'03-output-renpy-light.png')});
+  await page.locator('#show-reference').uncheck();await page.locator('#scale').fill('1.2');
+  await next();assert.match(await page.locator('#review').innerText(),/한국어만/);assert.match(await page.locator('#review').innerText(),/테스트 모델|test-other/);
+  await page.screenshot({path:path.join(out,'04-review-light.png')});
+  // Light/dark preserve the wizard's path, tasks and chosen options.
+  await page.locator('[data-page=info]').click();await page.locator('button[data-theme=dark]').click();await page.locator('[data-page=translate]').click();
+  assert.match(await page.locator('#step-count').innerText(),/4/);await back();
+  await page.screenshot({path:path.join(out,'03-output-renpy-dark.png')});
+  await back();await back();await choose('X:/SampleRPG-kr');
+  await page.locator('#task-options summary').first().click();
+  for(const k of ['names','answers','routes','language'])assert.equal(await page.locator(`[data-task=${k}]`).isVisible(),false,k);
+  assert.equal(await page.locator('[data-task=routes]').isChecked(),false);
+  await page.locator('#repairs summary').click(); // close from earlier test
+  await page.locator('#repairs summary').click();
+  await page.locator('[data-task=display]').check();assert.equal(await page.locator('[data-task=run]').isChecked(),false);
+  await next();await next();assert.equal(await page.locator('#renpy-display').isVisible(),false);
+  await page.screenshot({path:path.join(out,'03-output-rpg-dark.png')});
+  await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].setSize(920,720));
+  await page.screenshot({path:path.join(out,'03-output-rpg-small.png')});
+  const box=await page.locator('.wizard-footer').boundingBox(),size=await page.evaluate(()=>({w:innerWidth,h:innerHeight}));
+  assert(box.y+box.height<=size.h+1);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+  await next();await page.locator('#start').click();
+  await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('8 / 16'));
+  assert.equal(await page.locator('#source-path').isDisabled(),true);
+  await page.screenshot({path:path.join(out,'05-running-dark.png')});
+  await page.locator('#cancel').click();await page.waitForFunction(()=>document.querySelector('#status').textContent==='취소됨');
+  const request=await app.evaluate(()=>globalThis.testRequest);assert.equal(request.source,false);assert.deepEqual(request.tasks,['display']);assert.equal(request.settings.show_reference,false);assert.equal(request.settings.scale,'1.2');
+  await back();await back();await back();await back();
+  await page.locator('#source-path').fill('X:/Unknown');await page.locator('#source-path').press('Tab');await page.waitForFunction(()=>document.querySelector('#engine-note').textContent.includes('지원되지'));
+  assert.equal(await page.locator('#wizard-next').isDisabled(),true);
+  // Successful completion requires confirmation, and then clears UI and main-process state.
+  const runAgain=async()=>{await page.locator('#task-options').evaluate(d=>d.open=true);await page.locator('[data-task=run]').check();await choose('X:/SampleRPG-kr');for(let i=0;i<3;i++)await next();await page.locator('#start').click();await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('8 / 16'));};
+  await page.locator('#source-path').fill('');await page.locator('#source-path').press('Tab');
+  await runAgain();
+  await app.evaluate(()=>globalThis.finishTestJob(0));
+  await page.waitForFunction(()=>!document.querySelector('#completion-pane').hidden);
+  assert.equal(await page.locator('#finish').innerText(),'확인');assert.equal(await page.locator('#start').isVisible(),false);
+  assert.equal(await page.locator('#completion-result').isVisible(),true);
+  await page.screenshot({path:path.join(out,'06-completed-dark.png')});
+  await page.locator('#finish').click();
+  await page.waitForFunction(()=>document.querySelector('#step-count').textContent==='1 / 4');
+  const assertReset=async()=>{
+    assert.equal(await page.locator('#source-path').inputValue(),'');assert.equal(await page.locator('#log').textContent(),'');
+    assert.equal(await page.locator('#completion-pane').isVisible(),false);assert.equal(await page.locator('#task-options').getAttribute('open'),null);
+    assert.equal(await page.locator('[data-task=run]').isChecked(),true);assert.equal(await page.locator('[data-task=display]').isChecked(),false);
+    assert.equal(await page.locator('#scale').inputValue(),'default');assert.equal(await page.locator('#show-reference').isChecked(),true);
+    assert.equal(await page.locator('#wizard-next').isDisabled(),true);assert.equal(await page.locator('#wizard-model').inputValue(),'test-other');
+    const state=await page.evaluate(()=>window.rpt.state());assert.equal(state.value.job.exitCode,null);assert.equal(state.value.job.result,null);assert.equal(state.value.log,'');
+  };
+  await assertReset();
+  // A failed folder open leaves the failure screen and its log intact. A successful open resets.
+  await runAgain();await app.evaluate(()=>globalThis.finishTestJob(1));
+  await page.waitForFunction(()=>document.querySelector('#finish').textContent==='로그 폴더 열기');
+  await page.screenshot({path:path.join(out,'07-failed-dark.png')});
+  await app.evaluate(()=>{globalThis.failOpen=true;});await page.locator('#finish').click();
+  await page.waitForFunction(()=>document.querySelector('#message').textContent.includes('folder-open'));
+  assert.equal(await page.locator('#completion-pane').isVisible(),true);assert.notEqual(await page.locator('#source-path').inputValue(),'');
+  assert.match(await page.locator('#completion-log').textContent(),/Synthetic test failure/);
+  await app.evaluate(()=>{globalThis.failOpen=false;});await page.locator('#finish').click();
+  await page.waitForFunction(()=>document.querySelector('#step-count').textContent==='1 / 4');await assertReset();
+  assert.match(await app.evaluate(()=>globalThis.openedFolder),/logs$/);
+  assert.equal(await page.evaluate(()=>typeof window.require),'undefined');assert.equal(await page.evaluate(()=>typeof window.process),'undefined');assert.deepEqual(errors,[]);
+  const report={passed:true,checks:['single automatic folder picker','four-step navigation','task mutual exclusion and independent fixes','project language restored','installed model selection','shared original reference toggle','RPG unsupported controls hidden','light/dark settings retained','920x720 scrollable layout','job request/progress/locking/cancel','unknown engines blocked','success confirmation resets UI and main state','error logs open then reset','failed folder open retains log','selected model retained','isolated renderer'],screenshots:10,gameOrModelExecuted:false};
+  await writeFile(path.join(out,'report.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2));
+}finally{await app.close();}

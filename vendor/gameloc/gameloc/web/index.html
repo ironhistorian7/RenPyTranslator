@@ -1,0 +1,2112 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="/favicon.ico">
+<title>Gameloc</title>
+<style>
+:root{
+  --bg:#14161a; --panel:#1c1f26; --panel2:#22262f; --line:#2e333d;
+  --text:#e6e9ef; --dim:#98a0ae; --faint:#6b7382;
+  --accent:#6ea8fe; --accent-dim:#2d4a7c;
+  --ok:#5dd39e; --warn:#e8c468; --bad:#f28b82;
+  --input:#fff8dc;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; background:var(--bg); color:var(--text);
+  font:14px/1.55 "Malgun Gothic","Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif;
+  display:flex; flex-direction:column; overflow:hidden;
+}
+button{
+  font:inherit; color:var(--text); background:var(--panel2);
+  border:1px solid var(--line); border-radius:7px; padding:7px 14px; cursor:pointer;
+}
+button:hover:not(:disabled){background:#2b313c; border-color:#3d4553}
+button:disabled{opacity:.4; cursor:default}
+button.primary{background:var(--accent); border-color:var(--accent); color:#0d1117; font-weight:700}
+button.primary:hover:not(:disabled){background:#8bbcff}
+button.danger{color:var(--bad); border-color:#4a2f2f}
+button.ghost{background:transparent}
+button.big{font-size:16px; padding:14px 30px; border-radius:10px}
+input[type=text],select,textarea{
+  font:inherit; color:var(--text); background:#12141a;
+  border:1px solid var(--line); border-radius:7px; padding:7px 10px; outline:none;
+}
+input[type=text]:focus,textarea:focus,select:focus{border-color:var(--accent)}
+.row{display:flex; gap:10px; align-items:center}
+.spacer{flex:1}
+.mono{font-family:Consolas,"D2Coding",monospace}
+
+header{
+  padding:12px 18px; border-bottom:1px solid var(--line); background:var(--panel);
+  display:flex; align-items:center; gap:14px; flex-shrink:0;
+}
+.logo{font-weight:800; letter-spacing:-.4px; font-size:16px}
+.logo span{color:var(--accent)}
+.steps{display:flex; gap:6px; align-items:center; color:var(--faint); font-size:12.5px}
+.steps b{color:var(--faint); font-weight:600}
+.steps .on b{color:var(--accent)}
+.badge{font-size:12px; color:var(--dim); background:var(--panel2);
+  border:1px solid var(--line); border-radius:20px; padding:3px 11px}
+
+main{flex:1; overflow:hidden; display:flex; flex-direction:column}
+.view{display:none; flex:1; overflow:auto; padding:26px}
+.view.on{display:flex; flex-direction:column}
+
+.center{max-width:760px; margin:auto; width:100%}
+.card{background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:22px}
+.card + .card{margin-top:14px}
+h2{margin:0 0 4px; font-size:17px}
+.hint{color:var(--dim); font-size:13px; margin:0 0 16px}
+.drop{border:2px dashed var(--line); border-radius:12px; padding:34px 20px;
+  text-align:center; color:var(--dim); transition:.15s; cursor:pointer}
+.drop:hover,.drop.over{border-color:var(--accent); background:#1a1f2b; color:var(--text)}
+.drop b{display:block; font-size:15px; color:var(--text); margin-bottom:6px}
+.oneclick{margin-top:16px; padding:18px; border-radius:12px; text-align:center;
+  background:linear-gradient(180deg,#1e2635,#1a1f2b); border:1px solid #2f3d55}
+.oneclick .sub{margin-top:11px; font-size:12.5px; color:var(--dim); line-height:1.6}
+.opts{display:flex; gap:16px; flex-wrap:wrap; align-items:center; margin-top:14px;
+  padding-top:14px; border-top:1px solid var(--line)}
+label.chk{display:flex; gap:7px; align-items:center; color:var(--dim); font-size:13px; cursor:pointer}
+/* 고급 설정 안을 '뽑기 설정' 과 '잘 안 될 때' 두 묶음으로 나눕니다.
+   버튼이 한 줄에 몰려 있으면 무엇이 무엇인지 구분이 안 됩니다. */
+.group{margin-top:18px; padding-top:14px; border-top:1px solid var(--line)}
+.group > h3{margin:0 0 10px; font-size:12px; color:var(--faint); font-weight:700}
+.group .opts{margin-top:0; padding-top:0; border-top:0}
+.tool{display:flex; gap:13px; align-items:center; padding:6px 0}
+.tool > button{min-width:168px; text-align:left}
+.tool .desc{color:var(--dim); font-size:12.5px; line-height:1.5}
+.filelist{margin-top:10px}
+.filelist summary{cursor:pointer; color:var(--faint); font-size:12.5px; list-style:none}
+.filelist summary::-webkit-details-marker{display:none}
+.filelist summary::before{content:"▸ "; color:var(--faint)}
+.filelist[open] summary::before{content:"▾ "}
+
+.log{background:#0e1014; border:1px solid var(--line); border-radius:9px; padding:12px 14px;
+  font-family:Consolas,"D2Coding",monospace; font-size:12.5px; color:var(--dim);
+  max-height:260px; overflow:auto; white-space:pre-wrap; word-break:break-all}
+
+/* 창이 좁으면 **줄을 바꿉니다.**
+   예전에는 한 줄에 다 밀어 넣어서, 노트북처럼 가로가 짧은 화면에서는
+   [적용이 안 되었나요?] 같은 버튼이 화면 밖으로 밀려나 아예 못 눌렀습니다.
+   가로 스크롤도 안 생겨서 거기 버튼이 있다는 것조차 몰랐습니다. */
+.toolbar{display:flex; flex-wrap:wrap; gap:7px; row-gap:8px;
+  align-items:center; padding:9px 14px;
+  border-bottom:1px solid var(--line); background:var(--panel); flex-shrink:0}
+.toolbar button{padding:6px 10px; font-size:12.5px; white-space:nowrap; flex-shrink:0}
+.toolbar > *{flex-shrink:0}
+.toolbar select, .toolbar input[type=text]{flex-shrink:1; min-width:80px}
+.toolbar .sep{width:1px; height:22px; background:var(--line); margin:0 3px}
+/* 툴바가 버튼으로 빽빽해져서, 자주 안 쓰는 것들(엑셀 관련 4개, 손번역 도구 2개)을
+   드롭다운 하나로 묶습니다. 안의 버튼은 그대로 두고(같은 id, 같은 동작) 여는 방식만 바꿉니다. */
+.dd{position:relative}
+.dd-menu{position:absolute; top:calc(100% + 6px); left:0; z-index:40;
+  display:none; flex-direction:column; gap:3px; min-width:210px; padding:6px;
+  background:var(--panel2); border:1px solid var(--line); border-radius:9px;
+  box-shadow:0 10px 28px rgba(0,0,0,.4)}
+.dd-menu.on{display:flex}
+.dd-menu button{width:100%; text-align:left; background:transparent; border-color:transparent}
+.dd-menu button:hover{background:#333a46; border-color:#3d4553}
+.seg{display:flex; border:1px solid var(--line); border-radius:7px; overflow:hidden}
+.seg button{border:0; border-radius:0; padding:6px 13px; background:transparent;
+  font-size:13px; white-space:nowrap}
+.seg button.on{background:var(--accent-dim); color:#fff}
+/* 작업 상태 줄(경과 시간·마지막 소식)과 자동번역 실시간 보기 */
+.jobstat{font-size:12.5px; color:var(--dim); margin:0 0 8px; display:flex; gap:8px;
+  align-items:center; flex-wrap:wrap}
+.jobstat .beat{display:inline-block; width:8px; height:8px; border-radius:50%;
+  background:var(--ok); animation:beat 1.2s ease-in-out infinite}
+.jobstat.stale .beat{background:#d9a441; animation:none}
+@keyframes beat{0%,100%{opacity:.25}50%{opacity:1}}
+.live{background:#0e1014; border:1px solid var(--line); border-radius:9px; margin:0 0 10px;
+  max-height:34vh; overflow:auto; font-size:12.5px}
+.live .lv{padding:7px 12px; border-bottom:1px solid var(--line)}
+.live .lv:last-child{border-bottom:0}
+.live .lv .s{color:var(--faint); white-space:pre-wrap; word-break:break-word}
+.live .lv .o{color:var(--text); margin-top:2px; white-space:pre-wrap; word-break:break-word}
+.live .lv.bad .o{color:#e5807a}
+.bar{height:6px; background:var(--panel2); border-radius:4px; width:100px; overflow:hidden}
+.bar i{display:block; height:100%; background:var(--ok); width:0; transition:width .25s}
+
+.split{flex:1; display:flex; overflow:hidden}
+.list{flex:1; overflow:auto; border-right:1px solid var(--line)}
+table{width:100%; border-collapse:collapse; table-layout:fixed}
+th{position:sticky; top:0; z-index:2; background:var(--panel); text-align:left;
+  font-size:12px; color:var(--faint); font-weight:600; padding:9px 12px;
+  border-bottom:1px solid var(--line)}
+td{padding:9px 12px; border-bottom:1px solid #23262e; vertical-align:top; font-size:13.5px}
+tr{cursor:pointer}
+tr:hover td{background:#1a1d24}
+tr.sel td{background:#1e2637}
+tr.sel td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
+.src{white-space:pre-wrap; word-break:break-word}
+.tr{white-space:pre-wrap; word-break:break-word; color:var(--ok)}
+.tr:empty::before{content:"—"; color:#3d4350}
+.where{font-size:11.5px; color:var(--faint); word-break:break-all}
+.pill{font-size:11px; color:var(--warn); border:1px solid #46402a; border-radius:10px;
+  padding:0 6px; margin-left:6px; white-space:nowrap}
+.pill.mt{color:#b9a6ff; border-color:#3a3160}
+.tr.mtv{color:#b9a6ff}
+/* 게임 코드(DLL)에 박힌 글자는 자리가 고정이라, 넘치면 그 자리에 아예 안
+   들어갑니다. 목록·편집창 양쪽에서 넘쳤는지 바로 보이게 빨강/초록으로 표시. */
+.pill.ok{color:var(--ok); border-color:#2c4c3c}
+.pill.bad{color:var(--bad); border-color:#4a2f2f}
+.tr.overflow{color:var(--bad)}
+#edTr.overflow{border-color:var(--bad); box-shadow:0 0 0 1px var(--bad)}
+.field{display:flex; flex-direction:column; gap:6px; margin-bottom:14px}
+.field label{font-size:12.5px; color:var(--dim)}
+.field .sub{font-size:12px; color:var(--faint); margin-top:-2px}
+.radio{display:flex; gap:14px; flex-wrap:wrap}
+.radio label{display:flex; gap:6px; align-items:center; font-size:13px; color:var(--text)}
+
+.editor{width:44%; min-width:360px; display:flex; flex-direction:column; background:var(--panel)}
+.editor .head{padding:11px 16px; border-bottom:1px solid var(--line);
+  font-size:12px; color:var(--faint); word-break:break-all}
+.editor .pane{padding:14px 16px; display:flex; flex-direction:column; gap:6px}
+.editor .pane.grow{flex:1; min-height:0}
+.editor label{font-size:12px; color:var(--faint)}
+.orig{background:#12141a; border:1px solid var(--line); border-radius:8px; padding:11px 13px;
+  white-space:pre-wrap; word-break:break-word; max-height:34vh; overflow:auto; color:#cfd6e2}
+textarea{flex:1; resize:none; background:var(--input); color:#1b1f27; min-height:120px;
+  border-color:#c9c18f; font-size:14px}
+.editor .foot{padding:11px 16px; border-top:1px solid var(--line);
+  display:flex; gap:9px; align-items:center; font-size:12px; color:var(--faint)}
+kbd{background:#2a2f39; border:1px solid #3a4150; border-bottom-width:2px; border-radius:4px;
+  padding:1px 6px; font-size:11px; font-family:inherit; color:var(--dim)}
+.empty{padding:60px 20px; text-align:center; color:var(--faint)}
+
+#toast{position:fixed; left:50%; bottom:26px; transform:translateX(-50%);
+  background:#2b313c; border:1px solid var(--line); border-radius:9px;
+  padding:10px 18px; opacity:0; pointer-events:none; transition:.2s; z-index:50}
+#toast.on{opacity:1}
+#toast.bad{border-color:#5a3434; color:var(--bad)}
+.modal{position:fixed; inset:0; background:rgba(8,9,12,.72); display:none;
+  align-items:center; justify-content:center; z-index:40; padding:20px}
+.modal.on{display:flex}
+.modal .card{width:min(680px,100%); max-height:80vh; overflow:auto}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">Game<span>loc</span></div>
+  <span class="badge" id="verBadge" title="지금 실행 중인 버전">__GAMELOC_VERSION__</span>
+  <span class="badge" title="GNU General Public License v3.0 이상 · 만든 사람 하진&#10;고쳐서 배포하려면 소스도 함께 공개해야 합니다">GPL-3.0</span>
+  <div class="steps">
+    <span id="s1" class="on"><b>1 폴더</b></span> ›
+    <span id="s2"><b>2 뽑기</b></span> ›
+    <span id="s3"><b>3 번역</b></span> ›
+    <span id="s4"><b>4 적용</b></span>
+  </div>
+  <div class="spacer"></div>
+  <div class="badge" id="engineBadge" style="display:none"></div>
+  <button class="ghost" id="btnBack" style="display:none">← 폴더 다시 고르기</button>
+</header>
+
+<main>
+  <!-- ================= 시작 ================= -->
+  <section class="view on" id="viewStart">
+    <div class="center">
+      <div class="card">
+        <h2>게임 폴더를 고르세요</h2>
+        <p class="hint">게임 실행파일(.exe)이 들어 있는 폴더입니다. 이 단계에서는 읽기만 하고 아무것도 바꾸지 않습니다.</p>
+        <div class="drop" id="drop">
+          <b>여기를 눌러 폴더 찾기</b>
+          경로를 알고 있다면 아래 칸에 붙여넣어도 됩니다
+        </div>
+        <div class="row" style="margin-top:12px">
+          <input type="text" id="pathInput" class="mono" style="flex:1" placeholder="D:\Games\MyGame">
+          <button id="btnScan">확인</button>
+        </div>
+      </div>
+
+      <div class="card" id="scanCard" style="display:none">
+        <h2 id="scanTitle">분석 결과</h2>
+        <p class="hint" id="scanSummary"></p>
+        <div class="hint" id="profileBox" style="display:none; margin-top:6px"></div>
+
+        <div class="oneclick" id="packedBox" style="display:none">
+          <button class="primary big" id="btnUnpack">📦 먼저 압축 풀기</button>
+          <div class="sub">Electron 게임입니다. 내용물이 <span class="mono">resources/app.asar</span>
+            한 덩어리에 묶여 있어서 그대로는 번역할 수 없습니다.<br>
+            풀어놓아도 게임은 그대로 실행됩니다. 되돌리려면 [원래대로]를 누르세요.</div>
+        </div>
+
+        <p class="hint" id="unknownNote" style="display:none">
+          알려진 엔진은 아니지만, 읽을 수 있는 텍스트 파일(json·csv·txt 등)이 있습니다.
+          그대로 진행해도 됩니다 — 대사가 이 파일들에 들어 있으면 잡힙니다.
+          [고급 설정]을 열면 어떤 파일을 읽을지 목록으로 볼 수 있습니다.
+        </p>
+
+        <p class="hint" id="safeNote" style="display:none">
+          🛡️ Ren'Py 게임입니다. 원본 스크립트는 <b>한 글자도 고치지 않습니다.</b>
+          번역문을 담은 파일 두 개를 <span class="mono">game</span> 폴더에 새로 넣는
+          방식이라, 번역이 틀려도 게임이 죽지 않고 원문이 나올 뿐입니다.
+        </p>
+
+        <div class="oneclick" id="normalBox">
+          <button class="primary big" id="btnStart">문장 뽑기</button>
+          <div class="sub">게임에서 번역할 문장을 찾아 표로 만듭니다. <b>읽기만 하고 아무것도 안 바꿉니다.</b><br>
+            뽑고 나면 표에서 <b>[⚡ 자동번역]</b> 으로 채우고, 훑어본 뒤 <b>[게임에 적용]</b> 합니다.</div>
+        </div>
+
+        <div class="group" id="patchGroup" style="display:none">
+          <h3>번역 패치 (실험 반복용)</h3>
+          <div class="tool">
+            <button class="ghost" id="btnPatchApply">📦 번역 패치 넣기</button>
+            <button class="ghost" id="btnPatchRestore">↩ 원래대로</button>
+            <div class="desc">이 게임에 전에 저장해 둔 <b>번역 패치</b>(.zip)를 바로 넣습니다.
+              뽑기·번역·적용을 다시 하지 않아 몇 초면 끝납니다.
+              넣기 전에 <b>같은 게임 버전인지 확인</b>하고 원본을 백업하므로 [원래대로]로 되돌릴 수 있습니다.
+              패치는 번역 화면의 <b>[📦 패치 저장]</b> 으로 만듭니다.<br>
+              <b>본인이 산 게임의 실험용입니다.</b> 패치에는 게임 파일 일부가 들어 있어
+              남에게 나눠 주면 안 되고, 남이 만든 패치는 믿을 수 있는 것만 쓰세요.</div>
+          </div>
+        </div>
+
+        <div class="group" id="troubleGroup" style="display:none">
+          <h3>잘 안 될 때</h3>
+          <div class="tool" id="toolPeek" style="display:none">
+            <button class="ghost" id="btnPeek">🔍 안을 들여다보기</button>
+            <div class="desc">문장이 너무 적게 나올 때. 게임 파일을 <b>읽기만 해서</b>
+              무엇이 들어 있는지 적은 진단 파일을 만듭니다.</div>
+          </div>
+          <div class="tool" id="toolRenpy" style="display:none">
+            <button class="ghost" id="btnRenpyPieces">📚 대본 파일 골라 읽기</button>
+            <div class="desc">문장이 적게 나오거나, 묶음(<span class="mono">.rpa</span>)을
+              우리가 못 읽었을 때. <b>무엇이 있고 무엇이 왜 빠졌는지</b> 보여주고,
+              직접 고르거나 묶음을 풀어 볼 수 있습니다.</div>
+          </div>
+          <div class="tool" id="toolFont" style="display:none">
+            <button class="ghost" id="btnFont">🅰 한글 폰트 넣기</button>
+            <div class="desc">번역했는데 게임에서 <b>□□□</b> 로 나올 때. 글자는 이미
+              들어갔고 폰트에 한글 모양이 없어서 그렇습니다.<br>
+              <span id="fontRenpyNote" style="display:none">Ren'Py 는 글꼴 파일을
+                game 폴더에 <b>새로 넣기만</b> 합니다. 원본 글꼴은 그대로 있고,
+                [원래대로]를 누르면 넣은 파일이 지워집니다.<br></span>
+              <span class="row" style="margin-top:6px; gap:7px">
+                <span style="color:var(--faint)">쓸 글꼴</span>
+                <select id="fontSel" style="max-width:280px">
+                  <option value="">자동으로 고르기</option>
+                </select>
+                <button class="ghost" id="btnFontRefresh"
+                        style="padding:4px 9px; font-size:12px">새로고침</button>
+              </span>
+              <label class="chk" id="unfreezeRow" style="margin-top:6px"
+                     title="글자 그림이 통째로 구워진 폰트를 '실행 중에 그리기' 로 돌립니다. 그 폰트를 쓰는 화면의 □□□ 가 풀릴 수 있지만, 실제 게임에서 안 켜진 적이 있습니다.">
+                <input type="checkbox" id="optUnfreeze">
+                한 번 했는데도 <b>일부 화면만</b> □□□ 라면 켜 보세요 (위험)</label>
+              <div class="desc" id="unfreezeWarn" style="display:none; margin-top:4px; color:var(--warn, #d88)">
+                게임이 아예 안 켜질 수 있습니다. 그러면 [원래대로] 를 누르고
+                이 칸을 다시 끄면 됩니다. 게임 파일은 백업돼 있습니다.</div>
+              <label class="chk" id="osFontRow" style="margin-top:6px"
+                     title="구워진 글꼴을 '컴퓨터 글꼴로 그리기'(DynamicOS) 로 바꿉니다. 구워진 글자는 그대로 두고 없는 글자만 컴퓨터 글꼴로 채웁니다.">
+                <input type="checkbox" id="optOsFont">
+                그래도 □□□ 라면 <b>컴퓨터 글꼴로 그리게</b> 하기</label>
+              <div class="desc" id="osFontWarn" style="display:none; margin-top:4px">
+                게임 글꼴에 한글이 구워져 있지 않고 되살릴 원본도 없을 때 쓰는 길입니다.
+                이미 잘 나오는 글자는 그대로 두고 <b>없는 글자만</b> 채웁니다.
+                위 [위험] 칸과 달리 원본 글꼴 참조가 없어도 됩니다.</div>
+              </div>
+          </div>
+        </div>
+
+        <div class="row" style="margin-top:16px" id="normalRow">
+          <button id="btnOpenExisting" style="display:none">이어서 하기</button>
+          <div class="spacer"></div>
+          <button class="ghost" id="btnMore">고급 설정 ▾</button>
+        </div>
+
+        <div id="advanced" style="display:none">
+
+          <div class="group">
+            <h3>뽑기 설정</h3>
+            <div class="opts">
+              <label class="chk">언어
+                <input type="text" id="langsInput" value="ko" style="width:110px" class="mono">
+              </label>
+              <label class="chk" id="optFilterWrap">걸러내기
+                <select id="filterSel">
+                  <option value="loose">느슨 (많이)</option>
+                  <option value="normal" selected>보통</option>
+                  <option value="strict">엄격 (확실한 것만)</option>
+                </select>
+              </label>
+              <label class="chk"><input type="checkbox" id="optNoDedup"> 같은 문장 합치지 않기</label>
+              <label class="chk"><input type="checkbox" id="optNotes"> 메모칸 포함</label>
+              <label class="chk" title="플러그인 소스 안에 박힌 문구까지 번역합니다. 주석·정규식·코드는 건드리지 않고, 바꾼 뒤 다시 읽어 확인합니다. 그래도 플러그인이 그 문구로 서로를 비교하고 있었다면 동작이 달라질 수 있으니, 이상하면 되돌리기를 누르세요.">
+                <input type="checkbox" id="optJs"> 플러그인 js 파일까지</label>
+              <label class="chk" title="플러그인이 이름으로 쓰는 값까지 번역 대상에 넣습니다. 게임이 죽을 수 있습니다.">
+                <input type="checkbox" id="optAllParams"> 플러그인 설정 전부 (위험)</label>
+              <label class="chk" id="optSystemRow" style="display:none"
+                     title="system 에는 보통 개발자용 문서와 플러그인 소스가 들어 있어 화면에 안 나옵니다. 그런데 게임에 따라 진짜 대사를 거기 두기도 합니다.">
+                <input type="checkbox" id="optSystem"> system 폴더까지 (티라노)</label>
+              <label class="chk" title="씬(level0, level1 …)에는 화면에 놓인 글자가 들어 있습니다. 유니티 게임은 대사가 여기 있는 경우가 가장 흔해서 기본으로 읽습니다. 큰 게임에서 너무 느리면 끄세요 — 대신 대사가 통째로 안 나올 수 있습니다."><input type="checkbox" id="optScenes"> 씬 파일 건너뛰기 (빠름)</label>
+              <label class="chk" id="optDllRow" style="display:none"
+                     title="어떤 게임은 메뉴·확인창 문구를 데이터가 아니라 게임 프로그램(코드) 안에 글자 그대로 적어 둡니다. 데이터를 번역해도 화면이 일본어 그대로일 때 켜세요. 번역이 원문보다 길면 그 문장은 못 넣습니다.">
+                <input type="checkbox" id="optDll"> 게임 코드(DLL)에 박힌 글자까지 (유니티 Mono · 실험)</label>
+              <label class="chk" id="srcLangWrap"
+                     title="영어·일본어·중국어를 함께 담은 게임에서, 번역할 원문 언어만 골라 뽑습니다.">
+                원문 언어
+                <select id="optSrcLang" style="margin-left:6px">
+                  <option value="all">전부</option>
+                  <option value="en">영어만</option>
+                  <option value="ja">일본어만</option>
+                  <option value="zh">중국어만</option>
+                  <option value="ko">한국어만</option>
+                </select>
+                <span style="color:var(--faint); margin-left:8px; font-size:12px">
+                  여러 언어가 섞인 게임은 하나만 고르세요. 안 고르면 전부 뽑아 번역 양이 크게 늡니다</span>
+              </label>
+            </div>
+            <div class="row" style="margin-top:12px">
+              <details class="filelist" style="margin:0">
+                <summary id="filesSummary">읽을 파일 보기</summary>
+              </details>
+              <div class="spacer"></div>
+              <button class="primary" id="btnExtract">이 설정으로 뽑기</button>
+            </div>
+            <div class="log" id="scanFiles"
+                 style="max-height:130px; margin-top:8px; display:none"></div>
+          </div>
+
+
+      </div>
+
+      <div class="card" id="jobCard" style="display:none">
+        <h2 id="jobTitle">작업 중</h2>
+        <p class="hint" id="jobHint">끝나면 자동으로 넘어갑니다.</p>
+        <div class="jobstat" id="jobStat" style="display:none"></div>
+        <div class="log" id="jobLog"></div>
+        <div class="row" id="doneRow" style="display:none; margin-top:14px">
+          <button class="primary" id="btnGoWork">번역 화면 열기</button>
+          <button class="danger" id="btnUndoAll">원래대로 되돌리기</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 번역 ================= -->
+  <section class="view" id="viewWork">
+    <div class="toolbar" style="margin:-26px -26px 0">
+      <select id="langSel" style="width:92px"></select>
+      <button class="ghost" id="btnAddLang" title="언어 추가">＋</button>
+      <div class="seg" id="modeSeg">
+        <button data-mode="all" class="on">전체</button>
+        <button data-mode="todo">안 된 것</button>
+        <button data-mode="done">된 것</button>
+        <button data-mode="mt" title="기계번역이라 아직 사람이 확인하지 않은 항목">기계</button>
+      </div>
+      <select id="fileSel" style="max-width:210px" title="파일·맵 하나만 보기"></select>
+      <input type="text" id="search" placeholder="검색" style="width:140px; min-width:90px; flex-shrink:1">
+      <div class="spacer"></div>
+      <span id="progText" style="font-size:12.5px; color:var(--dim)"></span>
+      <div class="bar"><i id="progBar"></i></div>
+      <button class="primary" id="btnAuto">⚡ 자동번역</button>
+      <div class="sep"></div>
+      <div class="dd" id="ddExcel">
+        <button class="ghost" id="btnExcelMenu">📊 엑셀 ▾</button>
+        <div class="dd-menu" id="ddExcelMenu">
+          <button id="btnExport" title="작업 폴더에 translation.xlsx 로 내보냅니다">엑셀 ↓ (내보내기)</button>
+          <button id="btnExportSheets" title="구글 시트에서 바로 번역되도록 비어 있는 번역 칸에 번역 수식을 채워 내보냅니다. 사용법은 엑셀 안의 [정보] 시트에 있습니다">엑셀 ↓ (구글 시트용)</button>
+          <button id="btnImport" title="작업 폴더의 translation.xlsx 를 읽어옵니다">엑셀 ↑ (가져오기)</button>
+          <button id="btnFolder" title="작업 폴더 열기">📁 작업 폴더 열기</button>
+        </div>
+      </div>
+      <button id="btnHandoff" title="번역기 창에 통으로 붙여넣고 통으로 되받기">📋 통으로 옮기기</button>
+      <button id="btnLocale" class="ghost" style="display:none"
+              title="게임이 고르는 언어 표가 비어 있을 때 채웁니다">🗂 빈 언어표 채우기</button>
+      <button id="btnDllAdd" class="ghost" style="display:none"
+              title="씬·에셋은 그대로 두고, 게임 코드(DLL) 안의 글자만 다시 훑어 새 항목만 더합니다. 이미 있는 항목의 번역은 그대로입니다.">➕ DLL 글자 추가 뽑기</button>
+      <div class="dd" id="ddHand">
+        <button class="ghost" id="btnHandMenu">🧰 손번역툴 ▾</button>
+        <div class="dd-menu" id="ddHandMenu">
+          <button id="btnBulk" title="잘못 번역된 말을 한꺼번에 고치기">🔁 일괄 바꾸기</button>
+          <button id="btnFind" title="번역이 안 된 문장이 어디 있는지 찾기">🔎 어디있나</button>
+        </div>
+      </div>
+      <button id="btnStuck" class="ghost" title="적용했는데 게임이 그대로일 때">❓ 적용이 안 되었나요?</button>
+      <div class="sep"></div>
+      <button id="btnDry">미리보기</button>
+      <button class="primary" id="btnApply">게임에 적용</button>
+      <button id="btnFont" style="display:none"
+              title="번역은 그대로 두고 글꼴만 한글이 나오는 것으로 바꿉니다. 글자가 □□□ 로 나올 때 누르세요">🔤 한글 폰트 넣기</button>
+      <button id="btnPatchSave" class="ghost"
+              title="적용된 결과를 번역 패치 파일(.zip) 하나로 저장합니다. 같은 게임의 원본에 뽑기·번역 없이 바로 넣을 수 있습니다(실험용). 게임 파일 일부가 들어 있으니 남에게 나눠 주지 마세요.">📦 패치 저장</button>
+      <button id="btnPatchFolder" class="ghost"
+              title="적용된 결과를 폴더 하나로 내보냅니다. gameloc 없이, 그 폴더의 내용을 같은 게임의 원본 폴더에 복사해 덮어쓰기만 하면 번역된 게임이 됩니다(실험용). 게임 파일 일부가 들어 있으니 남에게 나눠 주지 마세요.">📁 덮어쓰기용 폴더</button>
+      <button class="danger" id="btnRestore">원래대로</button>
+    </div>
+
+    <div class="split">
+      <div class="list" id="listWrap">
+        <table>
+          <colgroup><col style="width:52%"><col style="width:48%"></colgroup>
+          <thead><tr><th>원문</th><th id="thTr">번역</th></tr></thead>
+          <tbody id="tbody"></tbody>
+        </table>
+        <div class="empty" id="listEmpty" style="display:none">조건에 맞는 항목이 없습니다.</div>
+      </div>
+
+      <aside class="editor">
+        <div class="head" id="edWhere">항목을 고르세요</div>
+        <div class="pane">
+          <label>원문</label>
+          <div class="orig" id="edOrig"></div>
+        </div>
+        <div class="pane grow">
+          <label id="edLangLabel">번역</label>
+          <span id="edMaxChars" class="pill" style="display:none"></span>
+          <textarea id="edTr" placeholder="여기에 번역을 입력하세요" spellcheck="false"></textarea>
+        </div>
+        <div class="foot">
+          <kbd>Ctrl</kbd>+<kbd>Enter</kbd> 저장하고 다음
+          <div class="spacer"></div>
+          <button id="btnCopy" class="ghost">원문 복사</button>
+          <button id="btnNext">다음 ↓</button>
+        </div>
+      </aside>
+    </div>
+  </section>
+</main>
+
+<div class="modal" id="findModal">
+  <div class="card">
+    <h2>이 문장 어디 있나</h2>
+    <p class="hint">게임에서 본 <b>번역 안 된 문장</b>을 붙여넣으세요. 어느 파일 어디에 있고
+      왜 목록에 없는지 알려줍니다. <b>제어문자와 줄바꿈은 무시하고</b> 대조하므로
+      한 줄만 넣어도 되고, 화면에서 본 대로 통째로 넣어도 됩니다.</p>
+    <div class="row">
+      <input type="text" id="findQ" style="flex:1" placeholder="厨房で彼女が待ってるはずだ。">
+      <button class="primary" id="findGo">찾기</button>
+    </div>
+    <div id="findOut" style="margin-top:14px"></div>
+    <div class="row" style="margin-top:14px">
+      <div class="spacer"></div>
+      <button id="findClose">닫기</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="stuckModal">
+  <div class="card">
+    <h2>적용이 안 되었나요?</h2>
+    <p class="hint">무엇이 안 되는지 고르시면, 그 경우에 <b>다음에 할 일</b>을 알려드립니다.</p>
+    <div id="stuckPick">
+      <label class="row" style="cursor:pointer"><input type="radio" name="stuck" value="notshown" checked>
+        <span>번역은 됐는데 <b>게임에 안 나온다</b></span></label>
+      <label class="row" style="cursor:pointer"><input type="radio" name="stuck" value="notfound">
+        <span>번역할 문장을 <b>아예 못 찾았다</b></span></label>
+      <label class="row" style="cursor:pointer"><input type="radio" name="stuck" value="boxes">
+        <span>글자가 <b>□□□</b> 로 나온다</span></label>
+      <label class="row" style="cursor:pointer"><input type="radio" name="stuck" value="hang">
+        <span>게임이 <b>안 켜지거나 무한 로딩</b>, 메뉴가 안 열린다</span></label>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button class="primary" id="stuckGo">다음</button>
+      <div class="spacer"></div>
+      <button id="stuckClose">닫기</button>
+    </div>
+    <div id="stuckOut" style="margin-top:14px"></div>
+  </div>
+</div>
+
+<div class="modal" id="autoModal">
+  <div class="card">
+    <h2>자동 번역</h2>
+    <p class="hint">기계번역은 <b>초벌</b>입니다. 넣은 뒤 <b>기계</b> 필터로 모아서 훑어보세요.</p>
+
+    <div class="field">
+      <label>번역 엔진</label>
+      <select id="provSel"></select>
+      <div class="sub" id="provNote"></div>
+    </div>
+
+    <div class="field" id="keyField">
+      <label>API 키</label>
+      <input type="text" id="provKey" class="mono" placeholder="키를 붙여넣으세요">
+      <label class="chk"><input type="checkbox" id="provRemember" checked>
+        이 컴퓨터에 저장 (게임 폴더가 아니라 내 사용자 폴더에 저장됩니다)</label>
+    </div>
+
+    <div class="field">
+      <label>범위</label>
+      <div class="radio">
+        <label><input type="radio" name="scope" value="todo" checked> 아직 안 된 것만</label>
+        <label><input type="radio" name="scope" value="all"> 전체 (기존 번역 덮어씀)</label>
+        <label><input type="radio" name="scope" value="ids"> 지금 화면에 보이는 것만</label>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>원문 언어</label>
+      <div class="radio">
+        <label><input type="radio" name="src" value="auto" checked> 자동 감지</label>
+        <label><input type="radio" name="src" value="ja"> 일본어</label>
+        <label><input type="radio" name="src" value="en"> 영어</label>
+        <label><input type="radio" name="src" value="zh"> 중국어</label>
+      </div>
+    </div>
+
+    <div class="field" id="baseField" style="display:none">
+      <label>주소</label>
+      <input type="text" id="provBase" class="mono"
+             placeholder="http://localhost:1234/v1">
+      <div class="sub">OpenAI 와 같은 방식으로 말하는 곳이면 다 됩니다.
+        <b>NVIDIA NIM</b> <span class="mono">https://integrate.api.nvidia.com/v1</span> ·
+        <b>LM Studio</b> <span class="mono">http://localhost:1234/v1</span> ·
+        <b>Ollama</b> <span class="mono">http://localhost:11434/v1</span></div>
+    </div>
+
+    <div class="field" id="modelField" style="display:none">
+      <label>모델 이름 <span id="modelOpt" style="color:var(--faint); font-weight:400"></span></label>
+      <input type="text" id="provModel" class="mono"
+             placeholder="그 서비스가 부르는 이름 그대로">
+      <div class="sub" id="modelNote"></div>
+    </div>
+
+    <div class="field" id="speedField">
+      <label>속도 <span style="color:var(--faint); font-weight:400">(구글 무료에만 걸립니다)</span></label>
+      <div class="radio">
+        <label><input type="radio" name="speed" value="safe"> 안전하게</label>
+        <label><input type="radio" name="speed" value="normal" checked> 보통</label>
+        <label><input type="radio" name="speed" value="fast"> 빠르게</label>
+      </div>
+      <div class="sub" id="speedNote"></div>
+    </div>
+
+    <div class="field">
+      <label>용어집 (선택)</label>
+      <textarea id="glossary" rows="4" style="background:#12141a; color:var(--text);
+        border-color:var(--line); min-height:0; resize:vertical"
+        placeholder="ユキ=유키&#10;図書館=도서관"></textarea>
+      <div class="sub">한 줄에 <span class="mono">원문=번역</span> 하나씩. 번역 뒤에 강제로 적용합니다.</div>
+    </div>
+
+    <div class="field" id="promptField" style="display:none">
+      <label>추가 지시문 (선택)</label>
+      <textarea id="autoPrompt" rows="3" style="background:#12141a; color:var(--text);
+        border-color:var(--line); min-height:0; resize:vertical"
+        placeholder="예: 이 문장들은 최대 10글자 이내로 짧게 번역하세요"></textarea>
+      <div class="sub">번역기에게 말로 직접 시킵니다. <b>말로 시키는 번역기(Claude·GPT·Gemini·호환
+        서버)만</b> 알아듣습니다 — 구글 무료·크롬·DeepL·파파고는 이 칸을 무시합니다.</div>
+    </div>
+
+    <div class="field">
+      <label>한 번에 최대 몇 개까지</label>
+      <input type="text" id="autoLimit" class="mono" value="200" style="width:100px">
+      <div class="sub">먼저 조금만 돌려서 품질을 보고 늘리세요. 0 = 제한 없음.</div>
+    </div>
+
+    <div class="row" style="margin-top:6px">
+      <div class="spacer"></div>
+      <button id="autoCancel" class="ghost">취소</button>
+      <button class="primary" id="autoStart">번역 시작</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="bulkModal">
+  <div class="card" style="max-width:760px">
+    <h2>일괄 바꾸기</h2>
+    <p class="hint">자동번역이 <b>coffee</b> 를 죄다 <b>호빵</b> 으로 옮겨놨을 때 쓰세요.
+      번역문에서 호빵만 찾아 바꾸면 <b>원래부터 호빵이던 줄</b>까지 바뀝니다.
+      그래서 <b>원문에 coffee 가 있는 줄</b>로 먼저 좁힙니다.</p>
+
+    <div class="field">
+      <label>① 원문에 이 말이 있는 줄만 <span style="color:var(--faint)">(비워두면 전부 — 위험)</span></label>
+      <input type="text" id="bulkSource" class="mono" placeholder="coffee">
+    </div>
+    <div class="field">
+      <label>② 그 줄의 번역문에서 이 말을</label>
+      <input type="text" id="bulkFind" class="mono" placeholder="호빵">
+    </div>
+    <div class="field">
+      <label>③ 이것으로 바꿉니다</label>
+      <input type="text" id="bulkReplace" class="mono" placeholder="커피">
+      <div class="sub">
+        <label class="chk"><input type="checkbox" id="bulkWord"> 낱말 단위로만 (영어·숫자에만 걸립니다)</label>
+        <label class="chk"><input type="checkbox" id="bulkCase"> 대소문자 구분</label>
+        <label class="chk" title="호빵이 → 커피가 처럼, 바꾼 말의 받침에 맞춰 뒤따르는 조사를 고칩니다."><input type="checkbox" id="bulkJosa" checked> 조사 자동 맞춤 (호빵<b>이</b> → 커피<b>가</b>)</label>
+      </div>
+    </div>
+
+    <div class="log" id="bulkPreview" style="max-height:38vh; display:none"></div>
+
+    <div class="row" style="margin-top:12px">
+      <button class="ghost" id="bulkUndo" title="방금 한 일괄 바꾸기를 되돌립니다">↩ 방금 것 되돌리기</button>
+      <div class="spacer"></div>
+      <button id="bulkCancel" class="ghost">닫기</button>
+      <button id="bulkCheck">미리보기</button>
+      <button class="primary" id="bulkGo" disabled>이대로 바꾸기</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="handoffModal">
+  <div class="card" style="max-width:860px">
+    <h2>통으로 옮기기 <span style="font-size:14px; font-weight:400; color:var(--faint)">반자동 번역</span></h2>
+    <p class="hint">문장을 <b>번호 붙여 한 덩이로</b> 뽑아 줍니다. 그대로 번역기 창에 붙여넣고,
+      나온 결과를 그대로 다시 가져오면 <b>제자리에 돌려놓습니다.</b>
+      한도도 차단도 없습니다 — 사람이 직접 붙여넣는 것이니까요.</p>
+
+    <div class="field">
+      <label>무엇을 옮길까</label>
+      <div class="radio">
+        <label><input type="radio" name="hoScope" value="todo" checked> 아직 안 된 것만</label>
+        <label><input type="radio" name="hoScope" value="all"> 전체 (기존 번역 덮어씀)</label>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button id="hoPlan" class="primary">내보낼 것 준비</button>
+        <div class="spacer"></div>
+        <span id="hoTotal" class="sub"></span>
+      </div>
+    </div>
+
+    <div id="hoWork" style="display:none">
+      <div class="field">
+        <label>몇 번째 덩이</label>
+        <div class="row">
+          <button id="hoPrev" class="ghost">←</button>
+          <select id="hoPick" class="mono" style="flex-grow:1"></select>
+          <button id="hoNext" class="ghost">→</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>① 이걸 복사해서 번역기에 붙여넣으세요</label>
+        <textarea id="hoOut" class="mono" rows="7" readonly
+                  style="width:100%; box-sizing:border-box"></textarea>
+        <div class="row" style="margin-top:6px">
+          <button id="hoCopy">📋 복사</button>
+          <div class="spacer"></div>
+          <span class="sub">번호는 지우지 마세요 — 제자리를 찾는 유일한 표식입니다.</span>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>② 번역된 결과를 여기 붙여넣으세요</label>
+        <textarea id="hoIn" class="mono" rows="7"
+                  placeholder="1. 사과&#10;2. 레몬&#10;3. 오렌지"
+                  style="width:100%; box-sizing:border-box"></textarea>
+      </div>
+
+      <div class="log" id="hoPreview" style="max-height:34vh; display:none"></div>
+    </div>
+
+    <div class="row" style="margin-top:12px">
+      <div class="spacer"></div>
+      <button id="hoClose" class="ghost">닫기</button>
+      <button id="hoCheck" disabled>미리보기</button>
+      <button class="primary" id="hoGo" disabled>이대로 넣기</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="modal">
+  <div class="card">
+    <h2 id="mTitle">결과</h2>
+    <div class="jobstat" id="mStat" style="display:none"></div>
+    <div class="live" id="mLive" style="display:none"></div>
+    <div class="log" id="mLog" style="max-height:50vh"></div>
+    <div class="row" style="margin-top:14px">
+      <div class="spacer"></div>
+      <button class="primary" id="mClose">닫기</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const TOKEN = '__GAMELOC_TOKEN__';   // 서버가 실행할 때마다 새로 채웁니다
+// 브라우저가 프로그램(검은 창)에 아예 닿지 못하면 'Failed to fetch' 라는 영어만
+// 나옵니다. 사용자는 뜻을 모르니, 흔한 까닭(검은 창을 닫음·옛 탭)을 알려 줍니다.
+const LOST = '프로그램(검은 창)과 연결이 끊겼습니다. 검은 창(2_start.bat)이 닫혔거나 '
+  + '꺼졌다면 다시 실행하세요. 다시 실행했다면 이 탭은 닫고 새로 열린 탭을 쓰세요. '
+  + '(옛 탭은 옛 프로그램에 연결돼 있습니다)';
+const api = async (path, body) => {
+  let r;
+  try{
+    r = await fetch(path, body === undefined
+      ? {headers:{'X-Gameloc-Token':TOKEN}}
+      : {method:'POST',
+         headers:{'Content-Type':'application/json', 'X-Gameloc-Token':TOKEN},
+         body:JSON.stringify(body)});
+  }catch(e){
+    throw new Error(e instanceof TypeError ? LOST : e.message);
+  }
+  const j = await r.json().catch(()=>({error:'응답을 읽지 못했습니다'}));
+  if (!r.ok || j.error) throw new Error(j.error || ('HTTP '+r.status));
+  return j;
+};
+let toastTimer;
+function toast(msg, bad){
+  const t = $('#toast'); t.textContent = msg; t.className = 'on' + (bad?' bad':'');
+  // 긴 안내(40자 넘는 것)는 읽을 시간이 필요합니다. 짧은 것은 예전 그대로 2.6초.
+  const ms = msg && String(msg).length > 40 ? Math.min(12000, 2600 + String(msg).length * 90) : 2600;
+  clearTimeout(toastTimer); toastTimer = setTimeout(()=>t.className='', ms);
+}
+function step(n){ [1,2,3,4].forEach(i => $('#s'+i).classList.toggle('on', i<=n)); }
+function esc(s){ return String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+const S = { path:'', lang:'ko', mode:'all', q:'', file:'', rows:[], sel:-1, total:0, engine:'' };
+
+/* ---------------- 시작 화면 ---------------- */
+$('#drop').onclick = async () => {
+  try{
+    const j = await api('/api/pick', {});
+    if (j.path){ $('#pathInput').value = j.path; scan(); }
+  }catch(e){ toast('폴더 창을 열지 못했습니다. 경로를 붙여넣어 주세요.', true); }
+};
+$('#btnScan').onclick = scan;
+$('#pathInput').addEventListener('keydown', e => { if (e.key==='Enter') scan(); });
+
+const drop = $('#drop');
+['dragover','dragenter'].forEach(ev => drop.addEventListener(ev, e => {
+  e.preventDefault(); drop.classList.add('over'); }));
+['dragleave','drop'].forEach(ev => drop.addEventListener(ev, e => {
+  e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', e => {
+  const f = e.dataTransfer.files[0];
+  if (f && f.path){ $('#pathInput').value = f.path; scan(); }
+  else toast('브라우저 보안 때문에 끌어놓기로는 경로를 못 읽습니다. 눌러서 고르세요.', true);
+});
+
+async function scan(){
+  const p = $('#pathInput').value.trim();
+  if (!p) return toast('폴더 경로를 넣어주세요.', true);
+  try{
+    const j = await api('/api/scan', {path:p});
+    S.path = p; S.engine = j.engine;
+    $('#scanCard').style.display = '';
+    $('#scanSummary').textContent = j.summary;
+    // 엔진을 몰라도 읽을 수 있는 텍스트 파일이 있으면 해볼 만합니다.
+    $('#scanTitle').textContent =
+      j.supported ? ((j.profile && j.profile.verdict === '일부') ? '이 게임, 일부는 됩니다' : '이 게임, 됩니다')
+      : j.looseCount ? '엔진은 모르지만, 해볼 만합니다'
+      : '번역할 것을 찾지 못했습니다';
+    $('#unknownNote').style.display = (!j.supported && j.looseCount) ? '' : 'none';
+    const shown = j.files.length ? j.files : j.looseFiles || [];
+    $('#filesSummary').textContent = `읽을 파일 ${j.fileCount || shown.length}개 보기`;
+    $('#filesSummary').closest('details').open = false;
+    $('#scanFiles').style.display = 'none';
+    $('#scanFiles').textContent = shown.length
+      ? shown.join('\n') + (j.fileCount > shown.length && j.files.length
+          ? `\n… 외 ${j.fileCount-shown.length}개` : '')
+      : '읽을 수 있는 파일을 찾지 못했습니다.';
+    $('#safeNote').style.display = j.safeMode ? '' : 'none';
+    $('#patchGroup').style.display = j.supported ? '' : 'none';
+    // 게임 유형 판별 결과: 뽑기 전에 '되는 유형인지, 무엇을 조심할지' 를 보여 줍니다.
+    const pb = $('#profileBox');
+    if (j.profile){
+      const pf = j.profile;
+      pb.innerHTML = `<div><b>유형</b> ${esc(pf.label)} → <b>${esc(pf.verdict)}</b></div>`
+        + (pf.traits || []).map(t => `<div>· ${esc(t)}</div>`).join('')
+        + (pf.notes || []).map(t => `<div style="color:#d9a441">⚠ ${esc(t)}</div>`).join('');
+      pb.style.display = '';
+    } else { pb.style.display = 'none'; }
+    $('#optFilterWrap').style.display =
+      ['rpgmaker','renpy','tyrano','wolf'].includes(j.engine) ? 'none' : '';
+    $('#optScenes').closest('label').style.display = j.engine === 'unity' ? '' : 'none';
+    $('#srcLangWrap').style.display = j.engine === 'unity' ? '' : 'none';
+    $('#optDllRow').style.display =
+      (j.engine === 'unity' && j.profile && /Mono/.test(j.profile.label)) ? '' : 'none';
+    // 문제 해결 도구는 해당하는 엔진일 때만 보여줍니다.
+    const hasTools = ['unity','renpy'].includes(j.engine);
+    $('#toolPeek').style.display = hasTools ? '' : 'none';
+    $('#toolRenpy').style.display = j.engine === 'renpy' ? '' : 'none';
+    $('#toolFont').style.display = hasTools ? '' : 'none';
+    $('#troubleGroup').style.display = hasTools ? '' : 'none';
+    $('#fontRenpyNote').style.display = j.engine === 'renpy' ? '' : 'none';
+    if (hasTools) loadFonts();
+    $('#optNotes').closest('label').style.display = j.engine === 'rpgmaker' ? '' : 'none';
+    $('#optJs').closest('label').style.display = j.engine === 'rpgmaker' ? '' : 'none';
+    $('#optSystemRow').style.display = j.engine === 'tyrano' ? '' : 'none';
+    $('#optAllParams').closest('label').style.display = j.engine === 'rpgmaker' ? '' : 'none';
+    // Electron 은 먼저 풀어야 합니다
+    $('#packedBox').style.display = j.packed ? '' : 'none';
+    $('#normalBox').style.display = j.packed ? 'none' : '';
+    $('#normalRow').style.display = j.packed ? 'none' : 'flex';
+    const prev = await api('/api/open', {path:p, strict:false}).catch(()=>({exists:false}));
+    $('#btnOpenExisting').style.display = prev.exists ? '' : 'none';
+    if (prev.exists) $('#btnOpenExisting').textContent = '이어서 하기 (이전 작업 있음)';
+    step(2);
+    $('#scanCard').scrollIntoView({behavior:'smooth', block:'nearest'});
+  }catch(e){ toast(e.message, true); }
+}
+
+// 파일 목록은 접었다 폈다 (자리를 많이 먹습니다)
+document.addEventListener('toggle', e => {
+  if (e.target.classList && e.target.classList.contains('filelist'))
+    $('#scanFiles').style.display = e.target.open ? '' : 'none';
+}, true);
+
+$('#btnMore').onclick = () => {
+  const a = $('#advanced');
+  const open = a.style.display === 'none';
+  a.style.display = open ? '' : 'none';
+  $('#btnMore').textContent = open ? '고급 설정 ▴' : '고급 설정 ▾';
+};
+
+$('#btnPeek').onclick = async () => {
+  const b = $('#btnPeek');
+  b.disabled = true; b.textContent = '🔍 읽는 중… (몇 분 걸립니다)';
+  try{
+    const j = await api('/api/peek', {path: S.path});
+    $('#mTitle').textContent = '게임 파일 안에 무엇이 있나';
+    $('#mLog').textContent = j.text + '\n\n저장 위치: ' + j.file;
+    $('#modal').classList.add('on');
+  }catch(e){ toast(e.message, true); }
+  b.disabled = false; b.textContent = '🔍 안을 들여다보기';
+};
+
+async function loadFonts(){
+  const sel = $('#fontSel');
+  if (sel.dataset.loaded === '1') return;
+  sel.dataset.loaded = '1';
+  try{
+    const j = await api('/api/fonts');
+    for (const f of (j.fonts || [])){
+      const o = document.createElement('option');
+      o.value = f.path; o.textContent = f.name;
+      o.title = f.path;
+      sel.appendChild(o);
+    }
+    if (!(j.fonts || []).length)
+      sel.options[0].textContent = '한글 글꼴을 못 찾았습니다';
+  }catch(e){ sel.dataset.loaded = ''; }
+}
+
+$('#btnFontRefresh').onclick = () => {
+  const sel = $('#fontSel');
+  sel.innerHTML = '<option value="">자동으로 고르기</option>';
+  sel.dataset.loaded = '';
+  loadFonts();
+};
+
+/* ---------------- Ren'Py 대본 골라 읽기 ---------------- */
+window.RENPY_PICK = null;          // null = 자동 (우리 규칙대로)
+
+$('#btnRenpyPieces').onclick = async () => {
+  let j;
+  try{ j = await api('/api/renpy/pieces', {}); }
+  catch(e){ return toast(e.message, true); }
+  const ps = j.pieces || [];
+  if (!ps.length) return toast('대본 파일을 하나도 못 찾았습니다.', true);
+
+  const el = showModal('대본 파일 골라 읽기');
+  const wrap = document.createElement('div');
+  const bad = ps.filter(x => !x.ok);
+  if (bad.length){
+    const w = document.createElement('div');
+    w.style.cssText = 'background:#2a1d12;border-left:4px solid #d88;padding:10px 12px;margin-bottom:12px;font-size:13px;line-height:1.6';
+    w.innerHTML = '<b>못 읽은 묶음이 ' + bad.length + '개 있습니다.</b><br>'
+      + bad.map(x => '· <span class="mono">' + x.label + '</span> — ' + x.why).join('<br>')
+      + '<br><br>아래에서 골라 <b>[묶음 풀기]</b> 를 누르면 폴더로 꺼내 봅니다. '
+      + '게임 폴더는 안 건드립니다.';
+    wrap.appendChild(w);
+  }
+
+  const list = document.createElement('div');
+  list.style.cssText = 'max-height:340px;overflow:auto;border:1px solid var(--line);padding:8px';
+  ps.forEach((x, i) => {
+    const row = document.createElement('label');
+    row.className = 'chk';
+    row.style.cssText = 'display:flex;gap:8px;align-items:flex-start;padding:5px 4px';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox'; cb.dataset.i = i;
+    cb.checked = !!x.used;
+    cb.disabled = !x.ok;
+    const t = document.createElement('div');
+    let tail = '';
+    if (x.kind === 'rpa') tail = x.ok ? ` · 안에 대본 ${x.inner}개` : ' · 못 읽음';
+    if (x.skipped_for) tail += ' · ' + x.skipped_for;
+    t.innerHTML = '<span class="mono">' + x.label + '</span>'
+      + '<span style="color:var(--faint)">' + tail + '</span>';
+    row.appendChild(cb); row.appendChild(t);
+    list.appendChild(row);
+  });
+  wrap.appendChild(list);
+
+  const row = document.createElement('div');
+  row.className = 'row';
+  row.style.marginTop = '12px';
+  row.innerHTML = '<button class="ghost" id="rpUnpack">묶음 풀기</button>'
+    + '<div class="spacer"></div>'
+    + '<button class="ghost" id="rpAuto">자동으로 되돌리기</button>'
+    + '<button id="rpUse">고른 것으로 다시 뽑기</button>';
+  wrap.appendChild(row);
+
+  el.textContent = '';
+  el.appendChild(wrap);
+
+  const picked = () => [...list.querySelectorAll('input:checked')]
+    .map(cb => ps[cb.dataset.i]);
+
+  $('#rpUnpack').onclick = async () => {
+    const arcs = picked().filter(x => x.kind === 'rpa').map(x => x.label);
+    if (!arcs.length) return toast('풀 묶음을 골라주세요.', true);
+    try{
+      await api('/api/renpy/unpack', {which: arcs});
+      const m = showModal('묶음 풀기'); pollJob(null, m);
+    }catch(e){ toast(e.message, true); }
+  };
+  $('#rpAuto').onclick = () => {
+    window.RENPY_PICK = null;
+    toast('자동으로 되돌렸습니다. [문장 뽑기] 를 다시 누르세요.');
+    el.closest('.modal').classList.remove('on');
+  };
+  $('#rpUse').onclick = () => {
+    window.RENPY_PICK = picked().filter(x => x.ok).map(x => x.label);
+    toast(`${window.RENPY_PICK.length}개를 고르셨습니다. [문장 뽑기] 를 다시 누르세요.`);
+    el.closest('.modal').classList.remove('on');
+  };
+};
+
+$('#optUnfreeze').onchange = (e) => {
+  $('#unfreezeWarn').style.display = e.target.checked ? '' : 'none';
+};
+$('#optOsFont').onchange = e => {
+  $('#osFontWarn').style.display = e.target.checked ? '' : 'none';
+};
+
+$('#btnFont').onclick = async () => {
+  const msg = S.engine === 'renpy'
+    ? 'game 폴더에 한글 글꼴 파일을 새로 넣습니다. 원본은 건드리지 않습니다. 계속할까요?'
+    : '게임의 폰트 파일을 바꿉니다. 원본은 자동 백업됩니다. 계속할까요?';
+  if (!confirm(msg)) return;
+  try{
+    await api('/api/font', {path: S.path, ttf: $('#fontSel').value,
+                           unfreeze: $('#optUnfreeze').checked,
+                           os_font: $('#optOsFont').checked});
+    $('#jobCard').style.display = '';
+    $('#doneRow').style.display = 'none';
+    $('#jobTitle').textContent = '한글 폰트 넣는 중';
+    $('#jobHint').textContent = '폰트 파일이 커서 1~2분 걸릴 수 있습니다.';
+    $('#jobCard').scrollIntoView({behavior:'smooth', block:'nearest'});
+    pollJob(() => {
+      $('#jobTitle').textContent = '끝났습니다';
+      $('#jobHint').textContent = '게임을 실행해 한글이 나오는지 확인하세요.';
+      $('#doneRow').style.display = '';
+    });
+  }catch(e){ toast(e.message, true); }
+};
+
+$('#btnUnpack').onclick = async () => {
+  try{
+    const j = await api('/api/unpack', {path:S.path});
+    toast(j.message);
+    scan();
+  }catch(e){ toast(e.message, true); }
+};
+
+$('#btnStart').onclick = () => $('#btnExtract').click();
+
+$('#btnOpenExisting').onclick = async () => {
+  try{ await api('/api/open', {path:S.path}); enterWork(); }
+  catch(e){ toast(e.message, true); }
+};
+
+$('#btnExtract').onclick = async () => {
+  try{
+    await api('/api/extract', {
+      path: S.path,
+      langs: $('#langsInput').value,
+      filter: $('#filterSel').value,
+      notes: $('#optNotes').checked,
+      js: $('#optJs').checked,
+      system: $('#optSystem').checked,
+      pick: (window.RENPY_PICK && window.RENPY_PICK.length) ? window.RENPY_PICK : null,
+      allParams: $('#optAllParams').checked,
+      dll: $('#optDll').checked,
+      noScenes: $('#optScenes').checked,
+      srcLang: $('#optSrcLang').value,
+      noDedup: $('#optNoDedup').checked,
+    });
+    $('#jobCard').style.display = '';
+    $('#doneRow').style.display = 'none';
+    $('#jobTitle').textContent = '문자열 뽑는 중';
+    pollJob(() => enterWork());
+  }catch(e){ toast(e.message, true); }
+};
+
+$('#btnGoWork').onclick = () => enterWork();
+$('#btnUndoAll').onclick = async () => {
+  if (!confirm('번역을 모두 되돌리고 원본으로 복구합니다. 계속할까요?')) return;
+  try{
+    await api('/api/restore', {});
+    pollJob(() => toast('원래대로 되돌렸습니다.'));
+  }catch(e){ toast(e.message, true); }
+};
+
+// 작업 상태 줄: 경과 시간 · (자동번역이면) 번역/실패 개수 · 마지막 소식이 언제인지.
+// 큰 파일은 몇 분씩 조용해서, 멈춘 것과 일하는 것을 구별할 수 있어야 합니다.
+function fmtClock(sec){
+  sec = Math.max(0, Math.round(sec));
+  const h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60;
+  return (h ? h + ':' + String(m).padStart(2,'0') : m) + ':' + String(s).padStart(2,'0');
+}
+function renderJobStat(box, j){
+  const quiet = Math.max(0, Date.now() / 1000 - (j.last_log || 0));
+  const running = !!j.running;
+  const parts = [];
+  if (running) parts.push('<span class="beat"></span>');
+  parts.push(running ? '진행 중' : (j.error ? '오류로 끝남' : '끝남'));
+  parts.push('경과 ' + fmtClock(j.elapsed || 0));
+  if ((j.ok || 0) + (j.bad || 0) > 0)
+    parts.push(`번역 ${(j.ok||0).toLocaleString()}개` + (j.bad ? ` · 실패 ${j.bad.toLocaleString()}개` : ''));
+  if (running) parts.push(quiet < 5 ? '방금 소식 있음' : `마지막 소식 ${Math.round(quiet)}초 전`);
+  if (running && quiet > 90)
+    parts.push('— 큰 파일은 몇 분 조용할 수 있습니다. 컴퓨터가 일하는 중이면 멈춘 것이 아닙니다');
+  box.innerHTML = parts.map(p => p.startsWith('<') ? p : `<span>${esc(p)}</span>`).join('');
+  box.classList.toggle('stale', running && quiet > 90);
+  box.style.display = '';
+}
+
+let LIVE_SINCE = 0;
+function addLive(rows){
+  const box = $('#mLive');
+  box.style.display = '';
+  for (const r of rows){
+    const d = document.createElement('div');
+    d.className = 'lv' + (r.p ? ' bad' : '');
+    d.innerHTML = `<div class="s">${esc(r.s)}</div><div class="o">${r.p ? '✗ ' + esc(r.p) : esc(r.o)}</div>`;
+    box.insertBefore(d, box.firstChild);          // 최신이 맨 위
+    LIVE_SINCE = Math.max(LIVE_SINCE, r.n || 0);
+  }
+  while (box.children.length > 60) box.removeChild(box.lastChild);
+}
+
+function pollJob(onDone, logEl){
+  const el = logEl || $('#jobLog');
+  const inModal = (el === $('#mLog'));
+  const stat = inModal ? $('#mStat') : $('#jobStat');
+  LIVE_SINCE = 0;
+  const t = setInterval(async () => {
+    try{
+      const j = await api('/api/job?since=' + LIVE_SINCE);
+      el.textContent = j.log.join('\n');
+      el.scrollTop = el.scrollHeight;
+      if (stat) renderJobStat(stat, j);
+      if (inModal && j.preview && j.preview.length) addLive(j.preview);
+      if (!j.running && j.done){
+        clearInterval(t);
+        if (j.error){ toast(j.error, true); }
+        else onDone && onDone(j);
+      }
+    }catch(e){ clearInterval(t); toast(e.message, true); }
+  }, 350);
+}
+
+/* ---------------- 번역 화면 ---------------- */
+async function enterWork(){
+  const st = await api('/api/state');
+  S.total = st.total; S.engine = st.engine;
+  $('#btnFont').style.display = (st.engine === 'unity' || st.engine === 'renpy') ? '' : 'none';
+  // DLL 추가 뽑기는 유니티 Mono 게임에서만 뜻이 있습니다(IL2CPP 는 이 길로 못 읽습니다).
+  $('#btnDllAdd').style.display =
+    (st.engine === 'unity' && st.stats && st.stats.scripting_backend === 'Mono') ? '' : 'none';
+  $('#engineBadge').style.display = '';
+  $('#engineBadge').textContent = `${st.engineLabel} · ${st.total.toLocaleString()}개`;
+  $('#btnBack').style.display = '';
+  const sel = $('#langSel');
+  sel.innerHTML = st.langs.map(l => `<option>${esc(l)}</option>`).join('');
+  S.lang = st.langs.includes(S.lang) ? S.lang : st.langs[0];
+  sel.value = S.lang;
+  $('#viewStart').classList.remove('on');
+  $('#viewWork').classList.add('on');
+  step(3);
+  await load();
+  localeSniff();          // 그런 게임이면 버튼을 띄웁니다
+}
+$('#btnBack').onclick = () => {
+  $('#viewWork').classList.remove('on');
+  $('#viewStart').classList.add('on');
+  step(2);
+};
+
+function setProgress(done, total){
+  $('#progText').textContent = `${done.toLocaleString()} / ${total.toLocaleString()}`;
+  $('#progBar').style.width = total ? (done / total * 100) + '%' : '0';
+}
+
+function renderFiles(files){
+  const sel = $('#fileSel');
+  const totalTodo = files.reduce((a,f) => a + f.todo, 0);
+  const opts = ['<option value="">전체 파일' + (totalTodo?` (${totalTodo} 남음)`:'') + '</option>']
+    .concat(files.map(f => {
+      const name = f.file.replace(/^.*[\\/]/, '');
+      return `<option value="${esc(f.file)}"${f.file===S.file?' selected':''}>` +
+             `${esc(name)} — ${f.todo ? f.todo + ' 남음' : '완료'}</option>`;
+    }));
+  sel.innerHTML = opts.join('');
+  sel.value = S.file;
+}
+$('#fileSel').onchange = e => { S.file = e.target.value; S.sel = -1; load(); };
+
+let loadSeq = 0;
+async function load(){
+  // 검색어를 치는 도중 필터를 바꾸면 요청 두 개가 겹칩니다. 늦게 보낸 것이
+  // 먼저 오면 화면이 옛 결과로 덮여, 검색해도 목록이 그대로인 것처럼 보입니다.
+  const mine = ++loadSeq;
+  const q = new URLSearchParams({lang:S.lang, mode:S.mode, q:S.q, file:S.file, limit:2000});
+  const j = await api('/api/entries?' + q);
+  if (mine !== loadSeq) return;      // 더 최근 요청이 있으면 이 결과는 버립니다
+  S.rows = j.rows;
+  S.total = j.total;
+  S.todo = Math.max(0, j.total - j.done);   // 속도 짐작에 씁니다
+  setProgress(j.done, j.total);
+  renderFiles(j.files || []);
+  $('#thTr').textContent = '번역 (' + S.lang + ')';
+  $('#edLangLabel').textContent = '번역 (' + S.lang + ')';
+  render();
+}
+
+function render(){
+  const tb = $('#tbody');
+  tb.innerHTML = S.rows.map((r,i) => {
+    const over = r.maxChars != null && r.tr.length > r.maxChars;
+    return `
+    <tr data-i="${i}" class="${i===S.sel?'sel':''}">
+      <td><div class="src">${esc(r.text)}</div>
+          <div class="where">${esc(r.where)}${r.count>1?` <span class="pill">${r.count}곳</span>`:''}${r.lines>1?` <span class="pill">${r.lines}줄</span>`:''}</div></td>
+      <td><div class="tr${r.mt?' mtv':''}${over?' overflow':''}">${esc(r.tr)}${r.mt?' <span class="pill mt">기계</span>':''}${over?` <span class="pill bad">${r.tr.length}/${r.maxChars}자 — 코드 자리 부족</span>`:''}</div></td>
+    </tr>`;
+  }).join('');
+  $('#listEmpty').style.display = S.rows.length ? 'none' : '';
+  tb.querySelectorAll('tr').forEach(tr => tr.onclick = () => select(+tr.dataset.i));
+  if (S.sel < 0 && S.rows.length) select(0);
+}
+
+// 게임 코드(DLL)에 박힌 글자는 자리가 고정입니다. 지금 고른 항목이 그런
+// 자리면(maxChars 가 있으면) 몇 글자까지 되는지, 지금 넘쳤는지를 실시간으로
+// 빨강/초록 표로 보여 줍니다. 다른 항목은 배지를 숨깁니다.
+function updateMaxCharsBadge(){
+  const r = S.rows[S.sel];
+  const badge = $('#edMaxChars');
+  if (!r || r.maxChars == null){ badge.style.display = 'none'; $('#edTr').classList.remove('overflow'); return; }
+  const n = $('#edTr').value.length;
+  const over = n > r.maxChars;
+  badge.style.display = '';
+  badge.className = 'pill ' + (over ? 'bad' : 'ok');
+  badge.textContent = `${n}/${r.maxChars}자` + (over ? ' — 게임 코드 자리 부족' : ' — 코드 자리에 맞음');
+  $('#edTr').classList.toggle('overflow', over);
+}
+
+function select(i){
+  if (i >= S.rows.length && S.rows.length){ toast('마지막 항목입니다.'); return; }
+  if (i < 0 || i >= S.rows.length) return;
+  S.sel = i;
+  const r = S.rows[i];
+  $('#edWhere').textContent = r.where + (r.count>1 ? `  ·  ${r.count}곳에 쓰임` : '');
+  $('#edOrig').textContent = r.text;
+  $('#edTr').value = r.tr;
+  updateMaxCharsBadge();
+  render();
+  const tr = $(`tr[data-i="${i}"]`);
+  if (tr) tr.scrollIntoView({block:'nearest'});
+  $('#edTr').focus();
+}
+$('#edTr').addEventListener('input', updateMaxCharsBadge);
+
+async function commit(){
+  if (S.sel < 0) return;
+  const r = S.rows[S.sel];
+  const v = $('#edTr').value;
+  if (v === r.tr) return;
+  try{
+    const res = await api('/api/save', {id:r.id, lang:S.lang, text:v});
+    r.tr = v;
+    r.mt = false;          // 사람이 고쳤으므로 기계 표시 해제
+    render();
+    setProgress(res.done, S.total);
+  }catch(e){ toast(e.message, true); }
+}
+
+$('#edTr').addEventListener('blur', commit);
+$('#edTr').addEventListener('keydown', async e => {
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)){
+    e.preventDefault();
+    await commit();
+    select(S.sel + 1);
+  }
+});
+$('#btnNext').onclick = async () => { await commit(); select(S.sel + 1); };
+$('#btnCopy').onclick = () => { $('#edTr').value = $('#edOrig').textContent; $('#edTr').focus(); };
+
+$('#langSel').onchange = e => { S.lang = e.target.value; S.sel = -1; load(); };
+$('#btnAddLang').onclick = async () => {
+  const l = prompt('추가할 언어 코드 (예: ja, en)');
+  if (!l) return;
+  const st = await api('/api/lang', {lang:l.trim()});
+  $('#langSel').innerHTML = st.langs.map(x => `<option>${esc(x)}</option>`).join('');
+  $('#langSel').value = l.trim(); S.lang = l.trim(); load();
+};
+$('#modeSeg').onclick = e => {
+  const b = e.target.closest('button'); if (!b) return;
+  $('#modeSeg').querySelectorAll('button').forEach(x => x.classList.remove('on'));
+  b.classList.add('on'); S.mode = b.dataset.mode; S.sel = -1; load();
+};
+let searchTimer;
+$('#search').oninput = e => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => { S.q = e.target.value; S.sel = -1; load(); }, 250);
+};
+
+/* ---------------- 어디있나 ---------------- */
+
+// ---------------------------------------------------------------- 일괄 바꾸기
+// 미리보기를 보기 전에는 [이대로 바꾸기]가 눌리지 않습니다. 조건을 고치면
+// 다시 잠급니다 — 화면에 보이는 목록과 실제로 바뀌는 것이 어긋나면 안 됩니다.
+let bulkReady = false;
+
+function bulkLock(){
+  bulkReady = false;
+  $('#bulkGo').disabled = true;
+}
+['#bulkSource','#bulkFind','#bulkReplace'].forEach(id =>
+  $(id).addEventListener('input', bulkLock));
+['#bulkWord','#bulkCase','#bulkJosa'].forEach(id =>
+  $(id).addEventListener('change', bulkLock));
+
+
+
+// ------------------------------------------------- 빈 언어 표 채우기
+//
+// 게임이 컴퓨터 언어를 보고 **한국어 표를 고르는데 그 표가 비어 있는** 게임이
+// 있습니다. 그때는 일본어 표를 고쳐 봐야 소용없습니다 — 게임이 안 봅니다.
+// 화면에 늘 띄우면 헷갈리므로, 그런 게임에서만 버튼이 나옵니다.
+async function localeSniff(){
+  try {
+    const j = await api('/api/locale/check', {});
+    const codes = Object.keys(j.locales || {});
+    if (!j.addressables || codes.length < 2) return;
+    const mine = (j.locales[S.lang] || 0);
+    const biggest = Math.max(...Object.values(j.locales));
+    // 내 언어 표가 남들의 절반도 안 되면 '비어 있는' 것으로 봅니다.
+    if (mine && mine * 2 < biggest) $('#btnLocale').style.display = '';
+  } catch (e) { /* 이 확인 때문에 화면이 막히면 안 됩니다 */ }
+}
+
+$('#btnLocale').onclick = async () => {
+  if (!confirm('게임이 고르는 ' + S.lang + ' 표가 비어 있습니다.\n'
+             + '우리 번역으로 채울까요? (게임 제작자가 넣은 번역은 그대로 둡니다)')) return;
+  const el = showModal('빈 언어표 채우는 중');
+  try {
+    const j = await api('/api/locale/fill', {lang: S.lang, src: 'ja'});
+    el.textContent = j.report.join('\n');
+  } catch (e) { el.textContent = '못 채웠습니다: ' + e.message; }
+};
+
+// ------------------------------------------------- DLL 글자 추가 뽑기
+//
+// "문장 뽑기"를 다시 눌러 전체를 새로 만드는 대신, 씬·에셋은 안 건드리고
+// 게임 코드(DLL)만 다시 훑어 새 항목만 더합니다. 이미 있는 번역은 그대로입니다.
+$('#btnDllAdd').onclick = async () => {
+  try {
+    await api('/api/extract/dll_add', {});
+    const el = showModal('DLL 글자 추가로 뽑는 중');
+    pollJob((j) => {
+      const r = (j && j.result) || {};
+      toast(`새 항목 ${r.newEntries || 0}개, 기존 항목에 자리 ${r.newLocations || 0}곳 추가했습니다.`);
+      S.sel = -1;
+      load();
+    }, el);
+  } catch (e) { toast(e.message, true); }
+};
+
+// ---------------------------------------------------------------- 통으로 옮기기
+//
+// 사람이 번역기 창에 직접 붙여넣는 길입니다. 한도도 차단도 없는 대신,
+// **밀려 들어가는 사고**가 무섭습니다. 그래서 넣기 전에 반드시 짝을
+// 눈으로 보여 줍니다.
+const HO = {chunks: [], i: 0};
+
+$('#btnHandoff').onclick = () => {
+  $('#handoffModal').classList.add('on');
+  $('#hoPreview').style.display = 'none';
+};
+$('#hoClose').onclick = () => $('#handoffModal').classList.remove('on');
+
+$('#hoPlan').onclick = async () => {
+  const scope = document.querySelector('input[name=hoScope]:checked').value;
+  try {
+    const j = await api('/api/handoff/plan', {lang: S.lang, scope});
+    HO.chunks = j.chunks; HO.i = 0;
+    $('#hoTotal').textContent = j.note;
+    $('#hoPick').innerHTML = j.chunks
+      .map(c => `<option value="${c.i}">${esc(c.label)}</option>`).join('');
+    $('#hoWork').style.display = j.chunks.length ? '' : 'none';
+    if (j.chunks.length) await hoShow(0);
+  } catch (e) { toast(e.message, true); }
+};
+
+async function hoShow(i){
+  if (!HO.chunks.length) return;
+  HO.i = Math.max(0, Math.min(i, HO.chunks.length - 1));
+  $('#hoPick').value = HO.i;
+  const j = await api('/api/handoff/text', {i: HO.i});
+  $('#hoOut').value = j.text;
+  $('#hoIn').value = '';
+  $('#hoPreview').style.display = 'none';
+  $('#hoGo').disabled = true;
+  $('#hoCheck').disabled = true;
+}
+
+$('#hoPick').onchange = e => hoShow(+e.target.value);
+$('#hoPrev').onclick = () => hoShow(HO.i - 1);
+$('#hoNext').onclick = () => hoShow(HO.i + 1);
+
+$('#hoCopy').onclick = async () => {
+  const box = $('#hoOut');
+  try { await navigator.clipboard.writeText(box.value); }
+  catch (e) { box.select(); document.execCommand('copy'); }
+  toast('복사했습니다. 번역기에 붙여넣으세요.');
+  $('#hoIn').focus();
+};
+
+$('#hoIn').addEventListener('input', () => {
+  $('#hoCheck').disabled = !$('#hoIn').value.trim();
+  $('#hoGo').disabled = true;              // 고칠 때마다 다시 봐야 합니다
+});
+
+$('#hoCheck').onclick = async () => {
+  try {
+    const j = await api('/api/handoff/preview',
+                        {i: HO.i, pasted: $('#hoIn').value});
+    const rows = j.pairs.map(p => {
+      const mark = p.ok ? '·' : '⚠';
+      const color = p.ok ? '' : ' style="color:var(--warn,#E8A33D)"';
+      return `<div${color}>${mark} <b>${p.n}</b>. ${esc(p.before)}`
+           + `<br>&nbsp;&nbsp;&nbsp;→ ${esc(p.after || p.why)}</div>`;
+    }).join('');
+    $('#hoPreview').innerHTML =
+      j.report.map(r => `<div><b>${esc(r)}</b></div>`).join('')
+      + '<hr style="border:none;border-top:1px solid var(--line);margin:8px 0">'
+      + rows;
+    $('#hoPreview').style.display = '';
+    $('#hoGo').disabled = j.good === 0;
+  } catch (e) { toast(e.message, true); }
+};
+
+$('#hoGo').onclick = async () => {
+  try {
+    const j = await api('/api/handoff/apply',
+                        {i: HO.i, pasted: $('#hoIn').value});
+    toast(j.summary);
+    await load();
+    if (HO.i < HO.chunks.length - 1) await hoShow(HO.i + 1);
+    else { $('#handoffModal').classList.remove('on'); toast('다 옮겼습니다.'); }
+  } catch (e) { toast(e.message, true); }
+};
+
+$('#btnBulk').onclick = () => {
+  $('#bulkPreview').style.display = 'none';
+  bulkLock();
+  $('#bulkModal').classList.add('on');
+  $('#bulkSource').focus();
+};
+$('#bulkCancel').onclick = () => $('#bulkModal').classList.remove('on');
+
+function bulkBody(){
+  return {
+    lang: S.lang,
+    source: $('#bulkSource').value,
+    find: $('#bulkFind').value,
+    replace: $('#bulkReplace').value,
+    wholeWord: $('#bulkWord').checked,
+    caseSensitive: $('#bulkCase').checked,
+    josa: $('#bulkJosa').checked,
+  };
+}
+
+$('#bulkCheck').onclick = async () => {
+  const b = bulkBody();
+  if (!b.find.trim()) { toast('바꿀 말을 적어주세요.', true); return; }
+  try{
+    const j = await api('/api/bulk/preview', b);
+    const box = $('#bulkPreview');
+    let html = `<div style="margin-bottom:8px"><b>${esc(j.summary)}</b></div>`;
+    if (j.note) html += `<div class="hint" style="margin-bottom:8px">${esc(j.note)}</div>`;
+    html += j.samples.map(x => `
+      <div style="padding:7px 0; border-top:1px solid var(--line)">
+        <div style="color:var(--faint); font-size:12px">${esc(x.source)}</div>
+        <div style="color:#f28b82">− ${esc(x.before)}</div>
+        <div style="color:#5dd39e">+ ${esc(x.after)}</div>
+      </div>`).join('');
+    if (j.count > j.samples.length)
+      html += `<div class="hint" style="margin-top:8px">… 외 ${j.count - j.samples.length}줄</div>`;
+    box.innerHTML = html;
+    box.style.display = '';
+    bulkReady = j.count > 0;
+    $('#bulkGo').disabled = !bulkReady;
+  }catch(e){ toast(e.message, true); }
+};
+
+$('#bulkGo').onclick = async () => {
+  if (!bulkReady) return;
+  try{
+    const j = await api('/api/bulk/apply', bulkBody());
+    toast(j.summary);
+    $('#bulkModal').classList.remove('on');
+    load();
+  }catch(e){ toast(e.message, true); }
+};
+
+$('#bulkUndo').onclick = async () => {
+  try{
+    const j = await api('/api/bulk/undo', {});
+    toast(j.summary);
+    $('#bulkPreview').style.display = 'none';
+    bulkLock();
+    load();
+  }catch(e){ toast(e.message, true); }
+};
+
+$('#btnFind').onclick = () => {
+  $('#findOut').innerHTML = '';
+  $('#findModal').classList.add('on');
+  $('#findQ').focus();
+};
+$('#findClose').onclick = () => $('#findModal').classList.remove('on');
+$('#findQ').addEventListener('keydown', e => { if (e.key==='Enter') $('#findGo').click(); });
+$('#findGo').onclick = async () => {
+  const q = $('#findQ').value.trim();
+  if (!q) return;
+  $('#findOut').innerHTML = '<div class="hint">찾는 중…</div>';
+  try{
+    const j = await api('/api/find', {q});
+    let html = `<div class="card" style="padding:14px"><b>${esc(j.verdict)}</b>
+      <div class="hint" style="margin:6px 0 0">텍스트 파일 ${j.scanned}개 확인</div></div>`;
+    if (j.hits.length){
+      html += '<div style="margin-top:12px">' + j.hits.map(h => `
+        <div class="card" style="padding:12px; margin-top:8px">
+          <div><span class="mono">${esc(h.file)}</span>
+            <span class="pill" style="color:${h.covered?'#5dd39e':'#f28b82'};
+              border-color:${h.covered?'#2c4c3c':'#4a2f2f'}">${esc(h.kind)} · ${h.covered?'가져옴':'안 가져옴'}</span></div>
+          <div class="mono" style="font-size:11.5px; color:var(--dim); margin-top:6px;
+            word-break:break-all">${esc(h.where)} <span style="color:var(--warn)">· ${esc(h.how)}</span></div>
+          <div class="mono" style="font-size:12px; color:var(--text); margin-top:4px;
+            background:#12141a; border-radius:6px; padding:7px 9px;
+            white-space:pre-wrap; word-break:break-all">${esc(h.raw)}</div>
+          <div class="hint" style="margin:7px 0 0">${esc(h.reason)}</div>
+        </div>`).join('') + '</div>';
+    }
+    $('#findOut').innerHTML = html;
+  }catch(e){ $('#findOut').innerHTML = `<div class="hint" style="color:var(--bad)">${esc(e.message)}</div>`; }
+};
+
+/* ---------------- 자동 번역 ---------------- */
+let PROVIDERS = [];
+$('#btnAuto').onclick = async () => {
+  try{
+    const j = await api('/api/providers', {});
+    PROVIDERS = j.providers;
+    // 크롬 내장 번역(Translator API)은 이 브라우저가 지원할 때만 보입니다.
+    // 서버가 아니라 브라우저가 번역하는 방식이라 여기서만 넣습니다.
+    if (typeof Translator !== 'undefined' && !PROVIDERS.some(p => p.id === 'chrome')){
+      PROVIDERS = PROVIDERS.concat([{
+        id: 'chrome', label: '크롬 내장 번역 (이 PC 안에서 · 무료 · 키 없음)', needsKey: false,
+        note: '크롬이 이 PC 안에서 번역합니다. 처음 한 번은 번역 모델을 내려받습니다(몇 분). '
+            + '번역문은 어디로도 보내지 않습니다. 품질은 구글 번역과 비슷합니다.'}]);
+    }
+    const sel = $('#provSel');
+    sel.innerHTML = PROVIDERS.map(p => `<option value="${esc(p.id)}">${esc(p.label)}</option>`).join('');
+    if (j.last && j.last.provider) sel.value = j.last.provider;
+    if (j.last && j.last.glossary) $('#glossary').value = j.last.glossary;
+    if (j.last && j.last.prompt) $('#autoPrompt').value = j.last.prompt;
+    if (j.last && j.last.src){
+      const r = document.querySelector(`input[name=src][value="${j.last.src}"]`);
+      if (r) r.click();
+    }
+    if (j.last && j.last.base) $('#provBase').value = j.last.base;
+    // 모델 이름은 엔진마다 따로 기억합니다. 마지막으로 쓴 엔진의 것만 되살립니다.
+    delete sel.dataset.prev;
+    if (j.last && j.last.provider && j.last.model) MODELS[j.last.provider] = j.last.model;
+    if (j.last && j.last.speed){
+      const r = document.querySelector(`input[name=speed][value="${j.last.speed}"]`);
+      if (r) r.checked = true;
+    }
+    sel.dataset.saved = JSON.stringify(j.saved || {});
+    provChanged();
+    $('#autoModal').classList.add('on');
+  }catch(e){ toast(e.message, true); }
+};
+// 구글 무료는 우리 IP 로 셈해서 많이 부르면 잠깐 막습니다. 키를 쓰는
+// 곳은 키로 셈하니 이 손잡이가 필요 없습니다.
+const SPEED_NOTE = {
+  safe:   '한 갈래로 초당 한 번만. 가장 덜 막히지만 오래 걸립니다.',
+  normal: '살살 시작해서, 잘 풀리면 틈을 없앱니다. 대부분 이걸로 됩니다.',
+  fast:   '처음부터 전속력. 막히기 시작하면 오히려 더 느려질 수 있습니다.',
+};
+// 막히지 않았을 때의 짐작입니다. 한 번 막힐 때마다 5~180초가 더 붙습니다.
+const SPEED_RATE = { safe: 1.0, normal: 4.28, fast: 7.14 };  // 초당 호출 수
+
+function fmtSecs(x){
+  if (x < 90) return Math.round(x) + '초';
+  if (x < 5400) return Math.round(x / 60) + '분';
+  return (x / 3600).toFixed(1) + '시간';
+}
+
+function speedChanged(){
+  const v = (document.querySelector('input[name=speed]:checked') || {}).value || 'normal';
+  const todo = document.querySelector('input[name=scope]:checked');
+  const limit = parseInt($('#autoLimit').value || '0', 10) || 0;
+  let n = (todo && todo.value === 'all') ? S.total : (S.todo || S.total || 0);
+  if (limit > 0) n = Math.min(n, limit);
+  const calls = Math.ceil(n / 20);
+  let note = SPEED_NOTE[v] || '';
+  if (calls > 0) note += `  ·  ${n.toLocaleString()}문장이면 대략 `
+    + fmtSecs(calls / SPEED_RATE[v]) + ' (안 막혔을 때)';
+  $('#speedNote').textContent = note;
+}
+document.querySelectorAll('input[name=speed]').forEach(r => r.onchange = speedChanged);
+document.querySelectorAll('input[name=scope]').forEach(
+  r => r.addEventListener('change', speedChanged));
+$('#autoLimit').addEventListener('input', speedChanged);
+
+// 모델 이름을 고를 수 있는 엔진과 그 안내. 비워 두면 각 엔진의 기본을 씁니다.
+const MODEL_HINT = {
+  claude: ['claude-sonnet-4-6', '비워 두면 claude-sonnet-4-6 을 씁니다. 다른 모델을 쓰려면 이름을 적으세요.'],
+  openai: ['gpt-4.1-mini', '비워 두면 gpt-4.1-mini 를 씁니다. 다른 모델을 쓰려면 이름을 적으세요.'],
+  gemini: ['(비워 두면 자동)', '비워 두면 키에게 물어 알아서 고릅니다. 특정 모델을 쓰려면 이름을 적으세요.'],
+  custom: ['그 서비스가 부르는 이름 그대로', '로컬에서 돌리는 것이면 위의 API 키는 비워도 됩니다.'],
+};
+// 엔진별로 적어 둔 모델 이름. 숨어 있는 칸의 값이 다른 엔진으로 새어 나가지 않게 합니다
+// (예: LM Studio 에서 쓰던 모델 이름이 Claude 요청에 실려 가는 일).
+const MODELS = {};
+
+function provChanged(){
+  const sel = $('#provSel');
+  const p = PROVIDERS.find(x => x.id === sel.value) || {};
+  if (sel.dataset.prev !== undefined) MODELS[sel.dataset.prev] = $('#provModel').value.trim();
+  sel.dataset.prev = p.id || '';
+  const hint = MODEL_HINT[p.id];
+  $('#modelField').style.display = hint ? '' : 'none';
+  $('#promptField').style.display = hint ? '' : 'none';
+  if (hint){
+    $('#provModel').placeholder = hint[0];
+    $('#modelNote').textContent = hint[1];
+    $('#modelOpt').textContent = p.id === 'custom' ? '' : '(선택)';
+  }
+  $('#provModel').value = hint ? (MODELS[p.id] || '') : '';
+  $('#provNote').textContent = p.note || '';
+  $('#keyField').style.display = p.needsKey ? '' : 'none';
+  const custom = p.id === 'custom';
+  $('#baseField').style.display = custom ? '' : 'none';
+  $('#keyField').style.display = (p.needsKey || custom) ? '' : 'none';
+  // 속도 손잡이는 구글 무료에만 뜻이 있습니다. 남의 서버는 우리가 아니라
+  // 그쪽이 정한 한도를 따릅니다.
+  $('#speedField').style.display = (p.id === 'google') ? '' : 'none';
+  speedChanged();
+  // 크롬 내장 번역기는 언어를 스스로 알아보지 못합니다. 직접 골라야 합니다.
+  const autoRadio = document.querySelector('input[name=src][value=auto]');
+  const isChrome = p.id === 'chrome';
+  autoRadio.disabled = isChrome;
+  autoRadio.closest('label').style.opacity = isChrome ? '.45' : '';
+  if (isChrome && autoRadio.checked){
+    autoRadio.checked = false;
+    const pick = document.querySelector('input[name=src]:checked');
+    if (!pick) document.querySelector('input[name=src][value=en]').checked = true;
+  } else if (!isChrome && !document.querySelector('input[name=src]:checked')){
+    autoRadio.checked = true;
+  }
+  const saved = JSON.parse($('#provSel').dataset.saved || '{}');
+  $('#provKey').placeholder = saved[p.id]
+    ? '저장된 키가 있습니다. 바꾸려면 새로 입력하세요.' : '키를 붙여넣으세요';
+  $('#provKey').value = '';
+}
+$('#provSel').onchange = provChanged;
+$('#autoCancel').onclick = () => $('#autoModal').classList.remove('on');
+
+$('#autoStart').onclick = async () => {
+  const scope = document.querySelector('input[name=scope]:checked').value;
+  const body = {
+    provider: $('#provSel').value,
+    key: $('#provKey').value,
+    remember: $('#provRemember').checked,
+    lang: S.lang,
+    scope,
+    src: document.querySelector('input[name=src]:checked').value,
+    glossary: $('#glossary').value,
+    prompt: $('#autoPrompt').value,
+    speed: (document.querySelector('input[name=speed]:checked') || {}).value || 'normal',
+    base: $('#provBase').value.trim(),
+    model: $('#provModel').value.trim(),
+    limit: parseInt($('#autoLimit').value || '0', 10) || 0,
+    ids: scope === 'ids' ? S.rows.map(r => r.id) : [],
+  };
+  if (body.provider === 'chrome' && body.src === 'auto'){
+    toast('크롬 번역은 원문 언어를 직접 골라야 합니다.', true);
+    return;
+  }
+  if (scope === 'all' && !confirm('이미 번역해 둔 것까지 기계번역으로 덮어씁니다. 계속할까요?')) return;
+  if (body.provider === 'chrome'){ $('#autoModal').classList.remove('on'); return runChromeTranslate(body); }
+  try{
+    await api('/api/autotranslate', body);
+    $('#autoModal').classList.remove('on');
+    const el = showModal('자동 번역 중');
+    $('#mClose').textContent = '중단';
+    pollJob(() => {
+      $('#mClose').textContent = '닫기';
+      toast('자동 번역이 끝났습니다. [기계] 필터로 확인하세요.');
+      load();
+    }, el);
+  }catch(e){ toast(e.message, true); }
+};
+
+/* ---------------- 크롬 내장 번역 ---------------- */
+// 번역은 브라우저가 하고, 서버는 문장을 골라 주고(제어문자 가리기) 결과를 받아 검사해서
+// 넣습니다. 제어문자 토큰이 사라진 번역은 서버가 버립니다(원문이 그대로 남습니다).
+window.CHROME_STOP = false;
+async function runChromeTranslate(body){
+  window.CHROME_STOP = false;
+  const el = showModal('크롬 내장 번역 중');
+  $('#mClose').textContent = '중단';
+  const say = m => { el.textContent += m + '\n'; el.scrollTop = el.scrollHeight; };
+  const stat = $('#mStat');
+  const began = Date.now();
+  let ok = 0, bad = 0, left = 0;
+  const tick = () => {
+    stat.style.display = '';
+    stat.innerHTML = `<span class="beat"></span><span>경과 ${fmtClock((Date.now()-began)/1000)}</span>`
+      + `<span>번역 ${ok.toLocaleString()}개${bad ? ' · 실패 ' + bad.toLocaleString() + '개' : ''}</span>`
+      + (left ? `<span>남음 ${left.toLocaleString()}개</span>` : '');
+  };
+  const timer = setInterval(tick, 1000);
+  const dst = (S.lang || 'ko').split('-')[0];
+  const langs = body.src === 'auto' ? ['ja', 'zh', 'en'] : [body.src];
+  const T = {};
+  const pick = t => body.src !== 'auto' ? body.src
+    : /[぀-ヿ]/.test(t) ? 'ja' : /[一-鿿]/.test(t) ? 'zh' : 'en';
+  try{
+    say('번역 모델을 준비합니다. 처음 한 번은 내려받느라 몇 분 걸릴 수 있습니다…');
+    await Promise.all(langs.map(async l => {
+      const a = await Translator.availability({sourceLanguage: l, targetLanguage: dst});
+      if (a === 'unavailable') throw new Error(`이 크롬은 ${l} → ${dst} 번역을 지원하지 않습니다`);
+      T[l] = await Translator.create({sourceLanguage: l, targetLanguage: dst,
+        monitor(m){ m.addEventListener('downloadprogress', e =>
+          say(`  · ${l} 모델 내려받는 중 ${Math.round(e.loaded * 100)}%`)); }});
+    }));
+    say('준비됐습니다. 번역을 시작합니다.');
+    const cap = body.limit || 0;
+    // 제어문자 토큰이 문장 한가운데 여러 개 끼면 번역기가 토큰을 지워 그 줄이 버려집니다.
+    // 2차 시도에서는 토큰을 기준으로 글 조각만 따로 번역해, 코드가 구조적으로 남게 합니다.
+    const translateOne = async (t, seg) => {
+      const tr = T[pick(t)];
+      if (!seg) return await tr.translate(t);
+      const out = [];
+      for (const p of t.split(/(⟦\d+⟧)/)){
+        if (/^⟦\d+⟧$/.test(p) || !/[^\s\d\p{P}\p{S}]/u.test(p)){ out.push(p); continue; }
+        const lead = p.match(/^\s*/)[0], trail = p.match(/\s*$/)[0];
+        out.push(lead + await tr.translate(p.trim()) + trail);
+      }
+      return out.join('');
+    };
+    const runPass = async seg => {
+      let first = true;
+      while (!window.CHROME_STOP){
+        const want = cap ? cap - (ok + bad) : 0;
+        if (cap && want <= 0) break;
+        const nx = await api('/api/chrome/next', {lang: body.lang, scope: body.scope,
+          ids: body.ids, size: 40, cap: want, reset: first});
+        first = false;
+        left = nx.left;
+        if (!nx.items.length) break;
+        const out = [];
+        for (let i = 0; i < nx.items.length && !window.CHROME_STOP; i += 4){
+          const part = nx.items.slice(i, i + 4);
+          out.push(...await Promise.all(part.map(async it => {
+            try{ return {k: it.k, o: await translateOne(it.t, seg)}; }
+            catch(e){ return {k: it.k, err: `${e.name}: ${e.message}`}; }
+          })));
+        }
+        const put = await api('/api/chrome/put', {lang: body.lang, scope: body.scope,
+          glossary: body.glossary, items: out});
+        ok += put.ok; bad += put.bad;
+        left = Math.max(0, left - out.length);
+        addLive(put.shown);
+        tick();
+      }
+    };
+    await runPass(false);
+    if (bad && !window.CHROME_STOP && !cap){
+      say(`제어문자 때문에 버려진 ${bad}개를 코드 단위로 조각내서 다시 번역합니다…`);
+      bad = 0;
+      await runPass(true);
+    }
+    say(window.CHROME_STOP ? '중단했습니다. 지금까지 번역된 것은 남아 있습니다.'
+                           : `끝났습니다 — 번역 ${ok}개, 실패 ${bad}개.`);
+    if (bad) say('실패한 항목은 원문 그대로 두었습니다(제어문자가 사라졌거나 결과가 비었을 때).');
+    toast('크롬 내장 번역이 끝났습니다. [기계] 필터로 확인하세요.');
+  }catch(e){
+    say('오류: ' + e.message);
+    toast(e.message, true);
+  }finally{
+    clearInterval(timer); tick();
+    $('#mClose').textContent = '닫기';
+    load();
+  }
+}
+
+/* ---------------- 적용이 안 되었나요? / 번역 뽑기 ---------------- */
+$('#btnStuck').onclick = () => {
+  $('#stuckOut').innerHTML = '';
+  $('#stuckModal').classList.add('on');
+};
+$('#stuckClose').onclick = () => $('#stuckModal').classList.remove('on');
+
+$('#stuckGo').onclick = async () => {
+  const what = document.querySelector('input[name=stuck]:checked').value;
+  try{
+    const j = await api('/api/stuck', {what});
+    const acts = (j.actions||[]).map(a =>
+      `<button class="ghost stuckAct" data-do="${esc(a.do)}" data-opt="${esc(a.option||'')}"
+        style="margin:4px 6px 0 0">${esc(a.label)}</button>` +
+      (a.hint ? `<div class="hint" style="margin:2px 0 8px 2px">${esc(a.hint)}</div>` : '')
+    ).join('');
+    $('#stuckOut').innerHTML =
+      (j.steps||[]).map(t => `<p class="hint">${esc(t)}</p>`).join('') +
+      `<div style="margin-top:10px">${acts}</div>`;
+    document.querySelectorAll('.stuckAct').forEach(b => b.onclick = () => doStuck(b.dataset.do, b.dataset.opt));
+  }catch(e){ toast(e.message, true); }
+};
+
+// 툴바의 [한글 폰트 넣기] 는 [적용이 안 되었나요?] 의 글자 □□□ 흐름과 똑같은 것을 부릅니다.
+$('#btnFont').onclick = () => doStuck('font');
+
+async function doStuck(what, opt){
+  $('#stuckModal').classList.remove('on');
+  if (what === 'find'){ $('#btnFind').click(); return; }
+
+  // 폰트와 진단은 첫 화면의 버튼을 대신 누르는 식으로 만들었었는데,
+  // 그 버튼은 다른 화면에 있어서 **아무 일도 안 일어났습니다.** 여기서
+  // 직접 부릅니다 — 문제를 알아채는 곳이 여기이기 때문입니다.
+  if (what === 'font'){
+    let ttf = '';
+    try{
+      const j = await api('/api/fonts');
+      const list = j.fonts || [];
+      if (list.length){
+        const lines = list.map((f,i) => `${i+1}. ${f.name}`).join('\n');
+        const pick = prompt('쓸 한글 글꼴 번호를 넣으세요. 그냥 확인하면 자동으로 고릅니다.\n\n' + lines, '');
+        const n = parseInt(pick || '0', 10);
+        if (n >= 1 && n <= list.length) ttf = list[n-1].path;
+      }
+    }catch(e){ /* 목록을 못 받아도 자동 고르기로 진행합니다 */ }
+    const msg = S.engine === 'renpy'
+      ? 'game 폴더에 한글 글꼴 파일을 새로 넣습니다. 원본은 건드리지 않습니다. 계속할까요?'
+      : '게임의 폰트 파일을 바꿉니다. 번역은 그대로 둡니다. 원본은 자동 백업됩니다. 계속할까요?';
+    if (!confirm(msg)) return;
+    try{
+      await api('/api/font', {path: S.path, ttf});
+      const el = showModal('한글 폰트 넣기');
+      pollJob(null, el);
+    }catch(e){ toast(e.message, true); }
+    return;
+  }
+  if (what === 'diagnose'){
+    try{
+      const j = await api('/api/diagnose', {});
+      const el = showModal('게임 로그로 원인 찾기');
+      const lines = [];
+      if (j.log) lines.push('읽은 로그: ' + j.log, '');
+      if (j.findings.length){
+        j.findings.forEach((f, i) => {
+          lines.push(`${i+1}. ${f.say.replace(/\*\*/g, '')}  (${f.times}번)`);
+          lines.push('   → 권하는 다음 단계: ' + ({reapply:'② 이름표 보호를 걸어 다시 적용',
+            movesave:'③ 세이브 파일 옮겨 두기', resetdata:'게임을 켜서 [데이터 초기화]'}[f.do] || '다음 단계'));
+        });
+      } else lines.push(j.say);
+      el.textContent = lines.join('\n');
+    }catch(e){ toast(e.message, true); }
+    return;
+  }
+  if (what === 'reapply'){
+    if (!confirm('게임 파일을 원본으로 되돌린 뒤 번역을 다시 넣습니다. 계속할까요?')) return;
+    runApply(false);
+    return;
+  }
+  if (what === 'movesave'){
+    if (!confirm('게임 폴더의 save 파일을 지우지 않고 이름만 바꿔 둡니다. 계속할까요?')) return;
+    try{
+      const j = await api('/api/movesave', {});
+      showModal('세이브 옮기기').textContent = j.say;
+    }catch(e){ toast(e.message, true); }
+    return;
+  }
+  if (what === 'restore'){ $('#btnRestore').click(); return; }
+  if (what === 'report'){
+    try{
+      const j = await api('/api/peek', {path: S.path});
+      const el = showModal('안을 들여다보기');
+      el.textContent = j.text + '\n\n저장 위치: ' + j.file;
+    }catch(e){ toast(e.message, true); }
+    return;
+  }
+  if (what === 'pinpoint'){
+    const path = prompt('어느 파일인지 아신다면 그 파일의 전체 경로를 넣으세요.');
+    if (!path) return;
+    api('/api/pinpoint', {path}).then(j => {
+      const s = j.sample && j.sample.length ? '\n\n안에 든 글 몇 개:\n· ' + j.sample.join('\n· ') : '';
+      alert(j.verdict + s);
+    }).catch(e => toast(e.message, true));
+    return;
+  }
+if (what === 'runtime'){ await runtimeFlow(); return; }
+  if (what === 'overlay'){
+    if (!confirm('게임 파일은 그대로 두고, 사전과 짧은 후크만 새로 넣습니다.\n\n'
+      + '· 원본은 안 건드립니다\n'
+      + '· [원래대로] 를 누르면 넣은 것만 지워집니다\n'
+      + '· 사전에 없는 문장은 그냥 원문으로 나옵니다\n\n'
+      + '넣을까요?')) return;
+    try{
+      await api('/api/apply', {lang: S.lang, how: 'overlay'});
+      const el = showModal('덧씌우기'); pollJob(null, el);
+    }catch(e){ toast(e.message, true); }
+    return;
+  }
+  if (what === 'reextract'){
+    const box = {js:'#optJs', scenes:'#optScenes', notes:'#optNotes', allParams:'#optAllParams'}[opt];
+    const el = box && $(box);
+    if (el){
+      // '씬 파일 건너뛰기' 는 뜻이 거꾸로인 항목입니다 — 꺼야 읽습니다.
+      el.checked = (opt === 'scenes') ? false : true;
+      toast('설정을 바꿨습니다. [문자열 뽑기] 를 다시 누르세요.');
+    } else {
+      toast('해당 설정을 찾지 못했습니다. [고급 설정]에서 직접 켜 주세요.', true);
+    }
+  }
+}
+
+
+/* ---------------- 유니티 마지막 수단 ---------------- */
+async function runtimeFlow(){
+  let j;
+  try{ j = await api('/api/runtime/plan', {}); }
+  catch(e){ toast(e.message, true); return; }
+
+  if (j.installed){
+    // 지우기만 물으면, 설정이 틀렸을 때 고칠 길이 없습니다. 다시 넣기는
+    // 이미 깔린 것을 건드리지 않고 설정과 번역표만 새로 놓습니다.
+    const again = confirm(
+      '이미 넣어 두었습니다.\n\n'
+      + '확인 = 설정과 번역표를 다시 놓습니다 (깔린 것은 그대로 둡니다)\n'
+      + '취소 = 넣었던 것을 지웁니다');
+    if (!again){
+      try{ await api('/api/runtime/remove', {}); const el = showModal('마지막 수단 지우기'); pollJob(null, el); }
+      catch(e){ toast(e.message, true); }
+      return;
+    }
+  }
+  if (!j.ok){ alert((j.notes || []).join('\n\n') || '이 게임에는 쓸 수 없습니다.'); return; }
+
+  const head = `이 게임: ${j.backend} · ${j.bits}비트` + (j.unity ? ` · 유니티 ${j.unity}` : '');
+
+  // 필요한 짝이 같이 들어 있으면 받아 오라는 말을 아예 안 합니다.
+  let folder = '';
+  if (j.bundled){
+    if (!confirm(head + '\n\n' + (j.notes || []).join('\n\n')
+      + '\n\n필요한 것은 전부 같이 들어 있습니다 — 따로 받지 않으셔도 됩니다.\n'
+      + '한글 글꼴도 같이 넣습니다.\n'
+      + '되돌릴 때는 [원래대로] 하나로 둘 다 걷어냅니다.\n\n'
+      + '넣을까요?')) return;
+  } else {
+  const msg = head + '\n\n'
+    + (j.notes || []).join('\n\n')
+    + '\n\n필요한 압축 파일 두 개를 먼저 받아 두세요.\n\n'
+    + `1) BepInEx  —  이름에 [${j.bepinex}] 가 든 것\n   ${j.where}\n\n`
+    + `2) XUnity.AutoTranslator  —  이름에 [${j.xunity}] 가 든 것\n   ${j.releases}\n\n`
+    + '둘 다 받으셨으면 확인을 누르세요. 다음 화면에서 **받아둔 폴더**만 알려주시면 됩니다.\n\n'
+    + '한글 글꼴도 같이 넣습니다 — 이게 없으면 번역이 잘 들어가도 화면에는 □□□ 만 보입니다.\n'
+    + '되돌릴 때는 [원래대로] 하나로 둘 다 걷어냅니다.';
+  if (!confirm(msg)) return;
+
+  // 파일 이름을 치게 하지 않습니다. 받아둔 **폴더**만 주면 찾습니다.
+  const guess = (j.folders || [])[0] || '';
+  folder = prompt('압축 두 개를 받아 둔 폴더 경로를 넣으세요.\n(파일 이름은 안 쓰셔도 됩니다 — 알아서 찾습니다)', guess);
+  if (!folder) return;
+  }
+
+  // 원문 언어는 사람이 정합니다. 이걸 틀리면 플러그인이 원문을
+  // 거들떠보지도 않아, 번역표를 다 깔고도 한 줄이 안 바뀝니다.
+  const from = prompt(
+    '게임 화면에 나오는 말이 무엇입니까?\n'
+    + (j.why ? '\n짐작: ' + j.why + '\n' : '')
+    + '\nja=일본어  zh-CN=중국어  en=영어  ru=러시아어  ko=한국어\n'
+    + '게임 안 언어 설정과 같은 것으로 넣으세요.', j.from || 'ja');
+  if (!from) return;
+  try{
+    await api('/api/runtime/install', {folder: folder, lang: S.lang, from: from});
+    const el = showModal('마지막 수단 넣기');
+    pollJob(null, el);
+  }catch(e){
+    // 여러 줄짜리 안내가 토스트에서는 한 줄로 뭉개집니다. 제일 중요한
+    // 말('이 게임은 Mono 입니다')이 글 더미에 묻혀 안 보였습니다.
+    const el = showModal('받아둔 파일이 이 게임과 안 맞습니다');
+    el.textContent = e.message;
+  }
+}
+
+/* ---------------- 드롭다운 (엑셀 / 손번역툴) ---------------- */
+function bindDropdown(btnSel, menuSel){
+  const btn = $(btnSel), menu = $(menuSel);
+  btn.onclick = (e) => {
+    e.stopPropagation();
+    const willOpen = !menu.classList.contains('on');
+    document.querySelectorAll('.dd-menu.on').forEach(m => m.classList.remove('on'));
+    if (willOpen) menu.classList.add('on');
+  };
+  menu.onclick = (e) => { if (e.target.tagName === 'BUTTON') menu.classList.remove('on'); };
+}
+bindDropdown('#btnExcelMenu', '#ddExcelMenu');
+bindDropdown('#btnHandMenu', '#ddHandMenu');
+document.addEventListener('click', () => {
+  document.querySelectorAll('.dd-menu.on').forEach(m => m.classList.remove('on'));
+});
+
+/* ---------------- 엑셀 / 적용 ---------------- */
+$('#btnExport').onclick = async () => {
+  try{ const j = await api('/api/export', {}); toast('엑셀로 내보냈습니다: ' + j.path); }
+  catch(e){ toast(e.message, true); }
+};
+$('#btnExportSheets').onclick = async () => {
+  try{
+    const j = await api('/api/export', {googleFormulas:true});
+    toast('구글 시트용 엑셀을 내보냈습니다. 사용법은 엑셀 안의 [정보] 시트에 있습니다: ' + j.path);
+  }
+  catch(e){ toast(e.message, true); }
+};
+$('#btnImport').onclick = async () => {
+  try{
+    const j = await api('/api/import', {});
+    // 끝나지 않은 칸(Loading... 등)은 넣지 않았다는 것을 반드시 알린다.
+    toast(`엑셀에서 ${j.changed}건 불러왔습니다.` + (j.unfinished ? ' ' + j.message : ''), !!j.unfinished);
+    load();
+  }
+  catch(e){ toast(e.message, true); }
+};
+$('#btnFolder').onclick = () => api('/api/reveal', {what:'work'}).catch(()=>{});
+
+function showModal(title){
+  $('#mTitle').textContent = title; $('#mLog').textContent = '';
+  $('#mLive').innerHTML = ''; $('#mLive').style.display = 'none';
+  $('#mStat').style.display = 'none';
+  $('#modal').classList.add('on');
+  return $('#mLog');
+}
+$('#mClose').onclick = async () => {
+  if ($('#mClose').textContent === '중단'){
+    window.CHROME_STOP = true;
+    await api('/api/cancel', {}).catch(()=>{});
+    toast('중단했습니다. 지금까지 번역된 것은 남아 있습니다.');
+  }
+  $('#modal').classList.remove('on');
+};
+
+$('#btnDry').onclick = () => runApply(true);
+$('#btnApply').onclick = () => {
+  if (!confirm('게임 파일을 바꿉니다. 원본은 자동으로 백업됩니다. 계속할까요?')) return;
+  runApply(false);
+};
+async function runApply(dry){
+  try{
+    await api('/api/apply', {lang:S.lang, dry});
+    const el = showModal(dry ? '미리보기 (게임은 아직 그대로입니다)' : '게임에 적용 중');
+    step(4);
+    pollJob(() => { if (!dry) toast('적용 완료. 게임을 실행해서 확인하세요.'); }, el);
+  }catch(e){ toast(e.message, true); }
+}
+$('#btnRestore').onclick = async () => {
+  if (!confirm('번역을 모두 되돌리고 원본 파일로 복구합니다. 계속할까요?')) return;
+  try{
+    await api('/api/restore', {});
+    pollJob(() => {
+      // **파일을 되돌려도 게임이 그대로일 때가 있습니다.**
+      //
+      // 유니티 Localization 은 '지금 고른 언어' 를 게임 세이브에 적어
+      // 둡니다. 우리가 손댄 동안 게임이 그걸 저장해 버리면, 파일을
+      // 원래대로 돌려놔도 세이브가 없는 언어를 계속 찾습니다:
+      //
+      //     No translation found for 'titlemenu…' in UIkankei
+      //
+      // 파일만 보고 있으면 영영 못 찾습니다. 진짜 게임에서 사용자가
+      // '데이터 초기화' 를 눌러 보고서야 밝혀졌습니다.
+      showModal('원래대로 되돌렸습니다').textContent = [
+        '게임 파일을 번역 전으로 되돌렸습니다.',
+        '',
+        '그래도 게임이 그대로이거나 이런 오류가 남아 있다면',
+        "    No translation found for '...' in ...",
+        '',
+        '게임 파일이 아니라 게임 세이브에 설정이 남은 것입니다.',
+        '유니티는 고른 언어를 세이브에 적어 두는데, 우리는 게임의',
+        '세이브에는 손대지 않습니다 — 진행 상황을 지우면 안 되니까요.',
+        '',
+        '→ 게임을 켜서 [데이터 초기화] 를 한 번 누르면 풀립니다.',
+      ].join('\n');
+    }, showModal('되돌리는 중'));
+  }catch(e){ toast(e.message, true); }
+};
+
+/* ---------------- 번역 패치 (적용 결과를 파일 하나로) ---------------- */
+$('#btnPatchSave').onclick = async () => {
+  try{
+    await api('/api/patch/save', {});
+    pollJob(() => toast('번역 패치를 저장했습니다. 폴더가 열렸습니다.'), showModal('번역 패치 만드는 중'));
+  }catch(e){ toast(e.message, true); }
+};
+$('#btnPatchFolder').onclick = async () => {
+  try{
+    await api('/api/patch/overlay', {});
+    pollJob(() => toast('폴더를 만들었습니다. 안의 내용을 원본 게임 폴더에 덮어쓰세요.'), showModal('덮어쓰기용 폴더 만드는 중'));
+  }catch(e){ toast(e.message, true); }
+};
+$('#btnPatchApply').onclick = async () => {
+  try{
+    const j = await api('/api/pickfile', {});
+    if (!j.path) return;
+    if (!confirm('이 게임 폴더에 번역 패치를 넣습니다.\n\n패치: ' + j.path + '\n게임: ' + S.path
+        + '\n\n같은 게임 버전인지 먼저 확인하고, 원본은 백업합니다. 이미 번역돼 있으면 원래대로 되돌린 뒤 넣습니다.'
+        + '\n(남이 만든 패치는 게임 폴더의 파일을 바꿉니다. 믿을 수 있는 것만 쓰세요.)\n\n계속할까요?')) return;
+    await api('/api/patch/apply', {path: S.path, patch: j.path});
+    pollJob(() => toast('패치를 넣었습니다. 게임을 실행해서 확인하세요.'), showModal('번역 패치 넣는 중'));
+  }catch(e){ toast(e.message, true); }
+};
+$('#btnPatchRestore').onclick = async () => {
+  if (!confirm('이 게임의 번역을 모두 되돌리고 원본 파일로 복구합니다. 계속할까요?')) return;
+  try{
+    await api('/api/restore', {path: S.path});
+    pollJob(() => toast('원래대로 되돌렸습니다.'), showModal('되돌리는 중'));
+  }catch(e){ toast(e.message, true); }
+};
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape'){ ['#modal','#autoModal','#findModal']
+    .forEach(x => $(x).classList.remove('on')); }
+});
+window.addEventListener('beforeunload', () => {
+  // sendBeacon 은 헤더를 못 붙이므로 동기 요청으로 마지막 저장을 보냅니다
+  try{
+    const x = new XMLHttpRequest();
+    x.open('POST', '/api/flush', false);
+    x.setRequestHeader('Content-Type', 'application/json');
+    x.setRequestHeader('X-Gameloc-Token', TOKEN);
+    x.send('{}');
+  }catch(_){}
+});
+
+/* 이미 열려 있던 프로젝트가 있으면 바로 번역 화면으로 */
+(async () => {
+  try{
+    const st = await api('/api/state');
+    if (st.hasProject){ S.path = st.game || ''; $('#pathInput').value = S.path; enterWork(); }
+  }catch(_){}
+})();
+</script>
+</body>
+</html>

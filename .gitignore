@@ -1,0 +1,47 @@
+# Distribution archives are published separately from the source repository.
+/portable/
+*.zip
+*.zip.tmp
+*.z[0-9][0-9]
+
+# Generated executables and bundled runtimes.
+/RenPyTranslator.exe
+/RenPyTranslator-cli.exe
+/_internal/
+/_desktop/
+/runtimes/
+/build/dist/
+/build/work/
+/dist/
+/build/bootstrap-smoke/
+/build/renpy-validation/
+# Build evidence, SDK downloads and generated fixtures are local-only.
+/build/*
+!/build/*.py
+!/build/portable.spec
+
+# Local models, games, preferences, translation caches and diagnostics.
+/benchmarks/
+/models/
+/project/
+/projects/
+/data/
+/logs/
+*.evtx
+*.wer
+*.dmp
+.env
+.env.*
+*.pem
+*.pfx
+*.p12
+
+# Upstream game fixtures are not part of the translator source distribution.
+/vendor/unrpyc/testcases/
+
+# Development dependencies and generated files.
+/.venv/
+node_modules/
+/desktop/dist/
+__pycache__/
+*.py[cod]
