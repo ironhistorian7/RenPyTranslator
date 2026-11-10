@@ -81,7 +81,9 @@ HY의 12GB 기본 컨텍스트 창은 16,384토큰입니다. TXT 자료의 4,500
 
 같은 런타임의 토크나이저를 사용할 수 있으면 최종 입력을 계산하고, 사용할 수 없으면 추정값임을 기록합니다. 요청이 창을 넘으면 배치를 먼저 나눕니다. 앞뒤 원문은 대사 항목 전체로 넣고, label·분기·이동·TXT 장면 경계를 넘기지 않습니다. 이미지 교체인 `scene` 명령만으로는 대화를 끊지 않습니다.
 
-공간이 부족하면 먼 주변 대사부터 통째로 제외하고 TXT를 완전한 줄·용어 단위로 줄입니다. 가까운 원문과 현재 관계·말투를 우선하며, 번역 대상 문장 자체는 자르지 않습니다. 번역 대상만으로도 창을 넘으면 해당 항목과 예산을 오류로 기록합니다.
+공간이 부족하면 먼 주변 대사부터 통째로 제외하고 TXT를 완전한 줄·용어 단위로 줄입니다. 가까운 원문과 현재 관계·말투를 우선합니다. 번역 출력 공간도 원문 분량에 맞춰 추정하며, 여러 문장이 들어 있는 긴 항목은 문장·문단 경계에서 나누어 요청할 수 있습니다. 단어나 문장 중간, 변수·보호 표시 안쪽은 분할하지 않습니다.
+
+나눈 결과는 합친 뒤 기존 항목 ID로 검사·저장합니다. 출력 한도에 도달하면 완료된 항목은 보존하고 미완료 항목만 다시 처리합니다. 안전한 분할 지점이 없거나 재시도 후에도 완성하지 못한 항목은 원인과 함께 원문으로 남기며, 잘린 번역 조각을 완성본으로 저장하지 않습니다.
 
 문맥이 길거나 자세하다고 말투·호칭·대명사 해석이 항상 정확해지는 것은 아닙니다. 자료는 모델의 판단을 돕지만 오역을 모두 막지는 못합니다.
 
@@ -138,7 +140,9 @@ The 12GB HY baseline uses a 16,384-token window. The suggested 4,500-token TXT s
 
 Final inputs use the runtime tokenizer when available, otherwise a recorded estimate. Oversized batches are split before translation. Nearby source text is added as complete dialogue entries within label/branch/jump/context boundaries. A visual `scene` change alone does not end the conversation.
 
-When space is short, distant source entries are removed whole and TXT is reduced by complete lines or terms. Nearby dialogue and current relationship/register are prioritized. The translation target is never cut mid-sentence; a target that cannot fit produces a budget error. Larger context does not guarantee correct register or address.
+When space is short, distant source entries are removed whole and TXT is reduced by complete lines or terms. Nearby dialogue and current relationship/register are prioritized. Output space is estimated from the input size. Long entries containing multiple sentences may be requested in parts at sentence or paragraph boundaries, without cutting words, sentences, variables or protected markers.
+
+Parts are joined before validation and storage under the original entry ID. If output reaches its limit, completed entries are retained and only unfinished items are retried. Entries without a safe split point, or still incomplete after retries, retain the source with a recorded reason. Truncated fragments are not saved as completed translations. Larger context does not guarantee correct register or address.
 
 Speaker/UI labels are requested separately without story context or nearby dialogue, retaining relevant terms and name/variable metadata. Malformed label outputs retry only the affected entry and may fall back to the source without stopping all patch generation.
 

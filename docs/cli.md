@@ -16,7 +16,9 @@ $tool = 'E:\Tools\RenPyTranslator'
 
 원문이 영어라면 `-SourceLanguage english`를 사용합니다. 새 프로젝트에서 생략하면 영어이며, 기존 프로젝트는 저장된 원문 언어를 유지합니다. 출력은 한국어입니다. 원문 언어 변경만으로 완료된 항목을 다시 번역하지 않습니다.
 
-명령 없이 실행하거나 `repair`에서 `-Fix`, `tasks`에서 `-Tasks`를 생략하면 도움말만 표시합니다. `check`는 별도 검사 환경에서 게임 엔진을 실행합니다.
+다국어 RPG Maker 게임에 인식 가능한 CSV·JSON 번역 테이블이 있으면 선택한 언어의 표시문구를 번역 입력으로 사용합니다. 테이블 형식을 확인할 수 없으면 플러그인의 동작을 추측해 치환하지 않습니다. 연결 결과는 내부 프로젝트의 `data/rpg-source-language.json`에서 확인할 수 있습니다.
+
+명령 없이 실행하거나 `repair`에서 `-Fix`, `tasks`에서 `-Tasks`를 생략하면 도움말만 표시합니다. `check`는 Ren’Py에서 별도 검사 환경의 게임 엔진을 실행하며, RPG Maker에서는 게임을 실행하지 않고 정적 검사합니다.
 
 ### 재개·재번역·결과 재생성
 
@@ -34,7 +36,7 @@ $tool = 'E:\Tools\RenPyTranslator'
 | `retranslate` | 준비된 프로젝트를 별도로 재번역. 이전 결과는 유지 |
 | `rebuild` | 저장된 번역으로 패치를 다시 생성. 전체 번역을 다시 요청하지 않음 |
 | `update` | `-Project`의 기존 번역과 `-Source`의 새 게임 버전을 연결해 추가·변경분 번역 |
-| `check` | 원본·패치 상태 비교 검사와 확인된 생성 패치 오류 보정 |
+| `check` | Ren’Py 원본·패치 비교와 확인된 패치 오류 보정 / RPG Maker 정적 검사 |
 
 `-Project`에는 내부 작업 폴더와 프로그램이 만든 결과 폴더를 사용할 수 있습니다. 비교용 재번역이 중단됐다면 같은 비교 프로젝트와 모델로 다시 실행합니다.
 
@@ -45,6 +47,7 @@ $tool = 'E:\Tools\RenPyTranslator'
 ```powershell
 & "$tool\translate.ps1" -Command repair -Project "$tool\project\YourGame-kr" -Fix font
 & "$tool\translate.ps1" -Command repair -Project "$tool\project\YourGame-kr" -Fix failed
+& "$tool\translate.ps1" -Command repair -Project "$tool\project\YourGame-kr" -Fix names
 & "$tool\translate.ps1" -Command repair -Project "$tool\project\YourGame-kr" -Fix display -ReferenceDisplay hide
 & "$tool\translate.ps1" -Command repair -Project "$tool\project\YourGame-kr" -Fix layout -TextboxScale default
 ```
@@ -52,18 +55,17 @@ $tool = 'E:\Tools\RenPyTranslator'
 | `-Fix` | 처리 내용 | 지원 엔진 |
 | --- | --- | --- |
 | `font` | 글꼴·기본 메뉴·표시 | 두 엔진 |
-| `failed` | 실패 목록의 항목만 복구. 저장된 응답을 먼저 사용하고 필요하면 로컬 번역 | 두 엔진 |
+| `failed` | 실패·미번역 후보 복구. 저장된 응답을 먼저 사용하고 남은 대상만 로컬 번역 | 두 엔진 |
 | `display` | 원문 참고 표시·배치 | 두 엔진 |
 | `layout` | 대화창 높이 조정 | 두 엔진 |
 | `names` | 인명·호칭·입력 문구 및 관련 텍스트; RPG Maker는 인명 표기 통일 | 두 엔진 |
-| `all` | Ren’Py는 전체 보정, RPG Maker는 폰트·메뉴와 미번역 복구 | 두 엔진 |
+| `all` | Ren’Py는 전체 보정, RPG Maker는 폰트·메뉴·인명 표기와 미번역 복구 | 두 엔진 |
 
 원문 참고를 다시 켜려면 `-ReferenceDisplay show`를 사용합니다. 높이는 `default` 또는 `1.2` 같은 배율로 지정합니다. 표시만 바꾸는 작업은 번역 캐시를 유지합니다.
 
 ### Ren’Py 추가 작업
 
 ```powershell
-& "$tool\translate.ps1" -Command repair -Project "$tool\project\YourGame-kr" -Fix names
 & "$tool\translate.ps1" -Command tasks -Project "$tool\project\YourGame-kr" -Tasks answers,routes
 & "$tool\translate.ps1" -Command language -Project "$tool\project\YourGame-kr" -LanguageCorner right -LanguageMargin 12
 ```
@@ -106,7 +108,11 @@ $tool = 'E:\Tools\RenPyTranslator'
 & "$tool\translate.ps1" -Command run -Project "$tool\project\YourGame-kr"
 ```
 
-Use `english` for English source text. Omitting the option keeps an existing project's selection; a new project defaults to English. Output is Korean. Changing source language does not retranslate completed entries. Running without a command, or omitting `-Fix` for `repair` or `-Tasks` for `tasks`, prints help only. The explicit `check` command runs the game engine in an isolated workspace.
+Use `english` for English source text. Omitting the option keeps an existing project's selection; a new project defaults to English. Output is Korean. Changing source language does not retranslate completed entries.
+
+For multilingual RPG Maker games, recognized CSV/JSON translation tables supply the selected language's display text as translation input. Unknown plugin table formats are not guessed. Check `data/rpg-source-language.json` inside the workspace for the mapping results.
+
+Running without a command, or omitting `-Fix` for `repair` or `-Tasks` for `tasks`, prints help only. The explicit `check` command runs Ren’Py in an isolated workspace; RPG Maker checks are static and do not launch the game.
 
 `run` reuses saved translations. `retranslate` creates a separate comparison project and retains the old result. `rebuild` regenerates the patch from saved translations rather than translating the whole game again. `-Project` accepts an internal workspace or an exported result linked to it.
 
@@ -119,6 +125,7 @@ Use `update -Project <old-project> -Source <new-game>` to import a newer game, o
 & "$tool\translate.ps1" -Command rebuild -Project "$tool\project\YourGame-kr"
 & "$tool\translate.ps1" -Command repair -Project "$tool\project\YourGame-kr" -Fix font
 & "$tool\translate.ps1" -Command repair -Project "$tool\project\YourGame-kr" -Fix failed
+& "$tool\translate.ps1" -Command repair -Project "$tool\project\YourGame-kr" -Fix names
 & "$tool\translate.ps1" -Command repair -Project "$tool\project\YourGame-kr" -Fix display -ReferenceDisplay hide
 & "$tool\translate.ps1" -Command repair -Project "$tool\project\YourGame-kr" -Fix layout -TextboxScale default
 ```
@@ -126,18 +133,17 @@ Use `update -Project <old-project> -Source <new-game>` to import a newer game, o
 | Scope | Purpose | Engines |
 | --- | --- | --- |
 | `font` | Fonts, standard menus and presentation | Both |
-| `failed` | Indexed failures only; saved responses first, local inference if needed | Both |
+| `failed` | Failed or detected untranslated items; saved responses first, local inference only where needed | Both |
 | `display` | Original-reference visibility and placement | Both |
 | `layout` | Textbox height | Both |
 | `names` | Names, address, inputs and affected text; RPG Maker actor-name consistency | Both engines |
-| `all` | All Ren’Py corrections; fonts/menus and failed items for RPG Maker | Both |
+| `all` | All Ren’Py corrections; fonts/menus, actor-name consistency and failed items for RPG Maker | Both |
 
 Use `-ReferenceDisplay show` to restore references. Heights accept `default` or a multiplier such as `1.2`. Display-only changes retain the translation cache.
 
 ### Ren’Py-only tasks
 
 ```powershell
-& "$tool\translate.ps1" -Command repair -Project "$tool\project\YourGame-kr" -Fix names
 & "$tool\translate.ps1" -Command tasks -Project "$tool\project\YourGame-kr" -Tasks answers,routes
 & "$tool\translate.ps1" -Command language -Project "$tool\project\YourGame-kr" -LanguageCorner right -LanguageMargin 12
 ```

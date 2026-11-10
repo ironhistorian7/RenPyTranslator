@@ -33,7 +33,7 @@ Ren’Py는 해당 게임에 포함된 엔진으로 검사용 원본 상태와 �
 
 보고서는 내부 프로젝트의 `data/patch-validation.json`과 `data/validation-runs/<검사 ID>/report.json`에 저장됩니다.
 
-검사 중에는 텍스트 처리 진행 상황을 표시합니다. 종료 시 성공·실패·취소 여부와 관계없이 검사 복사본을 삭제하고 보고서·진단 로그만 남깁니다. 파일 해시를 대조하지 않으며, 같은 준비 자료로 만든 두 검사본의 결과를 비교합니다. 비교본에서도 발생한 lint 지적과 초기화 우선순위 권고는 별도 진단으로 기록하고, 새로 발생한 패치 오류와 구분합니다.
+검사 중에는 현재 단계와 텍스트 처리 진행 상황을 표시합니다. 번역 단계의 진행률을 검사 진행률로 이어 표시하지 않습니다. Ren’Py 검사 복사본은 성공·실패·취소 여부와 관계없이 종료 시 삭제하고 보고서·진단 로그만 남깁니다. 파일 해시를 대조하지 않으며, 같은 준비 자료로 만든 두 검사본의 결과를 비교합니다. 비교본에서도 발생한 lint 지적과 초기화 우선순위 권고는 별도 진단으로 기록하고, 새로 발생한 패치 오류와 구분합니다.
 
 | 분류 | 의미 |
 | --- | --- |
@@ -44,7 +44,7 @@ Ren’Py는 해당 게임에 포함된 엔진으로 검사용 원본 상태와 �
 
 검사 도구의 오류나 지원되지 않는 검사 경로를 원본 게임 오류로 분류하지 않습니다. `passed`는 보고서에 적힌 검사 범위가 통과했다는 뜻입니다. 모든 퀘스트·저장 상태·커스텀 화면의 동작을 보장하지는 않습니다. RPG Maker는 준비된 JSON·플러그인 등의 정적 검사 결과와 실행 검사 여부를 구분해 기록합니다.
 
-자동 보정은 원인이 확인된 생성 패치에만 적용합니다. 검사용 복사본에서 알려진 규칙으로 한 번 보정하고 재검사에 통과한 파일만 반영합니다. 변경 전 파일을 검사 기록에 백업하며, 원본 게임 코드와 번역 캐시는 수정하지 않습니다. 누락된 게임 레이블이나 퀘스트 조건은 임의로 만들거나 건너뛰지 않습니다.
+자동 보정은 원인이 확인되고 보정 규칙이 구현된 Ren’Py 생성 패치에만 적용합니다. 검사용 복사본에서 한 번 보정하고 재검사에 통과한 파일만 반영합니다. 변경 전 파일을 검사 기록에 백업하며, 원본 게임 코드와 번역 캐시는 수정하지 않습니다. 누락된 게임 레이블이나 퀘스트 조건은 임의로 만들거나 건너뛰지 않습니다. RPG Maker의 정적 검사는 문제를 보고하며, 임의로 게임 코드나 이벤트를 수정하지 않습니다.
 
 ### 추론 런타임 버전
 
@@ -86,9 +86,9 @@ Ren’Py checks compare isolated original and patched workspaces using the game'
 
 Reports are written to `data/patch-validation.json` and `data/validation-runs/<id>/report.json`. Errors are classified as `ours`, `original`, `mixed` or `unknown` from comparison evidence. Probe defects and unsupported checks are not attributed to the original game. A pass covers the recorded checks rather than every quest, save state or custom screen. RPG Maker reports static checks separately from runtime coverage.
 
-Text-rendering progress is displayed during the check. Test copies are removed after success, failure or cancellation; reports and diagnostic logs remain. Checks compare results from copies of the same prepared inputs without file-hash comparisons. Shared baseline lint findings and init-priority advisories are recorded separately from new patch failures.
+The check displays its current phase and text-rendering progress, resetting the preceding translation phase's progress. Ren’Py test copies are removed after success, failure or cancellation; reports and diagnostic logs remain. Checks compare results from copies of the same prepared inputs without file-hash comparisons. Shared baseline lint findings and init-priority advisories are recorded separately from new patch failures.
 
-Known generated-patch defects can be corrected once in the test copy. Only files that pass the recheck are committed, with backups in the validation artifacts. Original game code and translation caches are retained. Missing game labels and quest conditions are never invented or bypassed.
+Ren’Py generated-patch defects can be corrected once when their cause is established and an implemented repair rule applies. Only files that pass the recheck are committed, with backups in the validation artifacts. Original game code and translation caches are retained. Missing game labels and quest conditions are never invented or bypassed. RPG Maker's static check reports problems without inventing changes to game code or events.
 
 ### Runtime versions
 

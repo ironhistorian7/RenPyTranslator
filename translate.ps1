@@ -31,12 +31,13 @@ Usage:
 
 Commands:
   Supported formats: RenPy and RPG Maker MV/MZ (detected from the selected folder).
-  RPG Maker: run, retranslate, prepare, status, rebuild, font/failed/display/layout repairs.
-  RPG Maker answers, routes, names and language panel are not supported yet.
+  RPG Maker: run, retranslate, update, check, prepare, status, rebuild,
+             font/names/failed/display/layout repairs.
+  RPG Maker answers, routes and language panel are not supported.
   run           Prepare, translate and package the selected game
   retranslate   Translate afresh in a separate project; keep the previous result
   update        Reuse existing translation for the updated game
-  check         Check the patch in an isolated workspace
+  check         RenPy isolated engine checks; RPG Maker static output checks
   prepare       Prepare only; no translation
   repair        Repair an existing project (requires -Fix)
   answers       In-game answer hints (beta)
@@ -53,8 +54,8 @@ Commands:
 
 Repair scopes (-Fix):
   font    Fonts, standard menus and display; no model
-  names   Names, forms of address, input prompts/defaults and affected text
-  failed  Indexed failures only; saved output first, local model if needed
+  names   RenPy names/address/input; RPG Maker actor-name consistency (no model)
+  failed  Find unresolved failures; reuse saved output before local translation
   display Original-language reference + layout; no model
   layout  Textbox height only; -TextboxScale default or e.g. 1.2
   all     All fixes (may use a local model)

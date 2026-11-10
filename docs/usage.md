@@ -37,13 +37,17 @@
 
 #### 4. 최종 확인
 
-게임, 실행할 작업, 원문 언어, 모델과 결과 위치를 확인한 뒤 시작합니다. 작업 중에는 현재 단계의 진행률과 경과 시간, 예상 남은 시간이 표시됩니다. 번역 속도가 쌓이기 전이나 처리량을 셀 수 없는 단계에서는 남은 시간을 표시하지 않습니다. 패치 검사를 선택하면 별도 검사 복사본의 창이 열립니다.
+게임, 실행할 작업, 원문 언어, 모델과 결과 위치를 확인한 뒤 시작합니다. 진행률과 예상 남은 시간은 **현재 단계**를 기준으로 표시하며, 경과 시간은 작업을 시작한 때부터 셉니다. 초기 표본이 적거나 처리량을 셀 수 없는 단계에서는 남은 시간을 계산 중으로 표시합니다. 번역 완료·원문 유지·기존 번역 재사용 수는 따로 확인할 수 있습니다.
+
+Ren’Py 패치 검사는 별도 검사 복사본의 창을 엽니다. RPG Maker 패치 검사는 게임을 실행하지 않는 정적 검사입니다.
 
 ### 완료와 중단
 
 정상 완료되면 **결과 폴더 열기**로 패치를 확인합니다. **확인**을 누르면 현재 작업 화면을 초기화하고 첫 단계로 돌아갑니다. 저장된 번역·결과·모델은 그대로 남습니다.
 
-오류를 제보하려면 **오류 내용 복사**와 **진단 파일 저장**을 사용하세요. 진단 파일에는 오류 종류와 실행 환경 등 기술 정보가 담기며, 게임 대사·번역문·저장본은 포함되지 않습니다. **로그 폴더 열기**는 해당 오류 기록이 있는 폴더를 엽니다. 실패 후 폴더를 열면 첫 단계로 돌아가며, 열지 못하면 오류 화면을 유지합니다. 자세한 기록은 접힌 **상세 기록**과 [오류와 로그](diagnostics.md)에서 확인할 수 있습니다.
+오류가 발생하면 현재 상태와 오류 ID를 확인할 수 있습니다. 자동 복구 중에는 재시도까지의 대기 시간이 표시됩니다. 오류를 제보할 때는 **오류 내용 복사**로 Markdown 형식의 요약을 붙여넣고, **진단 파일 저장**으로 만든 JSON 파일을 함께 첨부하세요. 진단 파일에는 오류 종류와 실행 환경 등 기술 정보가 담기며, 게임 대사·번역문·저장본은 포함되지 않습니다.
+
+**로그 폴더 열기**는 해당 오류 기록이 있는 폴더를 엽니다. 실패 후 폴더를 열면 첫 단계로 돌아가며, 열지 못하면 오류 화면을 유지합니다. 자세한 기록은 접힌 **상세 기록**과 [오류와 로그](diagnostics.md)에서 확인할 수 있습니다.
 
 취소하거나 오류가 나도 저장된 번역은 유지합니다. 같은 프로젝트를 선택해 **번역**을 다시 실행하면 완료한 항목을 재사용합니다. 취소 직전 저장되지 않은 배치는 다시 처리할 수 있습니다.
 
@@ -92,7 +96,7 @@ Open **Translation** in the sidebar. The default translation job includes the no
 1. **Game:** Select the folder containing the executable, then choose English or Japanese. Existing workspaces and exported results use the same folder picker. Single-language games use their original scripts. RPG Maker uses explicitly labeled CSV/JSON locale tables and supported language-plugin declarations for the selected input and original reference, without changing the game's language setting. Unrecognized custom translation systems need separate review. Ren’Py original-versus-`tl` selection remains separate. Expand **Other settings · Tasks** for retranslation or additional tasks.
 2. **Model:** Check the local model, GPU, context window, concurrency and TXT context status. Use the link to **AI Model** to download, select and apply a model.
 3. **Output:** Choose a destination. The default is `project/<game>-kr` below the application folder. **Other settings** contains textbox height, reference visibility and the output suffix. `default` keeps the original height; `1.2` means 120%. The original reference is on by default at 55% of the Korean text size. Ren’Py also offers language-panel placement. Retranslation produces a separate comparison result.
-4. **Review:** Check the game, tasks, source language, model and destination, then start. Progress and errors appear in the job log. Patch check opens separate validation copies of the game.
+4. **Review:** Check the game, tasks, source language, model and destination, then start. Progress and estimated remaining time refer to the current phase; elapsed time covers the whole job. Ren’Py patch checks open separate validation copies. RPG Maker patch checks are static and do not launch the game.
 
 Hiding the original reference does not hide untranslated fallback text.
 
@@ -100,9 +104,11 @@ Hiding the original reference does not hide untranslated fallback text.
 
 After success, **Open result folder** opens the patch location. **Confirm** resets the current workflow and returns to the first step, keeping saved translations, results and models.
 
-While a job runs, the current phase shows its progress, elapsed time and estimated remaining time. Estimates appear once enough work has completed; phases without a measurable workload remain indeterminate.
+While a job runs, estimates appear once enough work has completed. Phases without a measurable workload remain indeterminate. Translated entries, entries retained in the original language and reused cached entries are counted separately.
 
-To report an error, use **Copy error details** and **Save diagnostic file**. The exported JSON contains technical error and environment information, excluding game dialogue, translations and saves. **Open log folder** opens the folder containing the relevant error record. After a failed job, successfully opening that folder returns to the first step; if opening fails, the error page remains. Raw output stays under the collapsed details. See [Diagnostics](diagnostics.md).
+An error card shows the current status and error ID. Automatic recovery displays a retry countdown. To report a problem, paste the Markdown summary from **Copy error details** and attach the JSON created by **Save diagnostic file**. The diagnostic file contains technical error and environment information, excluding game dialogue, translations and saves.
+
+**Open log folder** opens the folder containing the relevant error record. After a failed job, successfully opening that folder returns to the first step; if opening fails, the error page remains. Raw output stays under the collapsed details. See [Diagnostics](diagnostics.md).
 
 Cancellation and errors retain saved translations. Select the same project and run **Translation** again to reuse completed entries. An in-flight unsaved batch may repeat.
 
