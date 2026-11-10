@@ -43,7 +43,7 @@ class FinalTextTests(unittest.TestCase):
 
 class AttributionTests(unittest.TestCase):
     def setUp(self):
-        self.evidence = dict(confident=True, code_equal=True, probe_equal=True, source_authenticity={'verified':True,'target_hints_complete':True,'targets_present':[]}, language='korean', changed_text_ids=['a'])
+        self.evidence = dict(confident=True, code_inventory_equal=True, probe_equal=True, source_authenticity={'verified':True,'target_hints_complete':True,'targets_present':[]}, language='korean', changed_text_ids=['a'])
 
     def test_matching_original_missing_menu_is_original(self):
         missing = dict(failure(check='menu_target', error='Missing ShowMenu target: credits', target='credits'), error_type='MissingMenuTarget')
@@ -60,7 +60,7 @@ class AttributionTests(unittest.TestCase):
 
     def test_original_parity_and_snapshot_confidence_are_required(self):
         bad = failure(frames='File "game/zz_rpt_layout.rpy", line 4\nException: broken')
-        self.assertEqual(classify([success()], [bad], dict(self.evidence, code_equal=False))['attribution'], 'unknown')
+        self.assertEqual(classify([success()], [bad], dict(self.evidence, code_inventory_equal=False))['attribution'], 'unknown')
         self.assertEqual(classify([success()], [bad], dict(self.evidence, confident=False))['attribution'], 'unknown')
         self.assertEqual(classify([success()], [bad], dict(self.evidence, probe_equal=False))['attribution'], 'unknown')
         self.assertEqual(classify([success()], [bad], dict(self.evidence, source_authenticity={'verified':False}))['attribution'], 'unknown')
@@ -124,14 +124,15 @@ class WorkspaceTests(unittest.TestCase):
         self.assertTrue((workspace/'staging/game/zz_custom_fix.rpy').exists())
         self.assertEqual((workspace/'staging/game/tl/korean/custom.rpy').read_bytes(), original.read_bytes())
 
-    def test_changed_original_is_not_trusted_and_is_not_rewritten(self):
+    def test_available_native_input_is_restored_without_hash_gate(self):
         original = self.write('game/tl/korean/custom.rpy', '# changed', self.original)
         self.write('data/source-manifest.json', json.dumps({'game/tl/korean/custom.rpy': {'sha256': 'old'}}))
         workspace = self.root/'check'
         self.write('staging/game/tl/korean/custom.rpy', '# patch', workspace)
         evidence = _baseline(self.project, workspace, self.cfg)
-        self.assertFalse(evidence['confident'])
+        self.assertTrue(evidence['confident'])
         self.assertEqual(original.read_text(), '# changed')
+        self.assertEqual((workspace/'staging/game/tl/korean/custom.rpy').read_text(), '# changed')
 
     def source_proof(self, archived=False):
         runtime = '# invented engine\n'
@@ -154,6 +155,18 @@ class WorkspaceTests(unittest.TestCase):
     def test_matching_prepared_code_is_proven_against_source_manifest(self):
         self.assertTrue(self.source_proof()['verified'])
 
+    def test_regenerated_engine_bytecode_does_not_fail_inventory(self):
+        self.source_proof()
+        self.write('renpy/common/invented.rpyc', 'original compiled data', self.original)
+        self.write('staging/renpy/common/invented.rpyc', 'regenerated compiled data')
+        manifest_path=self.project/'data/source-manifest.json'
+        manifest=json.loads(manifest_path.read_text())
+        manifest['renpy/common/invented.rpyc']={'sha256':'old unused digest'}
+        manifest_path.write_text(json.dumps(manifest),encoding='utf-8')
+        proof=_source_authenticity(self.project,self.cfg)
+        self.assertTrue(proof['verified'])
+        self.assertFalse(proof['hashes_checked'])
+
     def test_shared_preparation_loss_is_unknown_not_original(self):
         self.source_proof()
         (self.project/'staging/game/screens.rpy').unlink()
@@ -161,7 +174,7 @@ class WorkspaceTests(unittest.TestCase):
         self.assertFalse(proof['verified'])
         issue = dict(check='menu_target', status='failed', target='credits', error_type='MissingMenuTarget', error='Missing target')
         checks = [dict(check='render',status='failed',events=[issue])]
-        evidence = dict(confident=True, code_equal=True, probe_equal=True, source_authenticity=proof)
+        evidence = dict(confident=True, code_inventory_equal=True, probe_equal=True, source_authenticity=proof)
         self.assertEqual(classify(checks, checks, evidence)['attribution'], 'unknown')
 
     def test_original_script_omitted_from_manifest_is_not_trusted(self):
@@ -176,7 +189,7 @@ class WorkspaceTests(unittest.TestCase):
         proof.update(target_hints_complete=True, targets_present=['credits'])
         issue = dict(check='menu_target', status='failed', target='credits', error_type='MissingMenuTarget', error='Missing target')
         checks = [dict(check='render',status='failed',events=[issue])]
-        evidence = dict(confident=True, code_equal=True, probe_equal=True, source_authenticity=proof)
+        evidence = dict(confident=True, code_inventory_equal=True, probe_equal=True, source_authenticity=proof)
         self.assertEqual(classify(checks, checks, evidence)['attribution'], 'unknown')
 
     def test_compact_archive_missing_original_definition_is_not_trusted(self):
@@ -185,7 +198,7 @@ class WorkspaceTests(unittest.TestCase):
         archive(self.project/'staging/game/_rpt_original_scripts.rpa', {})
         proof = _source_authenticity(self.project, self.cfg)
         self.assertFalse(proof['verified'])
-        self.assertTrue(any(item['kind']=='prepared_original_code_missing_or_changed' for item in proof['issues']))
+        self.assertTrue(any(item['kind']=='prepared_original_code_missing' for item in proof['issues']))
 
     def test_prior_tool_patch_in_input_blocks_attribution(self):
         self.write('data/source-manifest.json', json.dumps({'game/zz_rpt_korean.rpyc': {'sha256': 'old'}}))
@@ -255,7 +268,7 @@ class WorkspaceTests(unittest.TestCase):
         p = self.write('staging/game/zz_rpt_layout.rpy', 'user edited meanwhile')
         self.write('staging/game/zz_rpt_layout.rpy', 'automatic fix', workspace)
         with self.assertRaisesRegex(RuntimeError, 'changed during validation'):
-            _commit_repairs(self.project, workspace, [dict(file='game/zz_rpt_layout.rpy', before_sha256='old')], self.root/'report')
+            _commit_repairs(self.project, workspace, [dict(file='game/zz_rpt_layout.rpy', before_state=[0,0])], self.root/'report')
         self.assertEqual(p.read_text(), 'user edited meanwhile')
 
     def test_static_mode_never_starts_engine(self):
@@ -295,7 +308,7 @@ class WorkspaceTests(unittest.TestCase):
         with patch('patch_validation._snapshot', side_effect=snapshot), \
              patch('patch_validation._baseline', return_value={'confident':True}), \
              patch('patch_validation._source_authenticity', return_value={'verified':True}), \
-             patch('patch_validation._original_code_hashes', return_value={'game/original.rpyc':'same'}), \
+             patch('patch_validation._original_code_files', return_value={'game/original.rpyc'}), \
              patch('patch_validation._menu_targets', return_value=[]), \
              patch('patch_validation._execute', side_effect=lambda workspace, operation, timeout=180: success(operation)):
             result = run(self.project, self.cfg, mode='compile')

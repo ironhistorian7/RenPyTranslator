@@ -137,6 +137,8 @@ def replace_selected(text,spans,selected):
 
 def run(project,cfg):
     """No runtime starts unless a new name or an unresolved candidate needs it."""
+    from job_events import set_phase,progress
+    set_phase('names.scan','이름 확인')
     from automatic import script_sources
     from hy_backend import runtime,is_hy
     from model_runtime import model_session
@@ -182,9 +184,13 @@ def run(project,cfg):
             try:return json.loads(response['message']['content'])
             except (ValueError,KeyError,TypeError):return {}
         from identity_policy import classify,repair_terms
+        set_phase('names.classify','이름 구분')
         types=classify(project,inventory,ask)
+        progress('names.classify',1,1)
         names=mapping(project)
         pending=[n for n in inventory if types.get(n,{}).get('kind')=='name' and n not in names]
+        set_phase('names.transliterate','이름 음역',len(pending))
+        progress('names.transliterate',0,len(pending))
         for offset in range(0,len(pending),8):
             batch=pending[offset:offset+8]
             schema={'type':'object','properties':{str(i):{'type':'string'} for i in range(len(batch))},
@@ -205,9 +211,12 @@ def run(project,cfg):
                 else:report['issues'].append({'name':name,'reason':'No usable transliteration; kept original result'})
             save_json(project/'data/name-transliterations.json',{'names':automatic,'attempted':sorted(attempted),'sources':inventory})
             print('Name transliteration: %d/%d'%(min(offset+8,len(pending)),len(pending)),flush=True)
+            progress('names.transliterate',min(offset+8,len(pending)),len(pending))
         # Input prompts are often Python strings absent from Ren'Py's catalog.
         # Translate only newly discovered input prompts, not the full script.
         missing_prompts=sorted(p for p in originals if p not in prompts and letters(TOKENS.sub('',p)))
+        set_phase('names.prompts','입력 안내문 번역',len(missing_prompts))
+        progress('names.prompts',0,len(missing_prompts))
         from translation import protect,restore,validate_text
         for offset in range(0,len(missing_prompts),4):
             batch=missing_prompts[offset:offset+4]
@@ -225,11 +234,17 @@ def run(project,cfg):
                 except (KeyError,TypeError,ValueError):
                     report['issues'].append({'input_prompt':prompt,'reason':'Kept original prompt'})
             save_json(promptsfile,prompts)
+            progress('names.prompts',min(offset+4,len(missing_prompts)),len(missing_prompts))
         names=mapping(project)
+        set_phase('names.defaults','입력 기본값 확인')
         translate_defaults(project,input_items,input_defaults,prompts,names,ask,report,cfg=cfg)
+        progress('names.defaults',1,1)
         semantic={}
         if not cfg.get('_names_only'):
+            set_phase('names.terms','이름·호칭 확인')
             semantic=repair_terms(project,rows,known,saved,types,ask,cfg)
+            progress('names.terms',1,1)
+        set_phase('names.candidates','이름 표기 확인')
         aliases={n:set() for n in names}
         for row in rows:
             bare=visible(row['source'])
@@ -253,6 +268,8 @@ def run(project,cfg):
             nearby=[r['source'][:250] for r in rows[max(0,pos-1):pos+2] if r.get('file')==row.get('file')]
             candidates.append((row,entry,spans,nearby))
         print('Name correction candidates: %d'%len(candidates),flush=True)
+        set_phase('names.correction','이름 표기 보정',len(candidates))
+        progress('names.correction',0,len(candidates))
         # Small bounded prompts; ID selection never rewrites unrelated sentence text.
         for offset in range(0,len(candidates),4):
             batch=candidates[offset:offset+4]
@@ -273,6 +290,8 @@ def run(project,cfg):
                 report['corrected_items']+=after!=entry['text']
             save_json(project/'data/name-edits.json',edits)
             print('Name correction: %d/%d'%(min(offset+4,len(candidates)),len(candidates)),flush=True)
+            progress('names.correction',min(offset+4,len(candidates)),len(candidates))
+    set_phase('names.finish','이름 보정 마무리')
     updated=apply_names(project,rows,dict(known))
     changed={i for i,e in updated.items() if i in known and e['text']!=known[i]['text']}
     # Re-render variable display expressions offline, even when cached Korean
@@ -283,6 +302,7 @@ def run(project,cfg):
     save_json(promptsfile,prompts)
     report['applied_items']=len(changed)
     save_json(project/'output/names-report.json',report)
+    progress('names.finish',1,1)
     return changed,report
 
 def install_support(project,cfg,rows,known):

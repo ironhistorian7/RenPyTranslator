@@ -133,12 +133,13 @@ Do not inject this evidence.
         item=dict(self.rows[0],source='I love you baby. '*100)
         stage('translation',self.project,self.cfg)
         with patch('request_budget.counter',return_value=ExactCounter()),patch('translation.request') as api,redirect_stderr(io.StringIO()):
-            with self.assertRaises(InputBudgetError) as caught:translate_batch([item],{},dict(self.cfg,num_ctx=300))
+            with self.assertRaises(BatchTranslationError) as caught:translate_batch([item],{},dict(self.cfg,num_ctx=300))
         api.assert_not_called()
+        self.assertEqual(caught.exception.failures[0]['error_code'],'input_budget')
         error=json.loads(Path(caught.exception._rpt_error_file).read_text(encoding='utf-8'))
         self.assertEqual(error['items'][0]['id'],'0')
         self.assertGreater(error['context_budget']['prompt_content_tokens'],300)
-        self.assertIn('not truncated',error['error'])
+        self.assertIn('not truncated',caught.exception.failures[0]['error'])
 
     def test_total_window_keeps_source_and_crops_context_edges(self):
         ctx={'source_passage':[{'speaker':'a','text':'x'*4000},{'target_id':'0'},{'speaker':'b','text':'y'*4000}]}

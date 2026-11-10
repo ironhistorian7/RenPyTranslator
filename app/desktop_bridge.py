@@ -1,9 +1,11 @@
 """Read-only desktop status and explicit task handoff. No implicit game access."""
 import csv
+import codecs
 import ctypes
 from ctypes import wintypes
 import io
 import json
+import locale
 import os
 from pathlib import Path
 import re
@@ -216,11 +218,11 @@ def run_request(data):
     args = arguments(data.get('tasks',[]),data.get('path',''),data.get('source',False),
         settings['output'],settings['suffix'],settings['scale'],settings['language_corner'],settings['language_margin'],settings['source_language'],settings['show_reference'],data.get('update_source'))
     from game_engine import require
-    require(data.get('path',''),data.get('source',False),data.get('tasks',[]))
+    format_info=require(data.get('path',''),data.get('source',False),data.get('tasks',[]))
     if 'update' in data.get('tasks',[]):require(data['update_source'],True,data.get('tasks',[]))
     if settings['runtime_id']:args+=['--runtime-id',settings['runtime_id']]
     from model_store import needs_model,require_selected
-    if needs_model(data.get('tasks',[])):args+=['--model',require_selected()]
+    if needs_model(data.get('tasks',[]),format_info.get('engine')):args+=['--model',require_selected()]
     save_settings(settings)
     print('실행: '+subprocess.list2cmdline(args),flush=True)
     sys.argv = [sys.argv[0]]+args
@@ -281,9 +283,31 @@ def project_language(data,root=None):
                 show_reference=opts.get('show_reference',True),textbox_scale=opts.get('textbox_scale'))
 
 
+def _request_text(payload):
+    """Use sender metadata, JSON Unicode markers, then one actual locale codec."""
+    declared=os.environ.get('RPT_REQUEST_ENCODING')
+    if declared:
+        return payload.decode(declared).lstrip('\ufeff')
+    encoding=json.detect_encoding(payload)
+    try:
+        return payload.decode(encoding)
+    except UnicodeDecodeError:
+        # BOMs and UTF-16/32 byte signatures are unambiguous. Only an unmarked
+        # non-UTF-8 legacy request may use the input stream's actual locale.
+        if encoding!='utf-8':raise
+        fallback=getattr(sys.stdin,'encoding',None)
+        if not fallback or codecs.lookup(fallback).name.startswith('utf-'):
+            fallback=locale.getencoding()
+        if codecs.lookup(fallback).name.startswith('utf-'):raise
+        return payload.decode(fallback)
+
+
 def read_request():
-    text = sys.stdin.read(65537)
-    if len(text)>65536: raise ValueError('설정 데이터가 너무 큽니다.')
-    result=json.loads(text.lstrip('\ufeff'))
+    """Read one JSON message, limited to 64 KiB on the wire."""
+    stream = getattr(sys.stdin, 'buffer', sys.stdin)
+    payload = stream.read(65537)
+    if len(payload)>65536: raise ValueError('설정 데이터가 너무 큽니다.')
+    text = _request_text(payload) if isinstance(payload, bytes) else payload.lstrip('\ufeff')
+    result=json.loads(text)
     if not isinstance(result,dict): raise ValueError('설정 형식이 올바르지 않습니다.')
     return result

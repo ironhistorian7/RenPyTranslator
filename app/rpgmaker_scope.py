@@ -64,6 +64,9 @@ def refresh(project,cfg):
     rows=json.loads(raw);docs={};lists={};changed=0
     for row in rows:
         if 'location' not in row:continue
+        # Data/plugin labels have no event-command list to scope. Older catalogs
+        # can still contain their unescaped literal JSON keys here.
+        if row.get('block')=='labels':continue
         parts=parse_path(row['location']['ptr'])
         if 'parameters' not in parts:continue
         pos=parts.index('parameters');head=parts[:pos]

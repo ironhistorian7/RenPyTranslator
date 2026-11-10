@@ -30,6 +30,7 @@
 *.evtx
 *.wer
 *.dmp
+*.save
 .env
 .env.*
 *.pem

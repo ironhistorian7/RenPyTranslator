@@ -250,7 +250,8 @@ def validate_text(source, target, cfg, *, check_link_content=False):
         errors.append('empty hyperlink text')
     if Counter(source_named+FORMATS.findall(source_visible)) != Counter(target_named+FORMATS.findall(target_visible)):
         errors.append('format field mismatch')
-    if PLACEHOLDER.search(target): errors.append('unrestored placeholder')
+    from token_recovery import has_unrestored_tool_marker
+    if has_unrestored_tool_marker(source,target): errors.append('unrestored placeholder')
     if re.search(r'<think>|</think>|```', target): errors.append('model commentary')
     visible_source=FORMATS.sub('',source_visible)
     visible_target=FORMATS.sub('',target_visible)
@@ -303,6 +304,8 @@ def cache(project, cfg):
     path = project / 'data/translations.jsonl'
     out = {}
     rows=read_catalog(project);sources={r['id']:r['source'] for r in rows}
+    source_aliases={r['id']:set(r.get('source_aliases',[]))|{r.get('base_source',r['source']),r['source']}
+                    for r in rows} if cfg.get('engine')=='rpgmaker' else {}
     active_fingerprint=fingerprint(cfg)
     for r in rows:
         bare=TOKENS.sub('',r['source'])
@@ -319,10 +322,17 @@ def cache(project, cfg):
                         raise ValueError('Incomplete final cache record. Preserve the file and repair its final line before resuming.')
                     raise
                 if (row['fingerprint'] == active_fingerprint or row['fingerprint'] == cfg.get('imported_cache_fingerprint') or
-                    (cfg.get('_reuse_completed') and (row.get('model')==cfg['model'] or cfg.get('_reuse_previous_models')) and sources.get(row['id'])==row.get('source'))):
+                    (cfg.get('_reuse_completed') and (row.get('model')==cfg['model'] or cfg.get('_reuse_previous_models')) and
+                     (sources.get(row['id'])==row.get('source') or row.get('source') in source_aliases.get(row['id'],set())))):
                     # Old format-only entries may contain visible Japanese prose.
                     if row.get('model')=='literal format' and letters(FORMATS.sub('',TOKENS.sub('',row.get('source','')))):
                         continue
+                    selected=sources.get(row['id'])
+                    if selected is not None and row.get('source')!=selected and row.get('source') in source_aliases.get(row['id'],set()):
+                        previous_source=row['source'];row=dict(row,source=selected)
+                        if row.get('text')==previous_source:
+                            row=dict(row,text=selected,status='source_fallback',
+                                     error='Unchanged base-language text; selected-language translation is pending')
                     out[row['id']] = row
     recovered=project/'data/recovered-translations.json'
     if recovered.exists():
@@ -392,14 +402,16 @@ def translate_batch(rows, context, cfg, retry_note=''):
             prefix=suffix=''
         wrappers[row['id']]=(prefix,suffix)
         source_cores[row['id']]=core
-        if cfg.get('engine')=='rpgmaker':text,tokens=protect(core,cfg)
+        if cfg.get('engine')=='rpgmaker':
+            text,tokens=protect(core,cfg);markers=['<rpt%03d/>'%i for i in range(len(tokens))]
         else:
             plan=style_plans[row['id']]
-            text,tokens=plan['protected_text'],plan['functional_tokens']
+            text,tokens=plan['protected_text'],plan['functional_tokens'];markers=plan['wire_markers']
         protected[row['id']] = tokens
+        hint_markers={'<rpt%03d/>'%i:marker for i,marker in enumerate(markers)}
         inputs.append({'id': str(index), 'kind': row['kind'], 'usage':row.get('usage',row['kind']), 'speaker':row.get('speaker','unknown'), 'text':text,
-                       'name_hints':placeholder_hints(tokens,cfg.get('_names',{})),
-                       'movable_placeholders':['<rpt%03d/>'%i for i,t in enumerate(tokens) if movable_token(t)]})
+                       'name_hints':{hint_markers[key]:value for key,value in placeholder_hints(tokens,cfg.get('_names',{})).items()},
+                       'movable_placeholders':[markers[i] for i,t in enumerate(tokens) if movable_token(t)]})
         if cfg.get('engine')=='rpgmaker':
             from rpgmaker_tokens import readable
             inputs[-1]['reading_text']=readable(core,cfg)
@@ -528,94 +540,123 @@ def translate_batch(rows, context, cfg, retry_note=''):
             'repeat_penalty':1.1,'seed':42},
         'messages':[{'role':'system','content':system},{'role':'user','content':json.dumps({
             'context_do_not_translate':context,'items':inputs,'retry_note':retry_note},ensure_ascii=False)}]}
-    request_id = uuid.uuid4().hex
-    def build(selected):
-        if is_hy(cfg):return hy_body(inputs,dict(selected,person_name_spellings=person_names),cfg,relevant_glossary,retry_note)
-        result=dict(body)
-        result['messages']=[body['messages'][0],{'role':'user','content':json.dumps({
-            'context_do_not_translate':{k:v for k,v in selected.items() if k!='current_state'},
-            **({'current_state_reference_only':selected['current_state']} if selected.get('current_state') else {}),
-            'items':inputs,'retry_note':retry_note},ensure_ascii=False)}]
-        return result
-    from request_budget import fit, BatchNeedsSplit
-    try:
-        fitted,budget=fit(context,cfg,build)
-    except BatchNeedsSplit as exc:
-        trace_event(cfg,request_id,'budget_split',reason=str(exc),
-                    items=[r['id'] for r in rows],context_budget=exc.context_budget)
-        raise
-    except Exception as exc:
-        report(exc,cfg,rows,request_id);raise
-    body=fitted
-    trace_event(cfg,request_id,'request',
-                items=[{k:r.get(k) for k in ('id','file','block','source_file','source_line')} for r in rows],
-                request=body,context_budget=budget,context_policy=context_policy,
-                item_purposes=[{'id':r['id'],'usage':r.get('usage',r['kind']),'evidence':r.get('usage_evidence')} for r in rows],
-                **({'repair_mode':'rpg_japanese_plain_spans' if plain_correction else 'rpg_japanese_marked_spans','model_items':len(inputs),
-                 'correction_spans':[{'start':a,'end':b,'item':k} for a,b,k in correction[1]]} if correction else {}))
-    if plain_retries:
-        trace_event(cfg,request_id,'rpg_plain_retry',plans=plain_retries,
-                    policy='readable_representatives; local_clause_word_restoration')
-    if budget['dropped'] or budget.get('preselection_dropped'):
-        print('Context budget adjusted: request '+request_id+'; see data/translation-requests.jsonl',flush=True)
-    start = time.monotonic()
-    runtime_event(cfg,'request_started',request_id=request_id,item_ids=[r['id'] for r in rows],
-                  monotonic_ns=time.monotonic_ns(),prompt_tokens_estimated=budget.get('prompt_content_tokens'))
-    try:
-        response = (request(cfg['endpoint'],'/api/chat',body,timeout=1800)
-                    if cfg.get('_cuda_diagnostic_mode')=='blocking' else request(cfg['endpoint'],'/api/chat',body))
-    except Exception as exc:
-        exc.request_id=request_id
-        runtime_event(cfg,'request_finished',request_id=request_id,status='transport_error',
-                      duration_ms=round((time.monotonic()-start)*1000,3),
-                      error_type=type(exc).__name__,http_status=getattr(exc,'code',None))
-        import traceback
-        trace_event(cfg,request_id,'request_error',error=str(exc),error_type=type(exc).__name__,traceback=traceback.format_exc())
-        report(exc,cfg,rows,request_id)
-        raise
-    runtime_event(cfg,'request_finished',request_id=request_id,status='http_success',
-                  duration_ms=round((time.monotonic()-start)*1000,3))
-    recovered=cfg.get('_recovery_request_succeeded')
-    if recovered:
-        try:recovered(request_id=request_id,metrics={k:response.get(k) for k in ('eval_count','prompt_eval_count','done_reason')})
+    def send(active_inputs, output_minimum):
+        active_cfg=dict(cfg,_allow_batch_split=len(active_inputs)>1)
+        if output_minimum:active_cfg['_output_minimum']=output_minimum
+        request_id=uuid.uuid4().hex
+        selected_context=dict(context)
+        active_ids={item['id'] for item in active_inputs}
+        if selected_context.get('source_passage'):
+            selected_context['source_passage']=[{key:value for key,value in item.items() if key!='text'}
+                if 'target_id' in item else item
+                for item in selected_context['source_passage']
+                if 'target_id' not in item or item['target_id'] in active_ids]
+        if any(item not in inputs for item in active_inputs):selected_context.pop('layout_reading',None)
+        def build(selected):
+            if is_hy(cfg):return hy_body(active_inputs,dict(selected,person_name_spellings=person_names),active_cfg,relevant_glossary,retry_note)
+            result=dict(body)
+            result['format']=dict(schema,properties={item['id']:properties[item['id']] for item in active_inputs},
+                                  required=[item['id'] for item in active_inputs])
+            result['options']=dict(body['options'])
+            if output_minimum:result['options']['num_predict']=max(output_minimum,result['options']['num_predict'])
+            result['messages']=[body['messages'][0],{'role':'user','content':json.dumps({
+                'context_do_not_translate':{k:v for k,v in selected.items() if k!='current_state'},
+                **({'current_state_reference_only':selected['current_state']} if selected.get('current_state') else {}),
+                'items':active_inputs,'retry_note':retry_note},ensure_ascii=False)}]
+            return result
+        from request_budget import fit, InputBudgetError
+        try:fitted,budget=fit(selected_context,active_cfg,build)
+        except InputBudgetError:raise  # Replan before any model call or error report.
         except Exception as exc:
-            import sys
-            print('Runtime recovery status unavailable: '+str(exc),file=sys.stderr,flush=True)
-    actual=response.get('prompt_eval_count')
-    runtime=runtime_status(cfg)
-    trace_event(cfg,request_id,'response',response=response,runtime=runtime,
-                actual_prompt_tokens=actual,num_ctx_requested=body['options']['num_ctx'])
-    if actual and actual+body['options']['num_predict']>body['options']['num_ctx']:
-        from request_budget import InputBudgetError
-        exc=InputBudgetError('Actual prompt consumed output reserve; request '+request_id)
-        report(exc,cfg,rows,request_id);raise exc
-    if cfg.get('_trace_dir'):
-        with TRACE_LOCK:save_json(Path(cfg['_trace_dir'])/'last-model-response.json',response)
-    try:
-        if is_hy(cfg) and cfg.get('engine')=='rpgmaker':
-            from rpgmaker_protocol import parse as rpg_parse
-            parsed,alias=rpg_parse(response['message']['content'],len(inputs))
-            if alias:trace_event(cfg,request_id,'rpg_protocol_repair',repair='single_item_header_prefix',ids=[r['id'] for r in rows])
-        else:parsed = hy_parse(response['message']['content'],
-                expected_inputs={str(i):r['source'] for i,r in enumerate(rows)}) if is_hy(cfg) else json.loads(response['message']['content'])
-    except (ValueError,KeyError,TypeError) as exc:
+            report(exc,cfg,rows,request_id);raise
+        trace_event(cfg,request_id,'request',
+            items=[{k:r.get(k) for k in ('id','file','block','source_file','source_line')} for r in rows],
+            request=fitted,context_budget=budget,context_policy=context_policy,
+            item_purposes=[{'id':r['id'],'usage':r.get('usage',r['kind']),'evidence':r.get('usage_evidence')} for r in rows],
+            **({'repair_mode':'rpg_japanese_plain_spans' if plain_correction else 'rpg_japanese_marked_spans','model_items':len(active_inputs),
+                'correction_spans':[{'start':a,'end':b,'item':k} for a,b,k in correction[1]]} if correction else {}))
+        if plain_retries:
+            trace_event(cfg,request_id,'rpg_plain_retry',plans=plain_retries,
+                        policy='readable_representatives; local_clause_word_restoration')
+        if budget['dropped'] or budget.get('preselection_dropped'):
+            print('Context budget adjusted: request '+request_id+'; see data/translation-requests.jsonl',flush=True)
+        start=time.monotonic()
+        runtime_event(cfg,'request_started',request_id=request_id,item_ids=[r['id'] for r in rows],
+                      monotonic_ns=time.monotonic_ns(),prompt_tokens_estimated=budget.get('prompt_content_tokens'))
+        try:
+            response=(request(cfg['endpoint'],'/api/chat',fitted,timeout=1800)
+                      if cfg.get('_cuda_diagnostic_mode')=='blocking' else request(cfg['endpoint'],'/api/chat',fitted))
+        except Exception as exc:
+            exc.request_id=request_id
+            runtime_event(cfg,'request_finished',request_id=request_id,status='transport_error',
+                          duration_ms=round((time.monotonic()-start)*1000,3),
+                          error_type=type(exc).__name__,http_status=getattr(exc,'code',None))
+            import traceback
+            trace_event(cfg,request_id,'request_error',error=str(exc),error_type=type(exc).__name__,traceback=traceback.format_exc())
+            report(exc,cfg,rows,request_id);raise
+        elapsed=time.monotonic()-start
+        runtime_event(cfg,'request_finished',request_id=request_id,status='http_success',duration_ms=round(elapsed*1000,3))
+        recovered=cfg.get('_recovery_request_succeeded')
+        if recovered:
+            try:recovered(request_id=request_id,metrics={k:response.get(k) for k in ('eval_count','prompt_eval_count','done_reason')})
+            except Exception as exc:
+                import sys
+                print('Runtime recovery status unavailable: '+str(exc),file=sys.stderr,flush=True)
+        actual=response.get('prompt_eval_count')
+        trace_event(cfg,request_id,'response',response=response,runtime=runtime_status(cfg),
+                    actual_prompt_tokens=actual,num_ctx_requested=fitted['options']['num_ctx'])
+        if actual and actual+fitted['options']['num_predict']>fitted['options']['num_ctx']:
+            exc=InputBudgetError('Actual prompt consumed output reserve; request '+request_id)
+            exc.context_budget=budget
+            raise exc
         if cfg.get('_trace_dir'):
-            with TRACE_LOCK:save_json(Path(cfg['_trace_dir'])/'last-invalid-model-response.json',response)
-        report(exc,cfg,rows,request_id,handled=True);raise
-    if not isinstance(parsed,dict):
-        try:raise ValueError('Response must be a JSON object')
-        except ValueError as exc:
-            report(exc,cfg,rows,request_id,handled=True);raise
-    if response.get('done_reason')=='length':
-        # Earlier complete Hy rows can still be retained; the final row may be cut mid-sentence.
-        if is_hy(cfg) and parsed: parsed.pop(next(reversed(parsed)),None)
-        else:
-            try:raise ValueError('Translation response reached the output limit')
-            except ValueError as exc:
-                report(exc,cfg,rows,request_id,handled=True);raise
+            with TRACE_LOCK:save_json(Path(cfg['_trace_dir'])/'last-model-response.json',response)
+        # Check truncation before parsing, so a cut response never becomes a
+        # missing-ID/JSON error or enters an identical fixed-limit retry.
+        truncated=response.get('done_reason')=='length'
+        parse_error=None
+        try:
+            if is_hy(cfg) and cfg.get('engine')=='rpgmaker':
+                from rpgmaker_protocol import parse as rpg_parse
+                values,alias=rpg_parse(response['message']['content'],len(active_inputs),expected_ids=active_ids)
+                if alias:trace_event(cfg,request_id,'rpg_protocol_repair',repair='single_item_header_prefix',ids=[r['id'] for r in rows])
+            else:
+                values=(hy_parse(response['message']['content'],expected_inputs={item['id']:item['text'] for item in active_inputs})
+                        if is_hy(cfg) else json.loads(response['message']['content']))
+            if not isinstance(values,dict):raise ValueError('Response must be a JSON object')
+        except (ValueError,KeyError,TypeError) as exc:
+            values={}
+            if not truncated:parse_error=str(exc)
+            if cfg.get('_trace_dir'):
+                with TRACE_LOCK:save_json(Path(cfg['_trace_dir'])/'last-invalid-model-response.json',response)
+        return dict(values=values,truncated=truncated,parse_error=parse_error,hy=is_hy(cfg),
+                    limit=fitted['options']['num_predict'],request_id=request_id,budget=budget,
+                    seconds=elapsed,tokens=response.get('eval_count'),eval_seconds=response.get('eval_duration',0)/1e9)
+
+    from translation_segments import execute
+    from request_budget import BatchNeedsSplit
+    parents={}
+    for row in rows:
+        plan=plain_retries.get(row['id'],{})
+        keys=([item['id'] for item in inputs] if correction else
+              [part['model_key'] for part in plan['segments'] if 'model_key' in part] if 'segments' in plan else
+              [response_keys[row['id']]])
+        parents.update({key:row['id'] for key in keys})
+    try:
+        parsed,model_errors,summary=execute(inputs,cfg,send,parents=parents,
+            event=lambda kind,**details:trace_event(cfg,details.pop('request_id',uuid.uuid4().hex),kind,**details))
+    except BatchNeedsSplit as exc:
+        trace_event(cfg,uuid.uuid4().hex,'budget_split',reason=str(exc),
+                    items=[row['id'] for row in rows],context_budget=exc.context_budget)
+        raise
+    budget=summary['budget'];request_id=summary['request_id'] or uuid.uuid4().hex
     output=[];failures=[]
     for index, row in enumerate(rows):
         key=response_keys[row['id']]
+        required=[model_id for model_id,parent in parents.items() if parent==row['id']]
+        rejected=next((model_errors[model_id] for model_id in required if model_id in model_errors),None)
+        if rejected:
+            failures.append(dict(row=row,**rejected));continue
         if not correction and not (row['id'] in plain_retries and 'segments' in plain_retries[row['id']]) and key not in parsed:
             failures.append({'row':row,'error':f'Missing response item [{key}]; received IDs: '+', '.join(sorted(parsed)),
                              'error_code':'missing_response_item','expected_id':key,'received_ids':list(parsed)})
@@ -668,19 +709,25 @@ def translate_batch(rows, context, cfg, retry_note=''):
                 error='RPG plain retry failed: '+error
                 trace_event(cfg,request_id,'rpg_plain_restoration_failed',id=row['id'],error=error)
             failure={'row':row,'error':error}
+            failure['retry_attempt']=summary['attempts'].get(row['id'],cfg.get('_item_retry_attempt',0))
             if cfg.get('engine')!='rpgmaker':failure['input_format']='renpy_visual_stripped_v1'
             elif any(wrappers[row['id']]):failure['error']='Wrapper-stripped: '+error
             failures.append(failure);continue
         output.append({'id':row['id'],'source':row['source'],'text':text,
                        'model':cfg['model'],'fingerprint':fingerprint(cfg),
                        'context_digest':budget['context_sha256'],'context_files':budget.get('files',{}),
-                       'context_scope':budget.get('scope',''),'request_id':request_id})
-    metrics = {'seconds':round(time.monotonic()-start,2),'tokens':response.get('eval_count'),
-               'eval_seconds':response.get('eval_duration',0)/1e9,'items':len(rows)}
+                       'context_scope':budget.get('scope',''),'request_id':request_id,
+                       **({'request_ids':summary['request_ids']} if len(summary['request_ids'])>1 else {})})
+    metrics = {key:summary[key] for key in ('seconds','tokens','eval_seconds')}
+    metrics.update(seconds=round(metrics['seconds'],2),items=len(rows))
     trace_event(cfg,request_id,'validation',accepted_ids=[r['id'] for r in output],
                 failures=[dict(id=f['row']['id'],**{k:v for k,v in f.items() if k!='row'}) for f in failures])
     if failures:
-        try:raise BatchTranslationError(output,failures,metrics)
+        try:
+            exc=BatchTranslationError(output,failures,metrics)
+            budgets=[failure['context_budget'] for failure in failures if failure.get('context_budget')]
+            if budgets:exc.context_budget=budgets[0]
+            raise exc
         except BatchTranslationError as exc:
             report(exc,cfg,[f['row'] for f in failures],request_id,handled=True);raise
     return output, metrics
@@ -706,6 +753,8 @@ def runtime_status(cfg):
 
 def translate(project, cfg, sample=False):
     # Offline resumes and rebuilds never start a server or load a model.
+    from job_events import translation_tracker
+    cfg=dict(cfg);translation_tracker(cfg)
     rows=read_catalog(project); known=cache(project,cfg)
     if cfg.get('engine')=='rpgmaker':
         previous={uid:item.get('error','') for uid,item in known.items() if item.get('status')=='source_fallback'}
@@ -726,6 +775,8 @@ def translate(project, cfg, sample=False):
 def _translate(project, cfg, sample=False, rows=None, known=None):
     from term_memory import TermMemory
     from name_hints import ensure_metadata
+    from job_events import translation_tracker
+    tracker=translation_tracker(cfg)
     cfg=dict(cfg,_trace_dir=str(project/'data'),_trace_phase='translation')
     from diagnostics import stage
     stage('translation',project,cfg)
@@ -747,9 +798,11 @@ def _translate(project, cfg, sample=False, rows=None, known=None):
         chosen=dialogue[:12]+dialogue[len(dialogue)//2:len(dialogue)//2+8]+[r for r in dialogue if '{a=' in r['source']][:4]+[r for r in rows if r['kind']=='string'][:12]
         ids={r['id'] for r in chosen}; rows=[r for r in rows if r['id'] in ids]
     pending=[r for r in rows if r['id'] not in known]
+    units={row['id']:max(1,source_units(row['source'])) for row in pending} if tracker.units is None else None
+    tracker.begin(rows,pending,known,units)
     pending_files={r.get('file','') for r in pending}
     context_index=SourceContext([r for r in all_rows if r.get('file','') in pending_files],project,cfg) if pending else None
-    started=time.monotonic(); size=cfg.get('batch_size',12); completed=0
+    size=cfg.get('batch_size',12); completed=0
     print(f'Translating {len(pending)} remaining entries with {cfg["model"]}',flush=True)
     queue=[]
     for row in pending:
@@ -776,7 +829,7 @@ def _translate(project, cfg, sample=False, rows=None, known=None):
     print(f'Translation workers: {workers}; context window: {cfg.get("num_ctx",8192)}',flush=True)
     pool=ThreadPoolExecutor(max_workers=workers)
     running={}
-    retry_errors=dict(previous)
+    retry_errors=dict(previous);retry_spent={}
     def persist(result,metrics):
         nonlocal completed
         if not result:return
@@ -799,12 +852,14 @@ def _translate(project, cfg, sample=False, rows=None, known=None):
         if memory.observe(result):save_json(project/'data/term-memory.json',memory.translations)
         with (project/'data/metrics.jsonl').open('a',encoding='utf-8') as f:f.write(json.dumps(metrics)+'\n')
         completed+=len(result)
-        save_json(project/'data/progress.json',{'mode':'sample' if sample else 'full','completed':completed,
-            'pending_at_start':len(pending),'cached_total':len(known),'seconds':round(time.monotonic()-started)})
+        tracker.commit(result)
+        save_json(project/'data/progress.json',dict(tracker.snapshot(),mode='sample' if sample else 'full',cached_total=len(known)))
         print(f'{completed}/{len(pending)} entries, batch {metrics["seconds"]}s',flush=True)
     def submit(batch,attempt,correction_phase):
         context=context_index.context(batch,cfg)
-        batch_cfg=dict(cfg,_batch_glossary=memory.relevant(batch),_allow_batch_split=len(batch)>1)
+        spent=max([attempt]+[retry_spent.get(row['id'],0) for row in batch])
+        batch_cfg=dict(cfg,_batch_glossary=memory.relevant(batch),_allow_batch_split=len(batch)>1,
+                       _item_retry_attempt=spent,_item_retry_limit=4 if correction_phase else 2)
         if cfg.get('engine')=='rpgmaker':
             batch_cfg['_rpg_retry_errors']=dict(retry_errors)
             batch_cfg['_rpg_correction_enabled']=correction_phase
@@ -842,7 +897,8 @@ def _translate(project, cfg, sample=False, rows=None, known=None):
             invalid=[{'row':r,'error':str(exc)} for r in batch]
         for failure in reversed(invalid):
             row=failure['row']
-            if correction_phase:
+            failure_attempt=max(attempt,failure.get('retry_attempt',attempt),retry_spent.get(row['id'],0))
+            if correction_phase and failure.get('error_code') not in ('output_limit','input_budget'):
                 from rpgmaker_protocol import correction_plan
                 previous_plan=correction_plan(row['source'],retry_errors.get(row['id'],''),cfg)
                 if previous_plan and correction_plan(row['source'],failure['error'],cfg) is None:
@@ -851,15 +907,18 @@ def _translate(project, cfg, sample=False, rows=None, known=None):
             can_correct=False
             if rpg_hy and not correction_phase:
                 can_correct=correction_plan(row['source'],failure['error'],cfg) is not None
-            if can_correct:
+            if can_correct and failure_attempt<4 and not failure.get('terminal'):
+                retry_spent[row['id']]=failure_attempt+1
                 queue.appendleft(([row],0,True))
                 print(f'Correcting residual Japanese in {row["id"]}; separate correction budget (1/2)',flush=True)
-            elif correction_phase and attempt<1:
+            elif correction_phase and attempt<1 and failure_attempt<4 and not failure.get('terminal'):
+                retry_spent[row['id']]=failure_attempt+1
                 queue.appendleft(([row],attempt+1,True))
                 print(f'Retrying correction for {row["id"]} ({attempt+2}/2)',flush=True)
-            elif not correction_phase and attempt<2:
-                queue.appendleft(([row],attempt+1,False))
-                print(f'Retrying item {row["id"]} alone ({attempt+1}/2)',flush=True)
+            elif not correction_phase and failure_attempt<2 and not failure.get('terminal'):
+                retry_spent[row['id']]=failure_attempt+1
+                queue.appendleft(([row],failure_attempt+1,False))
+                print(f'Retrying item {row["id"]} alone ({failure_attempt+1}/2)',flush=True)
             else:
                 result.append({'id':row['id'],'source':row['source'],'text':row['source'],
                     'model':cfg['model'],'fingerprint':fingerprint(cfg),
@@ -933,6 +992,8 @@ def display_metadata(project,cfg,rows=None):
 
 
 def render(project,cfg,preview=False):
+    from job_events import set_phase,progress
+    set_phase('render.prepare','번역 파일 준비 중')
     from replacements import effective_cache
     from name_hints import ensure_metadata
     from display_text import compose
@@ -954,7 +1015,8 @@ def render(project,cfg,preview=False):
         errors=validate_entry(row['source'],known[row['id']],cfg)
         if errors and not cfg.get('_repair'): raise ValueError(f'{row["id"]}: {errors}')
         files.setdefault(row['file'],[]).append(row)
-    for rel, entries in files.items():
+    set_phase('render.write','번역 파일 생성 중',len(files),'files')
+    for file_index,(rel, entries) in enumerate(files.items(),1):
         existing=project/'staging/game/tl'/cfg['language']/rel
         base=existing if selected is not None and existing.exists() else project/'data/templates'/rel
         lines=base.read_text(encoding='utf-8-sig').splitlines(keepends=True)
@@ -975,13 +1037,17 @@ def render(project,cfg,preview=False):
         path.parent.mkdir(parents=True,exist_ok=True)
         text=''.join(lines)
         if not path.exists() or path.read_text(encoding='utf-8')!=text:path.write_text(text,encoding='utf-8')
+        progress('render.write',file_index,len(files))
     failed=sum(known.get(r['id'],{}).get('status')=='source_fallback' for r in rows)
     original=sum(known.get(r['id'],{}).get('status')!='source_fallback' and known.get(r['id'],{}).get('text')==r['source'] for r in rows if r['id'] not in missing)
     translated=len(rows)-failed-original-len(missing)
+    progress('render.write',len(files),len(files),successful=translated,original_kept=failed)
     save_json(project/'data/final-text-validation.json',{'entries':len(rows),'errors':[]})
     print(f'Rendered {len(rows)} entries; translated: {translated}; failed/original kept: {failed}; intentional or unchanged original: {original}; cache missing: {len(missing)}',flush=True)
 
 def validate(project,cfg):
+    from job_events import set_phase,progress
+    set_phase('validate.text','번역 자료 확인 중')
     from replacements import effective_cache
     rows=read_catalog(project); known=effective_cache(project,cfg);errors=[]
     for r in rows:
@@ -990,7 +1056,9 @@ def validate(project,cfg):
         if e: errors.append({'id':r['id'],'errors':e})
     save_json(project/'data/validation.json',{'entries':len(rows),'errors':errors})
     if errors: raise ValueError(f'{len(errors)} translation errors')
+    set_phase('validate.compile','스크립트 컴파일 검사 중')
     engine_command(project,['compile'],'compile.log')
+    set_phase('validate.lint','스크립트 연결 검사 중')
     engine_command(project,['lint'],'lint.log')
     source=verify_source(project,cfg)
     detail='saved project snapshot' if cfg.get('_prepared_snapshot') else f'source {source["files"]} files unchanged'

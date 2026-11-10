@@ -253,6 +253,8 @@ def engine_command(project, args, logname):
     return log
 
 def prepare(project, cfg):
+    from job_events import set_phase,progress
+    set_phase('prepare.inspect','작업 자료 확인 중')
     source = Path(cfg['source']).resolve(strict=True)
     if source == project or source in project.parents or project in source.parents:
         raise ValueError('Project workspace must be outside the source game')
@@ -302,11 +304,13 @@ def prepare(project, cfg):
         save_json(recovered_index,sorted(set(previous)|set(recovered_names)))
         prefix = cli_command()+['--unrpyc','-p','1']
         batches = command_batches(prefix, compiled)
+        set_phase('prepare.recover','스크립트 작업 자료 복원 중',len(batches),'batches')
         with (data / 'decompile.log').open('w', encoding='utf-8') as log:
             for index, cmd in enumerate(batches, 1):
                 recovery_batch_log(log, cmd, index, len(batches), len(cmd)-len(prefix))
                 owned_run(cmd, stdout=log, stderr=subprocess.STDOUT, check=True, timeout=180,
                               creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+                progress('prepare.recover',index,len(batches))
         missing = [str(p) for p in compiled if not p.with_suffix(p.suffix[:-1]).exists()]
         if missing:
             raise RuntimeError(f'Script recovery failed: {missing}')
@@ -314,6 +318,7 @@ def prepare(project, cfg):
     if cfg.get('expected_scripts') and len(originals) != cfg['expected_scripts']:
         raise ValueError(f'Expected {cfg["expected_scripts"]} scripts; got {len(originals)}')
     print('Generating translation templates with bundled matching engine', flush=True)
+    set_phase('prepare.templates','번역 템플릿 생성 중')
     engine_command(project, ['translate', cfg['language'], '--empty'], 'generate.log')
     print('Preparation complete', flush=True)
 

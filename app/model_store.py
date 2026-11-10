@@ -176,7 +176,10 @@ def choose(name):
     return inventory()
 
 
-def needs_model(jobs):return bool(set(jobs)&{'run','retranslate','update','translate','sample','analyze','review','names','failed'})
+def needs_model(jobs, engine=None):
+    inference={'run','retranslate','update','translate','sample','analyze','review','names','failed'}
+    if engine=='rpgmaker':inference.discard('names')
+    return bool(set(jobs)&inference)
 
 
 def ensure_idle():
@@ -408,7 +411,7 @@ def dispatch(data):
     if op=='inventory':return inventory()
     if op=='search':return search(data.get('query',''))
     if op=='details':return details(data.get('repo'))
-    if op=='preflight':return problem() if needs_model(data.get('tasks',[])) else None
+    if op=='preflight':return problem() if needs_model(data.get('tasks',[]),data.get('engine')) else None
     if op=='select':
         ensure_idle();return choose(data.get('model'))
     if op in ('delete','download','refresh'):

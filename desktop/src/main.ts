@@ -1,9 +1,11 @@
-import {app,BrowserWindow,dialog,ipcMain,nativeTheme,shell} from 'electron';
+import {app,BrowserWindow,dialog,ipcMain,nativeTheme,shell,clipboard} from 'electron';
 import {spawn,execFile,ChildProcessWithoutNullStreams} from 'node:child_process';
 import {existsSync,mkdirSync,readFileSync,writeFileSync,unlinkSync,appendFileSync} from 'node:fs';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
-import type {Settings,Snapshot,Request,Job,Event,ModelJob} from './types';
+import {helperError} from './helper-errors';
+import {jobEvent} from './job-events';
+import type {Settings,Snapshot,Request,Job,JobIssue,Event,ModelJob,SupportResult} from './types';
 
 const ROOT=process.env.RPT_TOOL_ROOT || (app.isPackaged?path.dirname(path.dirname(process.execPath)):path.resolve(__dirname,'../..'));
 const profile=path.join(ROOT,'data','desktop-profile');
@@ -22,6 +24,7 @@ let jobLog:string|null=null;
 let modelWorker:ChildProcessWithoutNullStreams|null=null,modelCancelFile:string|null=null;
 let modelJob:ModelJob={running:false,stage:'',done:0,total:0,error:null};
 let job:Job={running:false,canceling:false,exitCode:null,result:null,stage:'대기 중',completed:null,total:null,started:null};
+let jobContext:Record<string,unknown>={};
 const indexURL=pathToFileURL(path.join(__dirname,'index.html')).href;
 const cli=():[string,string[]]=>{
   const python=path.join(ROOT,'.venv','Scripts','python.exe');
@@ -30,18 +33,27 @@ const cli=():[string,string[]]=>{
 };
 function emit(event:Event){if(window&&!window.isDestroyed())window.webContents.send('rpt:event',event);}
 function updateJob(values:Partial<Job>){job={...job,...values};emit({type:'job',job});}
-function addLog(text:string){
-  log=(log+text).slice(-500000);emit({type:'log',text});
+function addLog(text:string,visible=true){
+  if(visible){log=(log+text).slice(-500000);emit({type:'log',text});}
   if(jobLog){try{appendFileSync(jobLog,text,'utf8');}catch{jobLog=null;}}
+}
+function requestIssue(error:unknown,operation:string):JobIssue{
+  const message=error instanceof Error?error.message:String(error);
+  const original=message.match(/(?:^|\n)로그: (.+)(?:\n|$)/)?.[1];
+  const first=message.split(/\r?\n/)[0].replace(/^[\w.]+(?:Error|Exception):\s*/, '');
+  const title=/[가-힣]/.test(first)&&first.length<200?first:operation==='project'?'폴더 정보를 확인하지 못했습니다.':operation==='start'?'작업을 시작하지 못했습니다.':'프로그램 정보를 불러오지 못했습니다.';
+  return {code:'desktop_request',title,detail:title===first?'':first.slice(0,240),state:worker?'warning':'failed',
+    error_id:original?path.basename(original,path.extname(original)):null,log_path:original||null};
 }
 function helper<T>(command:string,payload?:unknown):Promise<T>{
   return new Promise((resolve,reject)=>{
     const [exe,args]=cli();
-    const child=execFile(exe,[...args,command],{cwd:ROOT,windowsHide:true,encoding:'utf8',timeout:45000,maxBuffer:2*1024*1024},(err,stdout,stderr)=>{
-      if(err){reject(new Error(stderr.trim().split('\n').pop()||err.message));return;}
-      try{resolve(JSON.parse(stdout));}catch{reject(new Error('프로그램 상태 응답을 읽지 못했습니다.'));}
+    const child=execFile(exe,[...args,command],{cwd:ROOT,windowsHide:true,encoding:'utf8',env:{...process.env,RPT_REQUEST_ENCODING:'utf-8'},timeout:45000,maxBuffer:2*1024*1024},(err,stdout,stderr)=>{
+      if(err){reject(helperError(ROOT,command,err,stderr));return;}
+      try{resolve(JSON.parse(stdout));}catch{reject(helperError(ROOT,command,new Error('프로그램 상태 응답을 읽지 못했습니다.'),stderr));}
     });
-    if(payload!==undefined)child.stdin?.end(JSON.stringify(payload));
+    child.stdin?.on('error',()=>{});
+    if(payload!==undefined)child.stdin?.end(JSON.stringify(payload),'utf8');
   });
 }
 let infoPromise:Promise<Snapshot>|null=null;
@@ -70,6 +82,7 @@ function validateRequest(r:Request){
 async function start(r:Request){
   if(worker||modelWorker)throw new Error('현재 작업이 끝난 뒤 실행하세요.');
   validateRequest(r);
+  jobContext={tasks:[...r.tasks],source_language:r.settings.source_language,runtime_id:r.settings.runtime_id||'',inference_preset:r.settings.inference_preset};
   const format=await helper<import('./types').GameFormat>('--desktop-project',{path:r.path,source:r.source});
   if(r.tasks.includes('update')){
     const updated=await helper<import('./types').GameFormat>('--desktop-project',{path:r.update_source,source:true});
@@ -77,10 +90,10 @@ async function start(r:Request){
   }
   const unavailable=format.supported_tasks?r.tasks.filter(t=>!format.supported_tasks!.includes(t)):[];
   if(format.stop_message||unavailable.length){
-    await dialog.showMessageBox(window!,{type:'info',title:'게임 지원 안내',message:format.stop_message||'이 게임에서 아직 지원하지 않는 작업이 선택되었습니다.',detail:unavailable.length?'RPG Maker는 번역·재번역·폰트·원문 표시·높이 조정·미번역 복구를 지원합니다.':'',buttons:['확인']});
+    await dialog.showMessageBox(window!,{type:'info',title:'게임 지원 안내',message:format.stop_message||'이 게임에서 아직 지원하지 않는 작업이 선택되었습니다.',detail:unavailable.length?'RPG Maker는 번역·재번역·인명 표기·폰트·원문 표시·높이 조정·미번역 복구·정적 패치 검사를 지원합니다.':'',buttons:['확인']});
     return null;
   }
-  const check=await helper<{result:null|{title:string;detail:string}}>('--desktop-models',{op:'preflight',tasks:r.tasks});
+  const check=await helper<{result:null|{title:string;detail:string}}>('--desktop-models',{op:'preflight',tasks:r.tasks,engine:format.engine});
   if(check.result){
     const answer=await dialog.showMessageBox(window!,{type:'warning',title:check.result.title,message:check.result.title,detail:check.result.detail,buttons:['AI 모델로 이동','닫기'],defaultId:0,cancelId:1});
     if(answer.response===0)emit({type:'navigate',page:'models'});
@@ -93,53 +106,78 @@ async function start(r:Request){
   cancelFile=path.join(control,`desktop-${process.pid}-${Date.now()}.cancel`);
   const [exe,args]=cli();
   const proc=spawn(exe,[...args,'--desktop-run'],{cwd:ROOT,windowsHide:true,stdio:'pipe',
-    env:{...process.env,RPT_CANCEL_FILE:cancelFile,PYTHONUTF8:'1',PYTHONUNBUFFERED:'1'}});
+    env:{...process.env,RPT_CANCEL_FILE:cancelFile,RPT_REQUEST_ENCODING:'utf-8',RPT_DESKTOP_EVENTS:'1',PYTHONUTF8:'1',PYTHONUNBUFFERED:'1'}});
   worker=proc;
-  updateJob({running:true,canceling:false,exitCode:null,result:null,stage:'작업 준비 중',completed:null,total:null,started:Date.now()});
+  jobContext={tasks:[...r.tasks],engine:format.engine,source_language:r.settings.source_language,runtime_id:r.settings.runtime_id||'',inference_preset:r.settings.inference_preset};
+  job={running:true,canceling:false,exitCode:null,result:null,stage:'작업 준비 중',completed:null,total:null,started:Date.now(),issue:null,recovery:null};
+  updateJob({});
   addLog('\n작업을 시작합니다.\n');
-  let tail='';
+  let tail='',errorTail='',structured=false,lastErrorPath:string|null=null;
   function parseLine(line:string){
+    if(line.startsWith('RPT_EVENT ')){
+      addLog(line+'\n',false);
+      try{
+        const event=JSON.parse(line.slice('RPT_EVENT '.length));
+        if(event.event==='stage'||event.event==='progress')structured=true;
+        const change=jobEvent(job,event);if(change)updateJob(change);
+      }catch{/* Keep malformed control records in the disk log only. */}
+      return;
+    }
+    addLog(line+'\n');
     if(line.startsWith('Output folder: '))updateJob({result:line.slice(15).trim()});
+    if(line.startsWith('Detailed error: '))lastErrorPath=line.slice(16).trim();
+    if(structured)return;
+    const phase=(stage:string)=>updateJob({stage,phase:stage,phase_label:stage,completed:null,total:null,unit:null,eta_seconds:null,recovery:null});
     const progress=line.match(/^(\d+)\/(\d+) entries, batch/);
-    if(progress)updateJob({stage:'번역 중',completed:Number(progress[1]),total:Number(progress[2])});
-    else if(line.startsWith('Translating '))updateJob({stage:'번역 중'});
-    else if(line.startsWith('Rendered '))updateJob({stage:'번역 파일 생성 중'});
-    else if(line.startsWith('Copying '))updateJob({stage:'작업 파일 준비 중'});
-    else if(line.startsWith('Failed repair:'))updateJob({stage:'미번역 항목 복구 중'});
-    else if(line.startsWith('Name '))updateJob({stage:'인명 표기 보정 중'});
-    else if(line.startsWith('In-game hints:'))updateJob({stage:'정답·선택지 힌트 처리 중'});
-    else if(line.startsWith('Patch check:'))updateJob({stage:'패치 검사 중'});
-    else if(line.startsWith('Game update:'))updateJob({stage:'업데이트 비교 중'});
+    if(progress)updateJob({stage:'번역 중',phase:'translation',completed:Number(progress[1]),total:Number(progress[2]),unit:'entries',updated:Date.now()});
+    else if(line.startsWith('Translating '))phase('번역 중');
+    else if(line.startsWith('Rendered '))phase('번역 파일 생성 중');
+    else if(line.startsWith('Copying '))phase('작업 파일 준비 중');
+    else if(line.startsWith('Failed repair:'))phase('미번역 항목 복구 중');
+    else if(line.startsWith('Name '))phase('인명 표기 보정 중');
+    else if(line.startsWith('In-game hints:'))phase('정답·선택지 힌트 처리 중');
+    else if(line.startsWith('Patch check:'))phase('패치 검사 중');
+    else if(line.startsWith('Game update:'))phase('업데이트 비교 중');
   }
   proc.stdout.setEncoding('utf8');proc.stderr.setEncoding('utf8');
-  proc.stdout.on('data',(text:string)=>{addLog(text);tail+=text;const lines=tail.split(/\r?\n/);tail=lines.pop()||'';for(const line of lines)parseLine(line);});
-  proc.stderr.on('data',(text:string)=>addLog(text));
+  proc.stdout.on('data',(text:string)=>{tail+=text;const lines=tail.split(/\r?\n/);tail=lines.pop()||'';for(const line of lines)parseLine(line);});
+  proc.stderr.on('data',(text:string)=>{errorTail+=text;const lines=errorTail.split(/\r?\n/);errorTail=lines.pop()||'';for(const line of lines)parseLine(line);});
   proc.stdin.on('error',()=>{});
-  proc.stdin.end(JSON.stringify(r));
+  proc.stdin.end(JSON.stringify(r),'utf8');
   let finished=false;
   function finish(code:number){
     if(finished)return;finished=true;
     if(tail)parseLine(tail);
+    if(errorTail)parseLine(errorTail);
     worker=null;
     const cancelled=code===130;
-    updateJob({running:false,canceling:false,exitCode:code,stage:code===0?'완료':cancelled?'취소됨':'작업 실패'});
+    const original=lastErrorPath||jobLog;
+    const issue=code!==0&&!cancelled&&job.issue?.state!=='failed'?{code:'worker_failed',title:'작업을 완료하지 못했습니다.',detail:'오류 기록에서 자세한 내용을 확인할 수 있습니다.',state:'failed' as const,error_id:original?path.basename(original,path.extname(original)):null,log_path:original}:job.issue;
+    updateJob({running:false,canceling:false,exitCode:code,stage:code===0?'완료':cancelled?'취소됨':'작업 실패',finished:Date.now(),recovery:null,eta_seconds:null,issue});
     addLog(code===0?'작업을 마쳤습니다.\n':cancelled?'취소했습니다. 저장된 결과는 유지됩니다.\n':'작업에 실패했습니다. 위 기록을 확인하세요.\n');
     jobLog=null;
     if(cancelFile){try{unlinkSync(cancelFile);}catch{}cancelFile=null;}
     if(pendingClose)app.quit();
   }
-  proc.once('error',err=>{addLog(err.message+'\n');finish(1);});
+  proc.once('error',err=>{addLog(err.message+'\n');updateJob({issue:requestIssue(err,'start')});finish(1);});
   proc.once('close',code=>finish(code??1));
   return job;
 }
 function cancel(){
-  if(worker&&cancelFile&&!job.canceling){writeFileSync(cancelFile,'');updateJob({canceling:true,stage:'취소 및 모델 정리 중'});addLog('취소를 요청했습니다. 현재 작업과 모델을 정리합니다.\n');}
+  if(worker&&cancelFile&&!job.canceling){writeFileSync(cancelFile,'');updateJob({canceling:true,stage:'취소 및 모델 정리 중',completed:null,total:null,eta_seconds:null,recovery:null});addLog('취소를 요청했습니다. 현재 작업과 모델을 정리합니다.\n');}
   return job;
 }
 function route(name:string,fn:(...args:any[])=>unknown){
   ipcMain.handle('rpt:'+name,async(event,...args)=>{
     if(event.sender!==window?.webContents||event.senderFrame?.url!==indexURL)return {ok:false,error:'허용되지 않은 요청입니다.'};
-    try{return {ok:true,value:await fn(...args)};}catch(error){return {ok:false,error:error instanceof Error?error.message:String(error)};}
+    try{return {ok:true,value:await fn(...args)};}catch(error){
+      if(['start','project','info'].includes(name)){
+        if(!worker&&name!=='info')job={running:false,canceling:false,exitCode:null,result:null,stage:'대기 중',completed:null,total:null,started:null};
+        updateJob({issue:requestIssue(error,name)});
+        addLog((error instanceof Error?error.message:String(error))+'\n');
+      }
+      return {ok:false,error:error instanceof Error?error.message:String(error)};
+    }
   });
 }
 route('info',info);
@@ -152,16 +190,36 @@ route('start',start);
 route('cancel',cancel);
 route('reset',()=>{
   if(worker||modelWorker)throw new Error('작업이 끝난 뒤 초기화할 수 있습니다.');
-  log='';jobLog=null;
-  updateJob({running:false,canceling:false,exitCode:null,result:null,stage:'대기 중',completed:null,total:null,started:null});
+  log='';jobLog=null;jobContext={};
+  job={running:false,canceling:false,exitCode:null,result:null,stage:'대기 중',completed:null,total:null,started:null};updateJob({});
   return job;
 });
 route('open',async(which:unknown)=>{
-  const target=which==='result'?job.result:which==='logs'?path.join(ROOT,'logs'):which==='models'?path.join(ROOT,'models'):null;
+  const errorFolder=job.issue?.log_path?path.dirname(job.issue.log_path):null;
+  const target=which==='result'?job.result:which==='logs'?(errorFolder&&existsSync(errorFolder)?errorFolder:path.join(ROOT,'logs')):which==='models'?path.join(ROOT,'models'):null;
   if(which==='models'&&target)mkdirSync(target,{recursive:true});
   if(!target)throw new Error('열 수 있는 결과 폴더가 아직 없습니다.');
   if(!existsSync(target))throw new Error('폴더가 아직 생성되지 않았습니다.');
   const err=await shell.openPath(target);if(err)throw new Error(err);
+});
+route('support',async(request:{op?:unknown})=>{
+  if(!request||!['copy','export'].includes(String(request.op)))throw new Error('진단 작업을 확인하세요.');
+  const payload:Record<string,unknown>={op:request.op,log_path:job.issue?.log_path||null,
+    job_context:{...jobContext,stage:job.stage,phase:job.phase,issue:job.issue,state:job.issue?.state,
+      counts:{completed:job.completed,total:job.total,exit_code:job.exitCode,successful:job.successful,original_kept:job.original_kept,cached:job.cached}}};
+  if(request.op==='export'){
+    const folder=path.join(ROOT,'logs','reports');mkdirSync(folder,{recursive:true});
+    const selected=await dialog.showSaveDialog(window!,{title:'진단 파일 저장',defaultPath:path.join(folder,`RenPyTranslator-diagnostic-${new Date().toISOString().replace(/[:.]/g,'-')}.json`),filters:[{name:'진단 파일',extensions:['json']}]});
+    if(selected.canceled||!selected.filePath)return {cancelled:true};
+    payload.destination=selected.filePath;
+  }
+  const result=await helper<SupportResult>('--desktop-support',payload);
+  if(result.error)throw new Error(result.error);
+  if(request.op==='copy'){
+    if(typeof result.text!=='string')throw new Error('복사할 오류 내용을 만들지 못했습니다.');
+    clipboard.writeText(result.text);
+  }
+  return result;
 });
 route('model',async(r:Record<string,unknown>)=>{
   if(!r||!['inventory','search','details','select','delete'].includes(String(r.op)))throw new Error('모델 작업을 확인하세요.');
@@ -188,12 +246,12 @@ function startAssetWork(r:Record<string,unknown>,kind:'model'|'runtime'){
   const control=path.join(ROOT,'data','control');mkdirSync(control,{recursive:true});
   modelCancelFile=path.join(control,`model-${process.pid}-${Date.now()}.cancel`);
   const [exe,args]=cli();
-  const proc=spawn(exe,[...args,kind==='runtime'?'--desktop-runtimes':'--desktop-models'],{cwd:ROOT,windowsHide:true,stdio:'pipe',env:{...process.env,RPT_CANCEL_FILE:modelCancelFile,PYTHONUTF8:'1'}});
+  const proc=spawn(exe,[...args,kind==='runtime'?'--desktop-runtimes':'--desktop-models'],{cwd:ROOT,windowsHide:true,stdio:'pipe',env:{...process.env,RPT_CANCEL_FILE:modelCancelFile,RPT_REQUEST_ENCODING:'utf-8',PYTHONUTF8:'1'}});
   modelWorker=proc;updateModel({kind,running:true,stage:kind==='runtime'||r.op==='download'?'다운로드 준비 중':'모델 확인 중',done:0,total:0,error:null});
   let tail='',errors='';proc.stdout.setEncoding('utf8');proc.stderr.setEncoding('utf8');
   proc.stdout.on('data',(s:string)=>{tail+=s;const lines=tail.split(/\r?\n/);tail=lines.pop()||'';for(const line of lines){try{const item=JSON.parse(line);if(item.stage)updateModel({stage:item.stage,done:item.done||0,total:item.total||0});}catch{}}});
   proc.stderr.on('data',(s:string)=>{errors=(errors+s).slice(-4000);});
-  proc.stdin.on('error',()=>{});proc.stdin.end(JSON.stringify(r));
+  proc.stdin.on('error',()=>{});proc.stdin.end(JSON.stringify(r),'utf8');
   let finished=false;
   const finish=(code:number)=>{if(finished)return;finished=true;modelWorker=null;
     updateModel({running:false,stage:code===0?'완료':code===130?'취소됨':'다운로드 실패',error:code!==0&&code!==130?errors.trim()||'작업을 완료하지 못했습니다.':null});

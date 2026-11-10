@@ -317,6 +317,8 @@ class Evidence:
 
 def run(project,cfg,operation,saved_count):
     from hy_backend import runtime
+    from job_events import emit,translation_tracker
+    cfg=dict(cfg);tracker=translation_tracker(cfg)
     run_id=uuid.uuid4().hex
     with Evidence(project) as evidence:
         restarted=0;total_restarts=0;generation=0;incident=None
@@ -358,6 +360,7 @@ def run(project,cfg,operation,saved_count):
                     evidence.configure(active)
                     event('server_ready',incident_id=incident,restart=restarted,total_restarts=total_restarts,
                         pid=active.get('_runtime_pid'),endpoint=active.get('endpoint'),server_log=active.get('_runtime_log'),native_launch=active.get('_runtime_launch'))
+                    tracker.resume()
                     cancelled()
                     try:
                         result=operation(active)
@@ -417,7 +420,11 @@ def run(project,cfg,operation,saved_count):
                 total_restarts+=1
                 event('restart_scheduled',incident_id=incident,restart=restarted,total_restarts=total_restarts,
                       delay_seconds=delay,saved_entries=saved_count())
+                tracker.pause()
+                emit('recovery',state='waiting',delay_seconds=delay,
+                     next_retry_at=(datetime.now(timezone.utc)+timedelta(seconds=delay)).isoformat(),attempt=restarted)
                 print(f'Model server failed. Restarting ({restarted}/{MAX_RESTARTS}) in {delay} seconds; saved translations will be skipped.',flush=True)
                 try:pause(delay)
                 finally:finalize()
+                emit('recovery',state='resuming',delay_seconds=0,next_retry_at=None,attempt=restarted)
                 generation+=1

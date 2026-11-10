@@ -43,6 +43,22 @@ def main():
         import json
         from desktop_bridge import project_language,read_request
         print(json.dumps(project_language(read_request()),ensure_ascii=False));return
+    if sys.argv[1:] == ['--desktop-support']:
+        import json
+        from app_paths import ROOT
+        from desktop_bridge import read_request
+        from support_report import build_report,export_report,format_report,failure_message
+        try:
+            data=read_request()
+            if data.get('op')=='copy':
+                report=build_report(ROOT,data.get('log_path'),data.get('job_context'))
+                result={'text':format_report(report),'report':report}
+            elif data.get('op')=='export':
+                result={'path':export_report(ROOT,data.get('log_path'),data.get('destination'),data.get('job_context'))}
+            else:result={'error':'제보 작업을 확인하세요.','code':'support_unavailable'}
+        except Exception as exc:
+            result={'error':failure_message(exc),'code':'support_unavailable'}
+        print(json.dumps(result,ensure_ascii=False),flush=True);return
     if sys.argv[1:] == ['--desktop-models']:
         import json
         from desktop_bridge import read_request
@@ -93,9 +109,16 @@ def main():
         print('GPU policy data: version '+str(gpu_policy.rules()['version'])+'; 12GB preserved, larger GPU workers estimated; editable presets available')
         print('Root: '+str(ROOT))
         print('Ollama executable present: '+str(ollama.is_file()))
-        font=ROOT/'vendor/fonts/NanumSquareNeo-Regular.ttf'
-        if font.exists():
-            with TTFont(font,lazy=True) as face:print('Bundled Korean font readable: '+str(ord('\uac00') in face.getBestCmap()))
+        from font_policy import ASSETS, details
+        font_count=0
+        for name in ASSETS:
+            if Path(name).suffix not in ('.ttf','.otf'):continue
+            with TTFont(ROOT/'vendor/fonts'/name,lazy=True) as face:
+                info,cmap=details(face)
+                assert info['family'] and info['name'], 'Bundled font name is missing: '+name
+                assert ord('\uac00') in cmap, 'Bundled Korean font is unreadable: '+name
+                font_count+=1
+        print('Bundled Korean fonts and name encodings readable: '+str(font_count))
         ui=ROOT/'_desktop'
         if getattr(sys,'frozen',False):
             assert (ui/'RenPyTranslator-UI.exe').is_file(), 'Electron executable is missing'
@@ -119,7 +142,23 @@ def main():
         report(exc);raise SystemExit(1)
 
 
+def entrypoint():
+    """Keep helper/import errors that occur before the job reporter is entered."""
+    try:
+        main()
+    except KeyboardInterrupt:
+        print('Cancelled.',file=sys.stderr)
+        raise SystemExit(130)
+    except Exception as exc:
+        from diagnostics import report,stage
+        command=sys.argv[1] if len(sys.argv)>1 else ''
+        stage('desktop helper' if command.startswith('--desktop-') else 'application startup',
+              reset=True,helper=command)
+        report(exc)
+        raise SystemExit(1)
+
+
 if __name__=='__main__':
     import multiprocessing
     multiprocessing.freeze_support()
-    main()
+    entrypoint()

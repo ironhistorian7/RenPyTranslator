@@ -1,5 +1,6 @@
 # Gameloc — 게임 폴더를 넣으면 번역해 주는 도구
 # Copyright (C) 2026  하진
+# RenPyTranslator local modification (2026-11-11): support quoted literal JSON keys.
 #
 # 이 프로그램은 자유 소프트웨어입니다. 자유 소프트웨어 재단이 펴낸 GNU 일반
 # 공중 사용 허가서 3판 또는 그 이후 판의 조건에 따라 재배포하거나 고칠 수
@@ -19,10 +20,19 @@
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Any, Iterator
 
 _TOKEN = re.compile(r"([^.\[\]]+)|\[(\d+)\]")
+_QUOTED_KEY = re.compile(r'\[("(?:[^"\\]|\\.)*")\]')
+_BARE_KEY = re.compile(r'[^.\[\]!"\\\x00-\x1f]+')
+
+
+def _format_key(part: str) -> str:
+    """Quote literal keys that could be mistaken for path syntax."""
+    value = str(part)
+    return value if _BARE_KEY.fullmatch(value) else '[' + json.dumps(value, ensure_ascii=False) + ']'
 
 
 def parse_path(path: str) -> list:
@@ -33,6 +43,11 @@ def parse_path(path: str) -> list:
     while pos < len(path):
         if path[pos] == ".":
             pos += 1
+            continue
+        quoted = _QUOTED_KEY.match(path, pos)
+        if quoted:
+            out.append(json.loads(quoted.group(1)))
+            pos = quoted.end()
             continue
         m = _TOKEN.match(path, pos)
         if not m:
@@ -48,7 +63,8 @@ def format_path(parts: list) -> str:
         if isinstance(p, int):
             buf += f"[{p}]"
         else:
-            buf += f".{p}" if buf else str(p)
+            key = _format_key(p)
+            buf += key if key.startswith('[') or not buf else '.' + key
     return buf
 
 

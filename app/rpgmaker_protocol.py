@@ -5,7 +5,7 @@ import re
 import unicodedata
 
 MARKER=re.compile(r'(?:\\+)?[<\[]\s*rpt\s*[_-]?\s*(\d+)\s*(?:/(?:\\+)?\s*[>\]]|(?:\\+)?(?:>\]|\]>|[>\]]))',re.I)
-HEADER=re.compile(r'(?m)^\[(?:(?:[A-Za-z][A-Za-z0-9]*_)+)?(\d+)\][ \t]*')
+HEADER=re.compile(r'(?m)^\[(?:(?:[^\W\d_][^\W_]*_)+)?([0-9]+)\][ \t]*')
 WIRE=re.compile(r'⟦\s*(?:RPT\s*)?(\d+)\s*[⟧⟦⟩]',re.I)
 WORD=re.compile(r'[가-힣\u3041-\u3096\u30a1-\u30fa\uff66-\uff9d\u3400-\u9fffA-Za-z0-9ー]+')
 ANCHOR=re.compile(r'<rpt(\d+)/>')
@@ -30,15 +30,17 @@ def wire_inputs(inputs):
                  name_hints={wire_markers(k):v for k,v in item.get('name_hints',{}).items()}) for item in inputs]
 
 
-def parse(content,count):
+def parse(content,count,*,expected_ids=None):
     from hy_backend import parse as normal_parse
     parsed=normal_parse(content)
     # One requested item, one explicit numeric header with a harmless prefix.
     # Never merge records, accept duplicate headers or guess another number.
     headers=list(HEADER.finditer(content.strip()))
     alias=False
-    if count==1 and not parsed and len(headers)==1 and headers[0].start()==0 and headers[0][1]=='0':
-        parsed={'0':content.strip()[headers[0].end():].strip()};alias=True
+    if count==1 and len(headers)>1:return {},False
+    expected=set(expected_ids) if expected_ids is not None else {'0'}
+    if count==1 and len(expected)==1 and not parsed and len(headers)==1 and headers[0].start()==0 and headers[0][1] in expected:
+        parsed={headers[0][1]:content.strip()[headers[0].end():].strip()};alias=True
     return parsed,alias
 
 
@@ -108,7 +110,9 @@ def correction_ending(original,value):
     previous=ANCHOR.sub('',original);visible=ANCHOR.sub('',value)
     ending=re.search(PUNCTUATION.pattern+'$',previous)
     emitted=re.search(PUNCTUATION.pattern+'$',visible)
-    def key(text):return re.sub(r'(.)\1+',r'\1',unicodedata.normalize('NFKC',text))
+    def key(text):
+        normalized=unicodedata.normalize('NFKC',text).replace('\u301c','~')
+        return re.sub(r'(.)\1+',r'\1',normalized)
     if ending:
         if emitted:
             if not key(ending[0]).startswith(key(emitted[0])):

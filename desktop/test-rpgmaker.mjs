@@ -23,11 +23,11 @@ try {
   assert.equal(result.ok,true);assert.equal(result.value.engine,'rpgmaker');
   await page.locator('#task-options summary').first().click();
   await page.locator('#repairs summary').click();
-  for(const task of ['answers','routes','names'])assert.equal(await page.locator(`[data-task=${task}]`).isVisible(),false);
+  for(const task of ['answers','routes'])assert.equal(await page.locator(`[data-task=${task}]`).isVisible(),false);
   assert.equal(await page.locator('[data-task=language]').count(),0);
   assert(await page.locator('[data-task=run]').isEnabled());
   assert(await page.locator('[data-task=retranslate]').isEnabled());
-  for(const task of ['font','failed','display','layout'])assert(await page.locator(`[data-task=${task}]`).isEnabled());
+  for(const task of ['font','names','failed','display','layout'])assert(await page.locator(`[data-task=${task}]`).isEnabled());
   await page.locator('#source-path').fill(unsupported);await page.locator('#source-path').press('Tab');
   await page.waitForFunction(()=>document.querySelector('#engine-note').textContent.includes('Unity'));
   assert.equal(await page.locator('#wizard-next').isDisabled(),true);

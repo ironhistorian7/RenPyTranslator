@@ -44,13 +44,20 @@
         <section data-step="3" class="wizard-pane" hidden>
           <h2>준비가 되었습니다</h2><p class="intro">아래 내용으로 작업을 시작합니다.</p><dl id="review" class="review-list"></dl><p id="apply-note" class="help"></p><p class="help">저장된 번역은 재사용합니다. 중단한 작업은 다시 실행해 이어갈 수 있습니다.</p>
         </section>
+        <section id="issue-panel" class="issue-card" hidden aria-live="polite">
+          <p id="issue-state" class="issue-state"></p><h3 id="issue-title"></h3>
+          <p id="issue-detail" class="help"></p><p id="issue-id" class="help"></p>
+          <div class="issue-actions"><button id="copy-issue" class="secondary">오류 내용 복사</button><button id="export-issue" class="secondary">진단 파일 저장</button><button id="issue-logs" class="text-button">로그 폴더 열기 ↗</button></div>
+          <p class="help">제보할 때 오류 내용과 진단 파일을 함께 첨부해 주세요.</p>
+        </section>
         <section id="completion-pane" class="completion-pane" hidden aria-live="polite">
           <div id="completion-mark" class="completion-mark" aria-hidden="true">✓</div>
           <h2 id="completion-title">작업이 완료되었습니다</h2><p id="completion-description" class="intro"></p>
+          <p id="completion-counts" class="help"></p><p id="completion-notices" class="help"></p><p id="completion-time" class="help"></p>
           <p id="completion-path" class="path-text"></p><button id="completion-result" class="text-button" hidden>결과 폴더 열기 ↗</button>
           <details id="completion-details"><summary>작업 기록 보기</summary><pre id="completion-log" tabindex="0"></pre></details>
         </section>
-        <section id="job-pane" class="log-section" hidden><div class="log-header"><h2>작업 기록</h2><button id="open-result" class="text-button" disabled>결과 폴더 열기 ↗</button></div><p id="status" class="plain-value" aria-live="polite">대기 중</p><progress id="progress" max="100" value="0" aria-label="번역 진행"></progress><pre id="log" role="log" aria-label="작업 기록" tabindex="0">게임 폴더를 선택한 뒤 번역을 시작하세요.</pre></section>
+        <section id="job-pane" class="log-section" hidden><div class="log-header"><h2>작업 진행</h2><button id="open-result" class="text-button" disabled>결과 폴더 열기 ↗</button></div><div class="progress-heading"><p id="status" class="plain-value" aria-live="polite">대기 중</p><span id="progress-percent"></span></div><progress id="progress" max="100" value="0" aria-label="현재 단계 진행"></progress><div class="progress-timing"><span id="elapsed-time"></span><span id="remaining-time"></span></div><p id="job-counts" class="help"></p><details id="job-details" class="job-details"><summary>상세 기록</summary><pre id="log" role="log" aria-label="상세 작업 기록" tabindex="0">게임 폴더를 선택한 뒤 번역을 시작하세요.</pre></details></section>
       </div>
       <footer class="wizard-footer"><span id="step-count">1 / 4</span><div class="actions"><button id="back" class="secondary" disabled>이전</button><button id="wizard-next" class="primary" disabled>다음</button><div id="run-actions" class="actions" hidden><button id="cancel" class="secondary" disabled>취소</button><button id="start" class="primary" disabled>번역 시작</button></div><button id="finish" class="primary" hidden>확인</button></div></footer>
     </section>

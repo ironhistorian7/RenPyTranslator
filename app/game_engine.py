@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 from gameloc_vendor import load
 
-RPG_TASKS = ('run', 'retranslate', 'update', 'font', 'failed', 'display', 'layout', 'check')
+RPG_TASKS = ('run', 'retranslate', 'update', 'font', 'names', 'failed', 'display', 'layout', 'check')
 
 
 def detect(folder):

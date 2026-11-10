@@ -15,9 +15,11 @@ import zipfile
 from app_paths import ROOT, resource
 from engine import save_json
 from gameloc_vendor import load
+from job_events import set_phase,progress,emit
 
 
 def prepare(project, cfg):
+    set_phase('prepare.inspect','작업 자료 확인 중')
     load()
     from gameloc.engines import rpgmaker
     from gameloc.extract import extract
@@ -33,8 +35,9 @@ def prepare(project, cfg):
     if notes.is_dir() and not notes.is_symlink() and not notes.is_junction():
         paths.update(p for p in notes.rglob('*.txt') if p.resolve().is_relative_to(notes.resolve()))
     manifest={}
-    for sourcefile in sorted(paths):
-        if sourcefile.suffix.lower() not in ('.json','.csv','.tsv','.txt','.js'):continue
+    paths=sorted(p for p in paths if p.suffix.lower() in ('.json','.csv','.tsv','.txt','.js'))
+    set_phase('prepare.copy','작업 파일 복사 중',len(paths),'files')
+    for index,sourcefile in enumerate(paths,1):
         rel=sourcefile.relative_to(source); target=snapshot/rel
         target.parent.mkdir(parents=True,exist_ok=True); shutil.copy2(sourcefile,target)
         raw=target.read_bytes()
@@ -43,9 +46,18 @@ def prepare(project, cfg):
             try:json.loads(target.read_text(encoding='utf-8'))
             except (ValueError,UnicodeError) as exc:raise ValueError(f'RPG Maker JSON 읽기 실패: {rel}: {exc}') from exc
         manifest[rel.as_posix()]=hashlib.sha256(target.read_bytes()).hexdigest()
+        progress('prepare.copy',index,len(paths))
+    set_phase('prepare.extract','번역할 문구 추출 중')
+    from rpgmaker_sources import copy_declared_tables
+    copy_declared_tables(source,snapshot,base.relative_to(source),manifest)
     save_json(project/'data/source-manifest.json',manifest)
     print(f'Copying RPG Maker text and settings: {len(manifest)} files; no images/audio/runtime',flush=True)
-    upstream=extract(snapshot,dedup=False,languages=['ko'],source_lang='en' if cfg['source_language']=='english' else 'ja',progress=lambda s:print(s,flush=True))
+    from rpgmaker_notices import Notices
+    notices=Notices()
+    try:
+        upstream=extract(snapshot,dedup=False,languages=['ko'],source_lang='en' if cfg['source_language']=='english' else 'ja',
+                         progress=notices.progress,on_notice=notices.notice)
+    finally:notices.save(project)
     # Gameloc does not currently extract MZ's dedicated speaker-name field.
     if variant=='MZ':
         from gameloc.model import Entry,Location,make_id_unique
@@ -63,7 +75,8 @@ def prepare(project, cfg):
     rows=[]; docs={}
     for entry in upstream.entries:
         loc=entry.locations[0]
-        parts=parse_path(loc.ptr); usage='ui_label'; kind='string'; block='labels'; speaker='unknown'
+        parts=parse_path(loc.ptr) if loc.fmt=='json' else []
+        usage='text'; kind='string'; block='labels'; speaker='unknown';command_code=None
         if parts and parts[-1] in ('description','profile','message1','message2','message3','message4'):usage='text'
         if loc.span:
             usage='dialogue';kind='dialogue'
@@ -71,26 +84,35 @@ def prepare(project, cfg):
             position=parts.index('parameters'); head=parts[:position]
             if loc.file not in docs:docs[loc.file]=json.loads((snapshot/loc.file).read_text(encoding='utf-8-sig'))
             command=get_by_path(docs[loc.file],format_path(head))
-            code=command.get('code'); listptr=format_path(head[:-1]); commands=get_by_path(docs[loc.file],listptr)
-            index=head[-1]
-            markers=[n for n,c in enumerate(commands[:index+1]) if c.get('code') in (101,102,105,111,117,118,119,402,403,411,412)]
-            # Start-message headers are not story boundaries. Branch/control flow is.
-            boundaries=[n for n in markers if commands[n].get('code') not in (101,105)]
-            block=listptr+':'+str(boundaries[-1] if boundaries else 0)+':'+str(command.get('indent',0))
-            headers=[n for n in markers if commands[n].get('code')==101]
-            if headers:
-                parameters=commands[headers[-1]].get('parameters',[])
-                if len(parameters)>4:speaker=parameters[4] or 'unknown'
-            if code==102:usage='choice'
-            elif code in (320,324) or (code==101 and parts[-1]==4):usage='speaker_label'
+            if isinstance(command,dict) and isinstance(command.get('code'),int) and head and isinstance(head[-1],int):
+                code=command['code'];command_code=code;listptr=format_path(head[:-1]); commands=get_by_path(docs[loc.file],listptr)
+                index=head[-1]
+                markers=[n for n,c in enumerate(commands[:index+1]) if c.get('code') in (101,102,105,111,117,118,119,402,403,411,412)]
+                # Start-message headers are not story boundaries. Branch/control flow is.
+                boundaries=[n for n in markers if commands[n].get('code') not in (101,105)]
+                block=listptr+':'+str(boundaries[-1] if boundaries else 0)+':'+str(command.get('indent',0))
+                headers=[n for n in markers if commands[n].get('code')==101]
+                if headers:
+                    parameters=commands[headers[-1]].get('parameters',[])
+                    if len(parameters)>4:speaker=parameters[4] or 'unknown'
+                if code==102:usage='choice'
+                elif code in (320,324) or (code==101 and parts[-1]==4):usage='speaker_label'
         elif Path(loc.file).name=='Actors.json' and parts and parts[-1]=='name':usage='speaker_label'
         uid=hashlib.sha256((loc.file+'\0'+loc.ptr+'\0'+entry.text).encode()).hexdigest()[:16]
         entry.id=uid
         rows.append({'id':uid,'source':entry.text,'kind':kind,'usage':usage,'file':loc.file,
                      'block':block,'speaker':speaker,'source_file':loc.file,'source_line':len(rows)+1,
-                     'location':loc.to_dict()})
+                     'location':loc.to_dict(),**({'rpg_command_code':command_code} if command_code is not None else {})})
     if not rows:raise ValueError('RPG Maker에서 번역할 텍스트를 찾지 못했습니다.')
+    from rpgmaker_paths import PATH_FORMAT
+    upstream.stats['rpt_path_format']=PATH_FORMAT
     upstream.game_root=str(snapshot); upstream.save(project/'data/rpgmaker-project.json')
+    from rpgmaker_language import prepare_sources
+    from rpgmaker_sources import bind_rows,refresh_usages
+    mapping=prepare_sources(snapshot,cfg['source_language'],base=base.relative_to(source),files=manifest.keys())
+    bound=bind_rows(rows,mapping)
+    usage_updates=refresh_usages(rows)
+    save_json(project/'data/rpg-source-language.json',dict(mapping.report(),**bound,entry_ids_preserved=True,translation_cache_modified=False,usage_updates=usage_updates))
     save_json(project/'data/catalog.json',rows)
     save_json(project/'data/catalog-format.json',{'engine':'rpgmaker','version':1})
     save_json(project/'data/inspection.json',{'engine':'rpgmaker','variant':variant,'entries':len(rows),'files':len(manifest),'original_modified':False})
@@ -102,9 +124,10 @@ def prepare(project, cfg):
 
 
 def render(project,cfg):
+    set_phase('render.prepare','번역 파일 준비 중')
     load()
     from gameloc.model import Project
-    from gameloc.apply import apply
+    from gameloc.apply import apply, _reserved_names
     from gameloc.treepath import parse_path,get_by_path,format_path
     from gameloc.overlay import rm_register
     from translation import cache,read_catalog,validate_entry
@@ -112,47 +135,69 @@ def render(project,cfg):
     from output_paths import destination
     rows=read_catalog(project); known=cache(project,cfg); snapshot=project/'data/rpg-source'; stage=project/'staging'
     if not snapshot.is_dir():raise ValueError('RPG Maker 원문 작업 자료가 없습니다.')
+    from rpgmaker_names import apply_names
+    known,name_report=apply_names(project,cfg,rows,known)
+    save_json(project/'data/rpg-name-report.json',name_report)
+    if name_report['updated_ids']:print(f'Name labels aligned: {len(name_report["updated_ids"])}',flush=True)
     manifest=json.loads((project/'data/source-manifest.json').read_text(encoding='utf-8'))
     for rel,digest in manifest.items():
         p=snapshot/rel
         if hashlib.sha256(p.read_bytes()).hexdigest()!=digest:raise ValueError('작업 원문이 변경되었습니다: '+rel)
         target=stage/rel;target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(p,target)
     upstream=Project.load(project/'data/rpgmaker-project.json'); upstream.game_root=str(stage)
-    rules=load_rules(project/'replacements.json'); missing=[]; translated=0; failed=0
+    from rpgmaker_paths import normalize_locations
+    normalize_locations(upstream,snapshot)
+    rules=load_rules(project/'replacements.json'); missing=[]; translated=0; failed=0;validated_pairs={}
     entry_map={e.id:e for e in upstream.entries}
     for row in rows:
         item=known.get(row['id'])
         if item is None:missing.append(row['id']);continue
         text,_=replace_visible(item['text'],rules)
-        errors=validate_entry(row['source'],dict(item,text=text),cfg)
+        # cache() has validated unchanged text already. Only an actual user
+        # replacement creates a new value requiring another check.
+        errors=validate_entry(row['source'],dict(item,text=text),cfg) if text!=item['text'] else []
         if errors:raise ValueError(row['id']+': '+str(errors))
+        validated_pairs[row['id']]=(row['source'],text)
         entry_map[row['id']].translations['ko']=text
         translated+=text!=row['source'];failed+=item.get('status')=='source_fallback'
     if missing:raise ValueError(f'번역 캐시가 없는 항목 {len(missing)}개입니다. 번역을 재개하세요.')
-    report=apply(upstream,'ko',game_root=stage,progress=lambda s:print(s,flush=True))
+    cfg['_rpg_render_known']=known;cfg['_rpg_render_validated']=validated_pairs
+    # Generated plugins in staging are output, never source identifier evidence.
+    reserved=set(upstream.identifiers)|_reserved_names(snapshot,upstream)
+    cfg['_rpg_render_reserved_names']=sorted(reserved)
+    report=apply(upstream,'ko',game_root=stage,reserved_names=reserved)
     save_json(project/'data/rpg-apply-report.json',report.__dict__)
     if report.failures:raise ValueError('RPG Maker 적용 실패: '+'; '.join(report.failures))
-    if report.risky:print(f'RPG Maker identifiers kept unchanged: {len(report.risky)}; see data/rpg-apply-report.json',flush=True)
-    # Attach source references to message commands, never concatenate UI labels.
-    docs={}; messages=0;choices=0
+    if report.risky:
+        emit('notice',code='rpg_identifiers_preserved',count=len(report.risky),
+             text=f'게임 동작을 위해 원문으로 유지한 항목: {len(report.risky)}개')
+    # Final-display metadata belongs to these command locations, not a global
+    # replacement dictionary. Native language hooks may otherwise translate it again.
+    docs={}; messages=0;choices=0;choice_commands=[]
     for row in rows:
-        if not cfg.get('show_reference',True):continue
         if row['kind']!='dialogue' and row['usage']!='choice':continue
-        if entry_map[row['id']].translations['ko']==row['source']:continue
         rel=row['file']
         if rel not in docs:docs[rel]=json.loads((stage/rel).read_text(encoding='utf-8-sig'))
-        parts=parse_path(row['location']['ptr']);pos=parts.index('parameters')
+        location=entry_map[row['id']].locations[0]
+        parts=parse_path(location.ptr);pos=parts.index('parameters')
         command=get_by_path(docs[rel],format_path(parts[:pos]))
         if row['usage']=='choice':
-            if '_rpt_choice_originals' not in command:
+            if '_rpt_choice_translations' not in command:
+                choice_commands.append(command)
                 original_doc=json.loads((snapshot/rel).read_text(encoding='utf-8-sig'))
-                command['_rpt_choice_originals']=get_by_path(original_doc,format_path(parts[:pos]))['parameters'][0]
-                choices+=1
+                command['_rpt_choice_translations']=list(command['parameters'][0])
+                if cfg.get('show_reference',True):
+                    command['_rpt_choice_originals']=list(get_by_path(original_doc,format_path(parts[:pos]))['parameters'][0])
+                    choices+=1
+            if cfg.get('show_reference',True):command['_rpt_choice_originals'][parts[-1]]=row['source']
             continue
-        if command['parameters'][parts[-1]]==row['source'].split('\n')[0]:continue
-        command['_rpt_original']=row['source']
-        command['_rpt_translation']=entry_map[row['id']].translations['ko']
-        messages+=1
+        final='\n'.join(get_by_path(docs[rel],ptr) for ptr in location.span) if location.span else command['parameters'][parts[-1]]
+        command['_rpt_translation']=final
+        if cfg.get('show_reference',True) and final!=row['source']:
+            command['_rpt_original']=row['source'];messages+=1
+    for command in choice_commands:
+        if command.get('_rpt_choice_originals')==command['_rpt_choice_translations']:
+            command.pop('_rpt_choice_originals');choices-=1
     changed=set(report.written)
     for rel,doc in docs.items():
         (stage/rel).write_text(json.dumps(doc,ensure_ascii=False,separators=(',',':')),encoding='utf-8');changed.add(rel)
@@ -161,8 +206,13 @@ def render(project,cfg):
     original_actors={}
     actors=snapshot/base/'data/Actors.json'
     if actors.exists():
-        for actor in json.loads(actors.read_text(encoding='utf-8-sig')):
-            if isinstance(actor,dict):original_actors[str(actor['id'])]=actor.get('name','')
+        selected_names={}
+        for row in rows:
+            if Path(row['file']).name!='Actors.json':continue
+            parts=parse_path(entry_map[row['id']].locations[0].ptr)
+            if len(parts)==2 and isinstance(parts[0],int) and parts[1]=='name':selected_names[parts[0]]=row['source']
+        for index,actor in enumerate(json.loads(actors.read_text(encoding='utf-8-sig'))):
+            if isinstance(actor,dict):original_actors[str(actor['id'])]=selected_names.get(index,actor.get('name',''))
     params={'originalActors':original_actors,'textboxScale':cfg.get('textbox_scale') or 1,'referenceRatio':0.55}
     plugin='/* RenPyTranslator: local Korean translation, original reference below. */\nvar RPT_BilingualOptions = '+json.dumps(params,ensure_ascii=False)+';\n'+resource('rpgmaker_bilingual.js').read_text(encoding='utf-8')
     (stage/pluginrel).parent.mkdir(parents=True,exist_ok=True);(stage/pluginrel).write_text(plugin,encoding='utf-8')
@@ -173,16 +223,22 @@ def render(project,cfg):
     shutil.copy2(ROOT/'vendor/fonts/NanumSquareNeo-Regular.ttf',stage/fontrel);changed.add(fontrel.as_posix())
     license_rel=base/'fonts/RPT-NanumSquareNeo-OFL.txt';shutil.copy2(ROOT/'vendor/fonts/NanumSquareNeo-OFL.txt',stage/license_rel);changed.add(license_rel.as_posix())
     output,label=destination(project,cfg);output.mkdir(parents=True,exist_ok=True)
-    for rel in sorted(changed):
+    set_phase('render.write','번역 파일 저장 중',len(changed),'files')
+    for index,rel in enumerate(sorted(changed),1):
         target=output/rel;target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(stage/rel,target)
+        progress('render.write',index,len(changed))
     import os
     save_json(output/'project-link.json',{'project':os.path.relpath(project,output),'engine':'rpgmaker'})
     (output/'APPLY.txt').write_text('이 폴더의 '+('www 폴더를 포함한 ' if base.as_posix()!='.' else '')+'data/js/fonts 내용을 같은 버전의 원본 게임 폴더에 복사하고 같은 이름의 파일을 덮어쓰세요.\n원본을 보관해 두세요. 게임 실행파일은 원래 것을 사용합니다.\nKorean dialogue + original reference (55%). Custom message plugins may require compatibility adjustments.\n',encoding='utf-8')
     save_json(project/'data/rpg-output.json',{'files':sorted(changed),'translated':translated,'failed_original_kept':failed,'identifier_skips':len(report.risky),'bilingual_messages':messages,'bilingual_choice_groups':choices,'output':str(output)})
     archive=output/(label+'.zip')
+    set_phase('package.write','결과 압축 중',len(changed),'files')
     with zipfile.ZipFile(archive,'w',zipfile.ZIP_DEFLATED,allowZip64=True) as z:
-        for rel in sorted(changed):z.write(output/rel,rel)
+        for index,rel in enumerate(sorted(changed),1):
+            z.write(output/rel,rel)
+            progress('package.write',index,len(changed))
         z.write(output/'APPLY.txt','APPLY.txt')
+    progress('package.write',len(changed),len(changed),successful=translated,original_kept=failed)
     print(f'Rendered {len(rows)} entries; translated: {translated}; failed/original kept: {failed}; bilingual messages: {messages}; bilingual choice groups: {choices}',flush=True)
     print('Output folder: '+str(output),flush=True)
 
@@ -199,8 +255,7 @@ def main(args,parser,info):
     jobs=plan(args.tasks) if args.command=='tasks' else [args.command]
     if args.command=='repair':
         if not args.fix:parser.error('repair requires --fix')
-        if args.fix=='names':raise ValueError('RPG Maker 이름 보정은 아직 지원하지 않습니다.')
-        jobs=['font','failed'] if args.fix=='all' else [args.fix]
+        jobs=['font','names','failed'] if args.fix=='all' else [args.fix]
     if set(jobs)&{'run','retranslate','translate','sample','failed'}:args.model=require_selected(args.model)
     project,base=resolve_project(args.source,args.project,args.model,args.source_language,engine='rpgmaker')
     if getattr(args,'runtime_id',None) is not None:base['runtime_id']=args.runtime_id
@@ -228,11 +283,16 @@ def main(args,parser,info):
             if result.get('status')!='passed':raise RuntimeError('Patch check '+result.get('status','failed')+': '+str(result.get('report','data/patch-validation.json')))
             return
         stage('RPG Maker prepare',project,cfg)
+        prepared=False
         if not (project/'data/catalog.json').exists():
             if not set(jobs)&{'run','prepare'}:raise ValueError('먼저 번역 또는 prepare를 실행하세요.')
-            prepare(project,cfg)
+            prepare(project,cfg);prepared=True
             base=json.loads((project/'project.json').read_text(encoding='utf-8'));cfg.update(base)
-        if (project/'data/rpgmaker-project.json').exists():seed_defaults(project,cfg)
+        if not prepared:
+            from rpgmaker_sources import refresh as refresh_sources
+            refresh_sources(project,cfg,allow_original=args.source is not None and bool(set(jobs)&{'run','translate','sample','prepare'}))
+        if (project/'data/rpgmaker-project.json').exists() and jobs!=['names']:
+            seed_defaults(project,cfg,recover_saved=bool(set(jobs)&{'run','translate','failed'}))
         if set(jobs)&{'run','translate','sample','failed'}:
             from rpgmaker_scope import refresh
             refresh(project,cfg)
@@ -271,7 +331,7 @@ def main(args,parser,info):
             else:translate(project,cfg,'sample' in jobs)
         if jobs==['sample']:return
         stage('RPG Maker patch output',project,cfg);render(project,cfg)
-        if 'check' in jobs:
+        if 'check' in jobs or set(jobs)&{'run','translate','rebuild','names'}:
             from patch_validation import run as check_patch
             result=check_patch(project,cfg)
             if result.get('status')!='passed':raise RuntimeError('Patch check '+result.get('status','failed')+': '+str(result.get('report','data/patch-validation.json')))
@@ -309,16 +369,31 @@ def comparison(project,cfg):
     return target
 
 
-def seed_defaults(project,cfg):
+def seed_defaults(project,cfg,*,recover_saved=False):
     """Keep upstream's conventional System.json Korean terms out of model calls."""
     load()
     from gameloc.model import Project
-    from translation import cache,fingerprint
+    from translation import cache,fingerprint,read_catalog
+    from source_language import JAPANESE_MENUS
+    from ui_policy import STANDARD
     known=cache(project,cfg);items=[]
+    rows={row['id']:row for row in read_catalog(project)}
+    recovered=[];remaining=None
+    if recover_saved:
+        from rpgmaker_saved_repair import saved_records
+        recovered,remaining=saved_records(project,cfg,rows,known)
+        items.extend(recovered);known.update((item['id'],item) for item in recovered)
     for entry in Project.load(project/'data/rpgmaker-project.json').entries:
+        row=rows.get(entry.id,{'source':entry.text})
         text=entry.translations.get('ko')
         if text and entry.id not in known:
-            items.append(dict(id=entry.id,source=entry.text,text=text,model='RPG Maker standard menu',fingerprint=fingerprint(cfg)))
+            items.append(dict(id=entry.id,source=row['source'],text=text,model='RPG Maker standard menu',fingerprint=fingerprint(cfg)))
+        elif row.get('usage') in ('ui_label','choice'):
+            item=known.get(entry.id)
+            original=item is None or item.get('status')=='source_fallback' or item.get('text') in row.get('source_aliases',[row['source']])
+            standard=JAPANESE_MENUS.get(row['source']) or STANDARD.get(row['source'])
+            if standard and original:
+                items.append(dict(id=entry.id,source=row['source'],text=standard,model='RPG Maker standard menu',fingerprint=fingerprint(cfg)))
     if items:
         import os
         path=project/'data/translations.jsonl';temp=path.with_suffix('.jsonl.tmp')
@@ -327,4 +402,7 @@ def seed_defaults(project,cfg):
             stream.write(existing+''.join(json.dumps(item,ensure_ascii=False)+'\n' for item in items).encode('utf-8'))
             stream.flush();os.fsync(stream.fileno())
         temp.replace(path)
-        print(f'RPG Maker standard terms: {len(items)} prefilled',flush=True)
+        standards=len(items)-len(recovered)
+        if standards:print(f'RPG Maker standard terms: {standards} prefilled',flush=True)
+    if remaining is not None:save_json(project/'data/failed-items.json',remaining)
+    if recovered:print(f'RPG Maker saved outputs recovered: {len(recovered)}',flush=True)

@@ -1,5 +1,6 @@
 # Gameloc — 게임 폴더를 넣으면 번역해 주는 도구
 # Copyright (C) 2026  하진
+# RenPyTranslator local modification (2026-11-11): support quoted literal JSON keys.
 #
 # 이 프로그램은 자유 소프트웨어입니다. 자유 소프트웨어 재단이 펴낸 GNU 일반
 # 공중 사용 허가서 3판 또는 그 이후 판의 조건에 따라 재배포하거나 고칠 수
@@ -27,9 +28,12 @@ import json
 import re
 from typing import Any, Iterator
 
+from .treepath import _QUOTED_KEY, _format_key
+
 _TOKEN = re.compile(r"(!)|([^.\[\]!]+)|\[(\d+)\]")
 
-UNWRAP = "!"
+# A literal dictionary key "!" is a string; only this token unwraps JSON.
+UNWRAP = object()
 
 
 def parse_path(path: str) -> list:
@@ -38,6 +42,11 @@ def parse_path(path: str) -> list:
     while pos < len(path):
         if path[pos] == ".":
             pos += 1
+            continue
+        quoted = _QUOTED_KEY.match(path, pos)
+        if quoted:
+            out.append(json.loads(quoted.group(1)))
+            pos = quoted.end()
             continue
         m = _TOKEN.match(path, pos)
         if not m:
@@ -55,12 +64,13 @@ def parse_path(path: str) -> list:
 def format_path(parts: list) -> str:
     buf = ""
     for p in parts:
-        if p == UNWRAP:
+        if p is UNWRAP:
             buf += "!"
         elif isinstance(p, int):
             buf += f"[{p}]"
         else:
-            buf += f".{p}" if buf and not buf.endswith("!") else str(p)
+            key = _format_key(p)
+            buf += key if key.startswith('[') or not buf or buf.endswith('!') else '.' + key
     return buf
 
 
@@ -100,7 +110,7 @@ def walk(node: Any, _prefix: list | None = None, _depth: int = 0) -> Iterator[tu
 def get(root: Any, path: str) -> Any:
     node = root
     for part in parse_path(path):
-        node = json.loads(node) if part == UNWRAP else node[part]
+        node = json.loads(node) if part is UNWRAP else node[part]
     return node
 
 
@@ -113,7 +123,7 @@ def _set(node: Any, parts: list, value: str) -> Any:
     if not parts:
         return value
     head, rest = parts[0], parts[1:]
-    if head == UNWRAP:
+    if head is UNWRAP:
         inner = json.loads(node)
         updated = _set(inner, rest, value)
         # 공백 없는 compact 가 RPG Maker 관행입니다.

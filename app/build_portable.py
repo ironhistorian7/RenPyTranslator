@@ -1,17 +1,18 @@
 """Build a portable ZIP from an explicit asset allowlist; never read projects/games."""
 import argparse
 import json
-import filecmp
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tempfile
 from development_setup import prepare_full_model, verify_vendor, ollama_assets
 from runtime_assets import inside, load_lock, runtime_executable
 from release_archives import package_editions, vendor_file_allowed, runtime_file_allowed, DOCUMENTATION_FILES
 
 ROOT=Path(__file__).resolve().parents[1]
+LOCAL_COMPONENTS=('_internal', '_desktop', 'RenPyTranslator-cli.exe', 'RenPyTranslator.exe')
 
 
 def copy_vendor_assets(root, bundle, copy):
@@ -36,24 +37,170 @@ def copy_vendor_assets(root, bundle, copy):
     copy(root/'vendor/versions.json', Path('vendor/versions.json'))
 
 
+def _local_entries(root, path):
+    """Validate an app component without following links into user assets."""
+    entries, pending = [], [Path(path)]
+    while pending:
+        entry = pending.pop()
+        inside(root, entry)
+        if entry.is_symlink() or entry.is_junction():
+            raise ValueError('Linked local application asset is forbidden: '+str(entry))
+        entries.append(entry)
+        if entry.is_dir():
+            pending.extend(entry.iterdir())
+    return entries
+
+
+def _active_local_processes(root):
+    if os.name != 'nt':
+        return []
+    # Query executable paths only: command lines can contain private game paths.
+    command = ("$ErrorActionPreference='Stop'; "
+               "[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new(); "
+               "Get-CimInstance Win32_Process | "
+               "Select-Object ProcessId,Name,ExecutablePath | ConvertTo-Json -Compress")
+    try:
+        result = subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', command],
+                                capture_output=True, text=True, encoding='utf-8', check=True, timeout=15,
+                                creationflags=subprocess.CREATE_NO_WINDOW)
+        processes = json.loads(result.stdout or '[]')
+    except (OSError, subprocess.SubprocessError, ValueError) as error:
+        raise RuntimeError('Cannot check running applications; local publish was not started') from error
+    if isinstance(processes, dict):
+        processes = [processes]
+    active = []
+    names = {'renpytranslator.exe', 'renpytranslator-cli.exe', 'renpytranslator-ui.exe'}
+    for process in processes:
+        executable = process.get('ExecutablePath')
+        if executable:
+            path = Path(executable).resolve()
+            if (path.parent == root and path.name.lower() in names) or any(
+                    path.is_relative_to(root/name) for name in ('_internal', '_desktop')):
+                active.append(str(process['ProcessId']))
+        elif str(process.get('Name', '')).lower() in names:
+            # Do not assume an inaccessible app process belongs to another copy.
+            active.append(str(process['ProcessId']))
+    return active
+
+
+def _probe_local_path(path):
+    if os.name != 'nt':
+        return
+    import ctypes
+    from ctypes import wintypes
+    kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+    create = kernel32.CreateFileW
+    create.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+                       wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+    create.restype = wintypes.HANDLE
+    close = kernel32.CloseHandle
+    close.argtypes = [wintypes.HANDLE]
+    close.restype = wintypes.BOOL
+    # DELETE access, all share modes, OPEN_EXISTING, directory-compatible flag.
+    # This changes no bytes and detects handles that would block the rename.
+    handle = create(str(path), 0x10000, 7, None, 3, 0x02000000, None)
+    if handle == wintypes.HANDLE(-1).value:
+        raise OSError(ctypes.get_last_error(), 'Local application file is locked or inaccessible', str(path))
+    close(handle)
+
+
+def _check_local_publish(root):
+    active = _active_local_processes(root)
+    if active:
+        raise RuntimeError('Close RenPyTranslator before local publish (running PID: '+', '.join(active)+')')
+    for name in LOCAL_COMPONENTS:
+        target = root/name
+        if target.exists() or target.is_symlink() or target.is_junction():
+            for entry in _local_entries(root, target):
+                _probe_local_path(entry)
+
+
+def _move_local(root, source, target):
+    # Check both absolute paths immediately before every move.
+    source = inside(root, source)
+    target = inside(root, target)
+    source.rename(target)
+
+
+def _remove_local_stage(root, stage):
+    stage = inside(root, stage)
+    if stage.parent != inside(root, root/'build') or not stage.name.startswith('.local-publish-'):
+        raise ValueError('Unexpected local publish staging directory: '+str(stage))
+    shutil.rmtree(stage)
+
+
 def publish_local(bundle):
-    """Install only the built launchers/runtime beside the existing tool assets."""
-    bundle = bundle.resolve()
-    if bundle != (ROOT/'dist/RenPyTranslator').resolve():
+    """Explicitly replace complete app components, restoring the old set on error."""
+    root = ROOT.resolve()
+    bundle = inside(root, bundle)
+    if bundle != (root/'dist/RenPyTranslator').resolve():
         raise ValueError('Unexpected executable bundle location')
-    # Never copy project, data, model or source trees back from the distribution.
-    # The existing tool already owns those assets; publish only the application runtimes.
-    def copy_changed(source, target):
-        # An open Electron window maps unchanged runtime files. Do not rewrite
-        # those files merely to publish a Python/backend-only update.
-        if not Path(target).is_file() or not filecmp.cmp(source,target,shallow=False):
-            shutil.copy2(source,target)
-        return target
-    shutil.copytree(bundle/'_internal', ROOT/'_internal', dirs_exist_ok=True,copy_function=copy_changed)
-    shutil.copytree(bundle/'_desktop', ROOT/'_desktop', dirs_exist_ok=True,copy_function=copy_changed)
-    for name in ('RenPyTranslator-cli.exe', 'RenPyTranslator.exe'):
-        copy_changed(bundle/name, ROOT/name)
-    print('LOCAL_EXE '+str(ROOT/'RenPyTranslator.exe'), flush=True)
+    for name in LOCAL_COMPONENTS:
+        source = bundle/name
+        if not (source.is_dir() if name.startswith('_') else source.is_file()):
+            raise ValueError('Incomplete executable bundle: '+name)
+        _local_entries(root, source)
+    _check_local_publish(root)
+    staging_parent = inside(root, root/'build')
+    staging_parent.mkdir(exist_ok=True)
+    stage = Path(tempfile.mkdtemp(prefix='.local-publish-', dir=staging_parent))
+    previous, pending = stage/'previous', stage/'pending'
+    keep_stage = False
+    try:
+        previous.mkdir()
+        pending.mkdir()
+        for name in LOCAL_COMPONENTS:
+            source, target = bundle/name, pending/name
+            if source.is_dir():
+                shutil.copytree(source, target)
+            else:
+                shutil.copy2(source, target)
+        # Staging can take time. Refuse a newly opened app before moving anything.
+        _check_local_publish(root)
+        moved, installed = [], []
+        try:
+            # Retire launchers first; restore them last if a later move fails.
+            retirement_order = sorted(LOCAL_COMPONENTS, key=lambda name: name.startswith('_'))
+            for name in retirement_order:
+                if (root/name).exists():
+                    _move_local(root, root/name, previous/name)
+                    moved.append(name)
+            for name in LOCAL_COMPONENTS:
+                _move_local(root, pending/name, root/name)
+                installed.append(name)
+        except BaseException as error:
+            # Keep the backup even if restoration itself is interrupted.
+            keep_stage = True
+            rollback_errors = []
+            for name in reversed(installed):
+                try:
+                    _move_local(root, root/name, pending/name)
+                except Exception as rollback_error:
+                    rollback_errors.append(rollback_error)
+            for name in reversed(moved):
+                try:
+                    _move_local(root, previous/name, root/name)
+                except Exception as rollback_error:
+                    rollback_errors.append(rollback_error)
+            if rollback_errors:
+                raise RuntimeError('Local publish and rollback failed; recovery files retained at '+str(stage)) from error
+            keep_stage = False
+            raise
+    finally:
+        if not keep_stage:
+            try:
+                _remove_local_stage(root, stage)
+            except OSError:
+                # A complete new set (or restored old set) is already in place.
+                print('Local publish staging cleanup pending: '+str(stage), file=sys.stderr)
+    print('LOCAL_EXE '+str(root/'RenPyTranslator.exe'), flush=True)
+
+
+def publish_build_output(bundle, editions, *, local_only=False):
+    if local_only:
+        publish_local(bundle)
+    else:
+        package_editions(ROOT, bundle, editions, export_model)
 
 
 def export_model(bundle):
@@ -82,7 +229,7 @@ def main(argv=None):
     bundle=ROOT/'dist/RenPyTranslator'
     ui=bundle/'_desktop'
     shutil.copytree(desktop/'node_modules/electron/dist',ui,dirs_exist_ok=True)
-    (ui/'electron.exe').rename(ui/'RenPyTranslator-UI.exe')
+    _move_local(ROOT, ui/'electron.exe', ui/'RenPyTranslator-UI.exe')
     ui_app=ui/'resources/app'
     shutil.copytree(desktop/'dist',ui_app,dirs_exist_ok=True)
     (ui_app/'package.json').write_text(json.dumps({'name':'renpy-translator-desktop','version':load_lock(ROOT)['release']['version'],'main':'main.js'}),encoding='utf-8')
@@ -119,8 +266,7 @@ def main(argv=None):
         if path.exists():copy(path,Path('licenses/Python-'+name))
     # A fresh PyInstaller collection contains no models. LIGHT never reads models.
     editions=['light','full'] if args.edition=='both' else [args.edition]
-    if not args.local_only:package_editions(ROOT,bundle,editions,export_model)
-    publish_local(bundle)
+    publish_build_output(bundle, editions, local_only=args.local_only)
 
 
 if __name__=='__main__':main()

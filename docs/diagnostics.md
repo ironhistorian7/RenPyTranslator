@@ -6,7 +6,11 @@
 
 ### 오류가 났을 때
 
-작업 기록의 **Detailed error** 경로에서 상세 오류를 확인할 수 있습니다. GUI의 실패 화면에는 **로그 폴더 열기** 버튼이 있습니다. 공통 로그 폴더가 열리며, 프로젝트별 상세 오류는 기록에 표시된 경로를 따라가면 됩니다.
+GUI에서 **오류 내용 복사**와 **진단 파일 저장**을 눌러 제보 자료를 준비할 수 있습니다. 오류 종류·발생 단계·프로그램 및 런타임 버전·선택한 실행 설정을 담은 JSON이며, 대사·번역문·저장본·프롬프트·개인 경로는 제외합니다. 원인에 대한 추정과 실제 오류 기록은 구분합니다.
+
+**로그 폴더 열기**는 해당 오류 기록의 폴더를 엽니다. 기록이 만들어지기 전의 실패는 공통 `logs` 폴더를 엽니다. 원본 상세 로그에는 게임 문장이나 경로가 들어갈 수 있으므로, 제보할 때는 내보낸 진단 파일을 이용하세요. 원본 기록은 작업 화면의 접힌 **상세 기록**에서도 확인할 수 있습니다.
+
+RPG Maker의 플러그인 문구 후보 수와 동작용 식별자 유지 수는 참고 정보입니다. 후보 수가 곧 미번역 대사 수를 뜻하지 않습니다. 읽지 못한 추가 자료는 파일 수와 별도 기록으로 알립니다.
 
 같은 프로젝트로 번역을 다시 실행하면 저장된 번역을 재사용합니다. 진행 중 저장되지 않은 배치는 다시 처리할 수 있습니다. 모델이나 문맥 설정을 바꿔도 완료한 번역을 자동으로 지우지는 않습니다.
 
@@ -23,19 +27,31 @@
 | `data/context-report.json` | TXT 파일 읽기·장면 범위 연결 결과 |
 | `data/context-history.jsonl` | 실행별 문맥 로딩 기록 |
 | `data/rpg-context-scopes.json` | RPG Maker의 대화 구간 분류 근거 |
+| `data/rpg-source-language.json` | RPG Maker의 선택 언어 자료·연결 항목 수·누락 또는 모호한 번역표 |
 | `data/errors` | 프로젝트별 상세 오류와 서버 복구 기록 |
 | 프로그램의 `logs` | GUI·모델 서버·GPU 진단 로그 |
 | `logs/errors` | 프로젝트가 정해지기 전 발생한 오류 |
+| `logs/desktop-helper-*.log` | 폴더·설정 조회 등 사전 작업에서 상세 오류 파일을 만들지 못한 경우의 실행 기록 |
 
 표의 `data/...`는 별도 표시가 없으면 **내부 프로젝트 안의 data 폴더**입니다. 실패 목록과 복구 보고서는 기록 시점과 목적이 달라 항목 수가 같지 않을 수 있습니다.
 
 새 작업 공간에는 스크립트·설정·글꼴 등 처리에 필요한 파일을 준비합니다. 이미지·영상·음악은 원본 위치를 참조하므로 작업 중 원본을 이동하지 않는 편이 좋습니다. 예전에 만들어진 작업 공간의 불필요한 파일을 자동 삭제하지는 않습니다.
 
+### 로그 보관
+
+번역·재번역·게임 업데이트를 시작할 때 프로그램 폴더 전체에서 마지막 수정 후 7일 이상 지난 실행·오류·진단 로그를 정리합니다. 현재 프로젝트뿐 아니라 다른 프로젝트의 로그도 포함합니다. 번역 캐시·실패 목록·모델·게임 파일·저장본·배포 ZIP은 유지하며, 사용 중이라 삭제하지 못한 로그는 건너뜁니다.
+
+패치 검사용 원문·번역 복사본은 성공·실패·취소와 관계없이 종료 시 삭제합니다. 보고서와 진단 로그는 `data/validation-runs/<검사 ID>`에 남으며, 로그 보관 기간이 적용됩니다.
+
 ### 상세 오류에 남는 정보
 
 오류 JSON에는 작업 단계, 관련 파일·항목 ID, 모델·실행 설정, 예외와 traceback, 항목별 검증 실패 이유, 재개 안내가 들어갑니다. 콘솔과 GUI 기록에도 오류가 출력됩니다.
 
+게임 폴더를 선택하거나 설정을 읽는 도중 발생한 오류도 원래 예외와 로그 위치를 표시합니다. 이미 상세 오류 파일이 있으면 그 파일을 사용하며 같은 오류의 로그를 중복 생성하지 않습니다.
+
 번역 요청 기록에는 실제 프롬프트와 응답이 포함됩니다. 기록을 공유할 때 게임 대사나 개인 경로가 포함되어 있는지 확인할 수 있습니다. 파일을 읽지 못하거나 진단 정보를 수집하지 못한 경우에도 그 이유를 기록합니다.
+
+출력 길이 초과는 `output_limit`, 정상 종료한 응답의 실제 번호 누락은 `missing_response_item`으로 구분합니다. 긴 본문은 필요한 출력 공간을 먼저 확보하고, 요청 창에 들어가지 않으면 문장·문단 단위로 나눕니다. 분할·출력 예산 조정은 요청 기록에 남으며 완성된 번역은 원래 항목 ID로 저장합니다.
 
 ### 모델 서버 자동 복구
 
@@ -85,7 +101,11 @@ Remove-Item Env:RPT_CUDA_DIAGNOSTICS
 
 ### When a job fails
 
-The job log prints a **Detailed error** path. The GUI failure page opens the application's log folder; project-specific errors remain at the paths printed in the log.
+Use **Copy error details** and **Save diagnostic file** to prepare a bug report. The exported JSON includes technical error, stage, application/runtime version and selected settings information, excluding dialogue, translations, saves, prompts and personal paths.
+
+**Open log folder** opens the relevant error record's folder, or the common `logs` folder when no record is available. Original detailed logs can include game text and paths; use the exported diagnostic file when reporting an issue. Raw local output is available in the collapsed details.
+
+RPG Maker plugin-text candidate counts and preserved identifier counts are informational. A candidate count is not a confirmed count of untranslated dialogue. Unreadable extra data is reported separately with a file count and local record.
 
 Run translation again on the same project to reuse saved entries. An unsaved in-flight batch may repeat. Changing model settings or TXT context does not delete completed translations.
 
@@ -101,15 +121,25 @@ Run translation again on the same project to reuse saved entries. An unsaved in-
 | `data/translation-requests.jsonl` | Requests, responses, settings and validation |
 | `data/context-report.json`, `context-history.jsonl` | TXT matching report and loading history |
 | `data/rpg-context-scopes.json` | RPG Maker conversation classification |
+| `data/rpg-source-language.json` | RPG Maker source-locale tables, binding counts and missing or ambiguous mappings |
 | `data/errors` | Project errors and server-recovery records |
 | Application `logs` | Desktop, local server and GPU diagnostics |
 | `logs/errors` | Errors before a project has been resolved |
+| `logs/desktop-helper-*.log` | Helper failures when no detailed error file is available, including folder and settings queries |
 
 Unless stated otherwise, `data/...` means the internal project's data directory. Failure lists and repair reports record different stages, so their counts can differ. New workspaces copy processing inputs; media remains at the source location. Existing workspaces are not automatically pruned.
+
+### Log retention
+
+Translation, retranslation and game updates remove diagnostic logs last modified at least seven days ago throughout the application folder, including other projects. Translation caches, failure lists, models, game files, saves and release ZIPs are retained. Busy logs are skipped.
+
+Original and patched test copies are removed when a patch check finishes, fails or is cancelled. Reports and diagnostic logs remain under `data/validation-runs/<id>` and follow the same log retention period.
 
 ### Recorded details
 
 Error JSON includes operation, file/item identifiers, model/runtime settings, exception, traceback, validation reasons and resume guidance. Request logs contain actual prompts and responses, including game text and paths. Failed diagnostic collection is recorded without blocking otherwise possible recovery.
+
+Folder and settings query failures also show the original exception and log location. An existing detailed error file is reused rather than creating another report for the same failure.
 
 Recoverable HTTP 500/502/503/504, disconnections and timeouts trigger a restart of the tool-owned server with the same settings. Completed batches are retained and only unsaved items are requested again. Up to three restarts per incident wait **10 seconds, 30 seconds and 3 minutes**. A successful request from a restarted server resets the allowance for a later incident; there is no run-wide restart cap. Restarts are serialized. Cancellation, failure to stop the previous server or remaining request threads prevent a restart. Output-validation retries have a separate allowance.
 
@@ -121,7 +151,7 @@ Windows native-process launches isolate the GUI's DLL search directory and PATH 
 
 Run IDs, server generations, request IDs and monotonic timestamps link concurrent requests to the affected server. Incident reports include recent request states, executable identities and the existing model digest. Final server logs and termination metadata distinguish a process crash from the application's cleanup, and delayed Windows events are collected after teardown. Model files are not rehashed.
 
-`Missing response item [1]` means that response item is absent. Input preprocessing is stored separately from the error message. Legacy `Visual-stripped:` failure records remain recoverable.
+`output_limit` identifies a response cut off by its output allowance; `missing_response_item` identifies an absent item in a response that finished normally. Long source entries reserve output space before generation and, when necessary, split at complete sentence or paragraph boundaries. Request logs record these adjustments, and the completed translation keeps its original entry ID. Input preprocessing is stored separately from the error message. Legacy `Visual-stripped:` failure records remain recoverable.
 
 ### Last-resort CUDA diagnostics
 

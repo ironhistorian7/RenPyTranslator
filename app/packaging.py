@@ -123,6 +123,8 @@ translate LANG_RAW style choice_button:
     print('Installed Korean font, bilingual layout and name particles in staging',flush=True)
 
 def package(project,cfg):
+    from job_events import set_phase,progress
+    set_phase('package.verify','출력 자료 확인 중')
     rows=read_catalog(project);known=effective_cache(project,cfg)
     for row in rows:
         if cfg.get('_render_ids') is not None and row['id'] not in cfg['_render_ids']:continue
@@ -163,12 +165,14 @@ def package(project,cfg):
     (output/'적용방법.txt').write_bytes(instructions.encode('utf-8-sig'))
     stage=project/'staging'; files=[stage/'game'/n for n in ('zz_rpt_korean.rpy','zz_rpt_names.rpy','zz_rpt_layout.rpy','zz_rpt_reference.rpy','zz_rpt_hints.rpy','zz_rpt_language.rpy') if (stage/'game'/n).exists()]
     files += [p for p in (stage/'game/tl'/cfg['language']).rglob('*') if p.is_file() and p.suffix in ('.rpy','.otf','.ttf','.txt','.json')]
+    set_phase('package.write','결과 저장 중',len(files),'files')
     with zipfile.ZipFile(target,'w',zipfile.ZIP_DEFLATED,compresslevel=6) as z:
-        for path in files:
+        for index,path in enumerate(files,1):
             rel=path.relative_to(stage)
             z.write(path,rel.as_posix())
             if cfg.get('_portable_output'):
                 dest=output/rel;dest.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(path,dest)
+            progress('package.write',index,len(files))
         z.writestr('적용방법.txt',instructions.encode('utf-8-sig'))
     save_json(reports/'build-report.json',{'model':cfg['model'],'language':cfg['language'],
         'dialogue':sum(r['kind']=='dialogue' for r in rows),'ui':sum(r['kind']=='string' for r in rows),

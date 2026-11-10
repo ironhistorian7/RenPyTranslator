@@ -16,6 +16,12 @@ RPG Maker MV/MZ 지원에 **Gameloc 3.1.1**의 코드를 포함해 사용합니�
 
 엔진 감지, 대사·선택지·데이터 문자열 추출, 번역문을 원래 위치에 적용하는 처리, 제어문자 인식과 플러그인 목록 등록에 Gameloc 코드를 사용합니다. 연결 코드는 `app/rpgmaker_project.py`에 있으며, 추출 시 같은 문장도 위치별로 유지하도록 중복 합치기를 끕니다.
 
+포함된 `treepath.py`·`jsonnest.py`에는 특수문자가 들어간 JSON 키를 처리하는 로컬 수정이 있습니다. 원본과 수정본의 해시는 `upstream.json`의 `local_changes`에 기록합니다.
+
+`apply.py`는 원문에서 수집한 식별자 목록을 적용과 검사에 공유할 수 있도록 수정했습니다. 생성된 출력 플러그인을 다시 원문으로 판별하지 않도록 하기 위한 변경입니다.
+
+`extract.py`는 파일 읽기 실패와 추출 범위 안내를 구조화된 콜백으로 전달하도록 수정했습니다. 프로그램에 없는 설정을 안내하지 않으며, 원본 명령행 출력은 콜백을 지정하지 않았을 때 유지됩니다.
+
 로컬 AI 번역·GUI·캐시·재개·문맥 전달은 RenPyTranslator에서 처리합니다. 한국어와 원문을 함께 표시하는 플러그인은 `app/rpgmaker_bilingual.js`에 구현되어 있습니다. Gameloc 프로그램을 별도로 설치할 필요는 없으며, Ren’Py 번역에는 기존 RenPyTranslator 경로를 사용합니다.
 
 다른 구성요소의 버전·라이선스는 아래 표에 정리되어 있습니다. 포함된 소스와 글꼴의 무결성 정보는 `vendor/asset-lock.json`, 출처 정보는 `vendor/versions.json`에 보관합니다.
@@ -36,6 +42,12 @@ Gameloc 3.1.1 source code is bundled under `vendor/gameloc/gameloc` and used for
 - Upstream notices: [THIRD-PARTY-NOTICES.txt](vendor/gameloc/THIRD-PARTY-NOTICES.txt)
 
 The adapter is implemented in `app/rpgmaker_project.py`. Extraction disables deduplication to preserve separate text locations. Local AI translation, the GUI, caches, resume and context handling remain in RenPyTranslator; bilingual presentation is implemented in `app/rpgmaker_bilingual.js`. No separate Gameloc installation is required. Ren’Py uses the existing RenPyTranslator pipeline. Snapshot hashes are verified during setup and builds.
+
+The bundled `treepath.py` and `jsonnest.py` contain local changes for literal JSON keys with special characters. Original and modified hashes are recorded under `local_changes` in `upstream.json`.
+
+`apply.py` also accepts source identifiers shared by rendering and validation, so generated output plugins are not scanned as original game code.
+
+`extract.py` adds an optional structured-notice callback for file-read failures and extraction-scope information. The adapter replaces instructions for settings absent from this application, while calls without the callback retain upstream CLI output.
 
 ### Bundled components
 

@@ -10,11 +10,13 @@ Ren’Py와 RPG Maker MV/MZ 게임을 로컬 AI로 한국어 번역하는 Window
 - 한국어 아래에 원문을 55% 크기로 표시, 원문 표시 켜기·끄기
 - 한국어 글꼴·기본 메뉴 보정과 대화창 높이 조정
 - 중단된 번역 재개, 미번역 복구, 별도 재번역 결과로 비교
+- 단계별 진행률·예상 남은 시간, 오류 제보 내용 복사와 진단 파일 저장
 - 게임 업데이트 시 기존 번역 재사용과 추가·변경분 번역
 - 원본·패치 비교 검사와 확인된 생성 패치 오류 보정
 - 모델 다운로드·선택·삭제 및 로컬 GGUF 사용
 - TXT 문맥 자료 자동 적용
 - Ren’Py 인명·호칭·입력 문구 보정, 선택지 힌트<sup>beta</sup>·입력 정답 표시<sup>beta</sup>
+- RPG Maker 캐릭터 DB 표기를 재사용하는 인명 보정
 - Ollama 실행 환경 버전별 설치·선택
 
 ### 지원 환경
@@ -92,11 +94,13 @@ RenPyTranslator is a portable Windows application that translates Ren’Py and R
 - Original text below Korean at 55% size, with a visibility setting
 - Korean fonts, standard-menu corrections and textbox height adjustment
 - Resumable translation, failed-item recovery and separate retranslation results
+- Per-phase progress and time estimates, copyable bug reports and diagnostic export
 - Reuse existing translations when updating a game; translate additions and changes
 - Compare original and patched workspaces and repair confirmed generated-patch defects
 - Model downloads, selection, deletion and local GGUF files
 - Automatic TXT context support
 - Ren’Py name, address and input corrections, choice hints<sup>beta</sup> and answer prompts<sup>beta</sup>
+- RPG Maker name consistency using translated actor database spellings
 - Install and select versioned Ollama runtimes
 
 ### Requirements and support

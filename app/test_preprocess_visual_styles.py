@@ -196,9 +196,13 @@ class VisualPreprocessingTests(unittest.TestCase):
         text,_=self.restore(source,'<rpt000/>안녕 <rpt001/>.<rpt002/>{invented_effect}')
         self.assertEqual(text,'{custom_effect}안녕 [name].{/custom_effect}')
         self.assertEqual(validate_text(source,text,CFG),[])
-        for raw in ('안녕 <rpt001/>.',
-                    '{custom_effect}안녕 <rpt001/>.{/custom_effect}',
-                    '<rpt000/>안녕 [name].<rpt002/>'):
+        for raw in ('{custom_effect}안녕 <rpt001/>.{/custom_effect}',
+                    '<rpt000/>안녕 [name].<rpt002/>',
+                    '{custom_effect}안녕 [name].{/custom_effect}'):
+            with self.subTest(raw=raw):
+                text,_=self.restore(source,raw)
+                self.assertEqual(text,'{custom_effect}안녕 [name].{/custom_effect}')
+        for raw in ('안녕 <rpt001/>.', '{custom_effect}안녕.{/custom_effect}'):
             with self.subTest(raw=raw),self.assertRaises(ValueError):self.restore(source,raw)
 
     def test_literal_angle_tags_from_source_are_not_generated_cleanup_targets(self):

@@ -23,28 +23,51 @@
     Game_Message.prototype.clear = function () {
         clear.apply(this, arguments);
         this._rptOriginal = null;
+        this._rptTranslation = null;
         this._rptChoiceOriginals = null;
     };
     var command101 = Game_Interpreter.prototype.command101;
     Game_Interpreter.prototype.command101 = function () {
+        var next = !$gameMessage.isBusy() && this._list && this._list[this._index + 1];
+        var translated = next && next.code === 401 && next._rpt_translation;
+        var original = next && next.code === 401 && next._rpt_original;
         if (!$gameMessage.isBusy()) {
-            var next = this._list && this._list[this._index + 1];
-            $gameMessage._rptOriginal = next && next.code === 401 ? next._rpt_original || null : null;
+            $gameMessage._rptOriginal = original || null;
         }
-        return command101.apply(this, arguments);
+        var result = command101.apply(this, arguments);
+        if (typeof translated === 'string') {
+            // Native add() hooks have already run. Do not translate our final text again.
+            $gameMessage._texts = [translated];
+            $gameMessage._rptTranslation = translated;
+            $gameMessage._rptOriginal = original || null;
+        }
+        return result;
     };
     var command105 = Game_Interpreter.prototype.command105;
     if (command105) Game_Interpreter.prototype.command105 = function () {
+        var next = !$gameMessage.isBusy() && this._list && this._list[this._index + 1];
+        var translated = next && next.code === 405 && next._rpt_translation;
+        var original = next && next.code === 405 && next._rpt_original;
         if (!$gameMessage.isBusy()) {
-            var next = this._list && this._list[this._index + 1];
-            $gameMessage._rptOriginal = next && next.code === 405 ? next._rpt_original || null : null;
+            $gameMessage._rptOriginal = original || null;
         }
-        return command105.apply(this, arguments);
+        var result = command105.apply(this, arguments);
+        if (typeof translated === 'string') {
+            $gameMessage._texts = [translated];
+            $gameMessage._rptTranslation = translated;
+            $gameMessage._rptOriginal = original || null;
+        }
+        return result;
     };
     var setupChoices = Game_Interpreter.prototype.setupChoices;
     if (setupChoices) Game_Interpreter.prototype.setupChoices = function () {
         var command = this._list && this._list[this._index];
         setupChoices.apply(this, arguments);
+        var translated = command && command._rpt_choice_translations;
+        if (Array.isArray(translated) && translated.length === $gameMessage._choices.length &&
+            translated.every(function (text) { return typeof text === 'string'; })) {
+            $gameMessage._choices = translated.slice();
+        }
         $gameMessage._rptChoiceOriginals = command && command.code === 102 ? command._rpt_choice_originals || null : null;
     };
     // Recover a missing layout newline by its position-code occurrence, not text length.
@@ -66,63 +89,50 @@
         }
         return translated;
     }
-    // Font and horizontal coordinates affect wrapping; escapes are kept intact.
+    var fontProperties = ['fontFace','fontSize','fontBold','fontItalic','textColor','outlineColor','outlineWidth'];
+    function copyFont(from, to) {
+        fontProperties.forEach(function (name) { if (from[name] !== undefined) to[name] = from[name]; });
+    }
+    function fontKey(bitmap) {
+        return fontProperties.map(function (name) { return String(bitmap[name]); }).join('|');
+    }
+    var baseTextWidth = Window_Base.prototype.textWidth;
+    // Some font managers select a face inside Bitmap.drawText, after textWidth.
+    // Probe only that plain-text drawing path; never execute message escape codes.
+    function drawWidth(window, text) {
+        var probe = window._rptFontProbe || (window._rptFontProbe = new Bitmap(1, 1));
+        copyFont(window.contents, probe);
+        var used = {}, make = probe._makeFontNameText;
+        var own = Object.prototype.hasOwnProperty.call(probe, '_makeFontNameText');
+        if (make && probe.measureTextWidth) {
+            probe._makeFontNameText = function () { copyFont(this, used); return make.apply(this, arguments); };
+            try { probe.drawText(text, 0, 0, 1048576, Math.max(1, probe.fontSize * 2)); }
+            finally { if (own) probe._makeFontNameText = make; else delete probe._makeFontNameText; }
+            copyFont(used, probe);
+            return probe.measureTextWidth(text);
+        }
+        return baseTextWidth.call(window, text);
+    }
+    // Reference/scroll text has no message waits or native message auto-wrap.
     function wrap(window, text, width, indent) {
         indent = indent || 0;
-        var tokens = String(text).match(/\x1b[A-Za-z]+\[[^\]]*\]|\x1b[A-Za-z]+|\x1b[.!|^><${}\\]|\n|[^]/g) || [];
-        var lines = [''], x = indent, fontSize = window.contents.fontSize;
+        var tokens = String(text).match(/\n|[^\S\n]+|[^\s]+/g) || [];
+        var lines = [''];
         tokens.forEach(function (token) {
-            if (token === '\n') { lines.push(''); x = indent; return; }
-            var coordinate = /^\x1bPX\[(-?\d+)\]/i.exec(token);
-            if (coordinate) x = Number(coordinate[1]);
-            var size = /^\x1bFS\[(\d+)\]/i.exec(token);
-            if (size) window.contents.fontSize = Number(size[1]);
-            if (token === '\x1b{' && window.makeFontBigger) window.makeFontBigger();
-            if (token === '\x1b}' && window.makeFontSmaller) window.makeFontSmaller();
-            var cost = token.charAt(0) === '\x1b' ? (/^\x1bI\[/i.test(token) ? 36 : 0) : window.textWidth(token);
-            if (cost && x > indent && x + cost > indent + width) { lines.push(''); x = indent; }
-            lines[lines.length - 1] += token;
-            x += cost;
-        });
-        window.contents.fontSize = fontSize;
-        return lines;
-    }
-    function displayedBottom(window, escaped, indent) {
-        var size = window.contents.fontSize;
-        // MZ's Window_Base measurement handles PX/PY/FS/icons without message waits.
-        if (window.createTextState && window.processAllText && window.flushTextState) {
-            var state = window.createTextState('',indent,0,0);
-            state.text = escaped; state.height = window.calcTextHeight(state); state.drawing = false;
-            var flush = window.flushTextState, own = Object.prototype.hasOwnProperty.call(window,'flushTextState');
-            var bottom = 0;
-            window.flushTextState = function (s) {
-                if (s.buffer) bottom = Math.max(bottom,s.y+s.height);
-                return flush.call(this,s);
-            };
-            try { window.processAllText(state); }
-            finally {
-                if (own) window.flushTextState = flush;
-                else delete window.flushTextState;
-                window.contents.fontSize = size;
+            if (token === '\n') { lines.push(''); return; }
+            var last = lines.length - 1;
+            if (/^\s+$/.test(token)) { if (lines[last]) lines[last] += token; return; }
+            if (lines[last] && drawWidth(window, lines[last] + token) > width) {
+                lines[last] = lines[last].replace(/\s+$/, ''); lines.push(''); last++;
             }
-            return Math.max(window.lineHeight(),bottom);
-        }
-        // MV has no processAllText API. Track the same standard layout properties.
-        var y = 0, bottomMV = 0, height = window.lineHeight();
-        var tokens = String(escaped).match(/\x1b[A-Za-z]+\[[^\]]*\]|\x1b[A-Za-z]+|\x1b[.!|^><${}\\]|\n|[^]/g) || [];
-        tokens.forEach(function (token) {
-            if (token === '\n') { y += height; height = window.lineHeight(); return; }
-            var py = /^\x1bPY\[(-?\d+)\]/i.exec(token);
-            if (py) y = Number(py[1]);
-            var fs = /^\x1bFS\[(\d+)\]/i.exec(token);
-            if (fs) window.contents.fontSize = Number(fs[1]);
-            if (token === '\x1b{' && window.makeFontBigger) window.makeFontBigger();
-            if (token === '\x1b}' && window.makeFontSmaller) window.makeFontSmaller();
-            height = Math.max(height,window.contents.fontSize+8);
-            if (token.charAt(0) !== '\x1b' || /^\x1bI\[/i.test(token)) bottomMV = Math.max(bottomMV,y+height);
+            if (drawWidth(window, token) <= width) { lines[last] += token; return; }
+            Array.from(token).forEach(function (character) {
+                var index = lines.length - 1;
+                if (lines[index] && drawWidth(window, lines[index] + character) > width) lines.push('');
+                lines[lines.length - 1] += character;
+            });
         });
-        window.contents.fontSize = size;
-        return Math.max(window.lineHeight(),bottomMV);
+        return lines;
     }
     function originalText(window, text) {
         // A Korean actor label must not leak into the original reference.
@@ -146,7 +156,154 @@
     }
     var contentsHeight = Window_Message.prototype.contentsHeight;
     Window_Message.prototype.contentsHeight = function () {
-        return Math.max(1, contentsHeight.apply(this, arguments) - (this._rptReferenceHeight || 0));
+        return this._rptLayout ? this._rptLayout.bodyLimit : contentsHeight.apply(this, arguments);
+    };
+    function syncReference(window) {
+        var layout = window._rptLayout;
+        if (!layout) return;
+        var top = Math.min(layout.bodyLimit, Math.max(window.lineHeight(), layout.bottom)) + 6;
+        var height = Math.min(layout.maxHeight, Math.max(layout.baseHeight, top + layout.referenceHeight + 2 * window.padding));
+        if (window.height !== height) {
+            window.height = height;
+            if (window.updatePlacement) window.updatePlacement();
+            if (window._nameBoxWindow && window._nameBoxWindow.updatePlacement) window._nameBoxWindow.updatePlacement();
+        }
+        if (layout.referenceHeight) {
+            window._rptPane.y = window.padding + top;
+            window._rptPane.visible = window.openness === 255;
+        }
+    }
+    function painted(window, y, height) {
+        if (window._rptLayout) {
+            window._rptLayout.bottom = Math.max(window._rptLayout.bottom, y + height);
+            syncReference(window);
+        }
+    }
+    function bodyBitmap(window) {
+        var old = window.contents, limit = window._rptLayout.bodyLimit;
+        if (old.height !== limit) {
+            var bitmap = new Bitmap(old.width, limit);
+            copyFont(old, bitmap);
+            bitmap.blt(old, 0, 0, old.width, Math.min(old.height, limit), 0, 0);
+            window.contents = bitmap;
+            if (old.destroy) old.destroy();
+        }
+        var contents = window.contents;
+        if (contents._rptOwner === window) return;
+        var draw = contents.drawText;
+        contents._rptOwner = window;
+        contents.drawText = function (text, x, y, width, height) {
+            var result = draw.apply(this, arguments);
+            if (this === window.contents && String(text).trim()) painted(window, y, height);
+            return result;
+        };
+    }
+    var messageTextWidth = Window_Message.prototype.textWidth;
+    Window_Message.prototype.textWidth = function (text) {
+        return this._rptLayout || this._rptMeasuring ? drawWidth(this, text) : messageTextWidth.apply(this, arguments);
+    };
+    var character = Window_Message.prototype.processCharacter;
+    var flush = Window_Message.prototype.flushTextState;
+    function runWidth(window, text, rtl) {
+        // MV draws characters directly. Observe its real extra advance rather
+        // than replaying character callbacks (which can play sounds or voices).
+        if (!flush) return drawWidth(window, text) + (window._rptAdvanceExtra || 0) * Array.from(text).length;
+        var key = fontKey(window.contents) + '|' + window.contents.width + '|' + !!rtl + '|' + text;
+        var cache = window._rptMeasureCache;
+        if (cache && cache[key] !== undefined) return cache[key];
+        var bitmap = window._rptLayoutProbe;
+        if (!bitmap || bitmap.width !== window.contents.width) {
+            if (bitmap && bitmap.destroy) bitmap.destroy();
+            bitmap = window._rptLayoutProbe = new Bitmap(window.contents.width, 1);
+        }
+        var widest = 0;
+        // Flush both per-character and per-word: native instant/reveal modes can
+        // use different spacing. Reserve enough width for either live path.
+        [true, false].forEach(function (each) {
+            copyFont(window.contents, bitmap);
+            var probe = Object.create(window);
+            // Window.contents is an accessor backed by a sprite. Shadow it so
+            // a plain-text probe can never replace the live window's bitmap.
+            Object.defineProperty(probe, 'contents', {value:bitmap,writable:true,configurable:true});
+            probe._rptLayout = null; probe._rptMeasuring = true;
+            probe.processNewLine = function (state) {
+                state.x = state.startX; state.y += state.height;
+                state.height = this.calcTextHeight(state, false);
+            };
+            probe.startPause = function () {};
+            probe.startWait = function () {};
+            var origin = rtl ? bitmap.width : 0;
+            var state = {text:text,index:0,x:origin,y:0,startX:origin,startY:0,width:bitmap.width,
+                         height:window.lineHeight(),buffer:'',drawing:true,rtl:!!rtl,outputWidth:0,outputHeight:0};
+            if (each) {
+                Array.from(text).some(function (unit) {
+                    state.index += unit.length;
+                    state.buffer += unit;
+                    flush.call(probe, state);
+                    return !!state.y;
+                });
+            } else {
+                state.index = text.length;
+                state.buffer = text;
+                flush.call(probe, state);
+            }
+            widest = Math.max(widest, state.y ? Infinity : Math.abs(state.x - origin));
+        });
+        if (!cache || Object.keys(cache).length > 256) cache = window._rptMeasureCache = Object.create(null);
+        cache[key] = widest;
+        return widest;
+    }
+    function prepareCharacter(window, state) {
+        var c = state.text[state.index];
+        if (!c || c.charCodeAt(0) < 0x20 || /\s/.test(c)) return true;
+        var code = c.charCodeAt(0);
+        if (code >= 0xdc00 && code <= 0xdfff && state.index && /[\ud800-\udbff]/.test(state.text[state.index - 1])) return true;
+        var first = state._rptWordEnd === undefined || state.index >= state._rptWordEnd;
+        if (flush && state.buffer && (first || state._rptLongWord)) flush.call(window, state);
+        var start = state.startX === undefined ? (window.newLineX ? window.newLineX(state) : 0) : state.startX;
+        var remaining = state.rtl ? state.x : window.contents.width - state.x;
+        var available = state.rtl ? start : window.contents.width - start;
+        var wrapHere = false;
+        if (first) {
+            var word = /^[^\s\x00-\x1f]+/.exec(state.text.slice(state.index))[0];
+            var width = runWidth(window, word, state.rtl);
+            state._rptWordEnd = state.index + word.length;
+            state._rptLongWord = width > available;
+            wrapHere = !state._rptLongWord && width > remaining;
+        }
+        if (state._rptLongWord) {
+            var unit = code >= 0xd800 && code <= 0xdbff ? state.text.slice(state.index, state.index + 2) : c;
+            wrapHere = runWidth(window, unit, state.rtl) > remaining;
+        }
+        if (wrapHere && (state.rtl ? state.x < start : state.x > start)) {
+            window.processNewLine(state);
+            return !window.needsNewPage || !window.needsNewPage(state);
+        }
+        return true;
+    }
+    if (character) Window_Message.prototype.processCharacter = function (state) {
+        if (this._rptLayout && !prepareCharacter(this, state)) return;
+        var observe = this._rptLayout && !flush && state.text[state.index] && state.text.charCodeAt(state.index) >= 0x20;
+        var x = state.x, y = state.y, index = state.index;
+        var result = character.apply(this, arguments);
+        if (observe && state.y === y && state.index > index) {
+            var width = drawWidth(this, state.text.slice(index, state.index));
+            this._rptAdvanceExtra = Math.max(this._rptAdvanceExtra || 0, Math.abs(state.x - x) - width);
+        }
+        return result;
+    };
+    var drawIcon = Window_Message.prototype.drawIcon;
+    if (drawIcon) Window_Message.prototype.drawIcon = function (index, x, y) {
+        var result = drawIcon.apply(this, arguments);
+        painted(this, y, ImageManager.iconHeight || Window_Base._iconHeight || 32);
+        return result;
+    };
+    var newPage = Window_Message.prototype.newPage;
+    if (newPage) Window_Message.prototype.newPage = function () {
+        if (this._rptLayout) this._rptLayout.bottom = 0;
+        var result = newPage.apply(this, arguments);
+        if (this._rptLayout) { bodyBitmap(this); syncReference(this); }
+        return result;
     };
     var startMessage = Window_Message.prototype.startMessage;
     Window_Message.prototype.startMessage = function () {
@@ -154,65 +311,58 @@
         var original = $gameMessage._rptOriginal;
         var ref = pane(this);
         ref.visible = false;
-        this._rptReferenceHeight = 0;
+        this._rptLayout = null;
+        this._rptMeasureCache = null;
         this.height = this._rptBaseHeight;
         this.createContents();
-        this.resetFontSettings();
+        startMessage.apply(this, arguments);
+        if (!this._textState || (!original && typeof $gameMessage._rptTranslation !== 'string')) return;
+        var state = this._textState;
+        var repaired = original && repairPositionBreaks(original, $gameMessage.allText());
+        if (repaired && repaired !== $gameMessage.allText()) state.text = this.convertEscapeCharacters(repaired);
+        var referenceSize = Math.max(1, Math.round(this.contents.fontSize * options.referenceRatio));
+        var indent = state.startX === undefined ? (this.newLineX ? this.newLineX(state) : 0) : state.startX;
+        var width = Math.max(80, this.contents.width - indent);
+        var maxHeight = Math.max(this.lineHeight() + 2 * this.padding, Math.floor(Graphics.boxHeight * .85));
+        var maxBody = maxHeight - 2 * this.padding;
+        var referenceHeight = 0;
         if (original) {
-            var koreanSize = this.contents.fontSize;
-            var referenceSize = Math.max(1, Math.round(koreanSize * options.referenceRatio));
-            // MZ reads textState.rtl; MV ignores the optional argument.
-            var measureState = mz && this.createTextState ?
-                this.createTextState($gameMessage.allText(), 0, 0, 0) : {rtl: false};
-            var indent = this.newLineX ? this.newLineX(measureState) : 0;
-            var width = Math.max(80, this.contents.width - indent);
-            var korean = this.convertEscapeCharacters(repairPositionBreaks(original,$gameMessage.allText()));
-            var koreanLines = wrap(this, korean, width, indent);
-            var koreanLineHeight = this.lineHeight();
-            var maxBody = Math.max(koreanLineHeight, Math.floor(Graphics.boxHeight * 0.85) - 2 * this.padding);
-            ref.contents.fontFace = this.contents.fontFace;
-            ref.contents.fontSize = koreanSize;
-            ref.lineHeight = this.lineHeight.bind(this);
-            var koreanHeight = Math.min(displayedBottom(ref,koreanLines.join('\n'),indent)+6, Math.floor(maxBody * 0.7));
-            ref.contents.fontSize = referenceSize;
-            var english = originalText(this, original);
-            var englishLines = wrap(ref, english, width);
-            var referenceLineHeight = Math.ceil(referenceSize * 1.25);
-            ref.lineHeight = function () { return referenceLineHeight; };
-            var referenceHeight = Math.min(englishLines.length * referenceLineHeight + 8, maxBody - koreanHeight);
-            this._rptReferenceHeight = referenceHeight;
-            var baseHeight = Math.round((this._rptBaseHeight - 2*this.padding) * options.textboxScale) + 2*this.padding;
-            this.height = Math.max(Math.min(baseHeight,maxBody+2*this.padding),koreanHeight + referenceHeight + 2 * this.padding);
-            this.createContents();
-            ref.move(this.padding + indent, this.padding + koreanHeight, width, referenceHeight);
+            ref.move(this.padding + indent, this.padding, width, Math.ceil(maxBody * .3));
             ref.createContents();
             ref.resetFontSettings();
             ref.contents.fontSize = referenceSize;
             ref.contents.textColor = '#c7cbd3';
+            var referenceLineHeight = Math.ceil(referenceSize * 1.25);
+            ref.lineHeight = function () { return referenceLineHeight; };
+            var lines = wrap(ref, originalText(this, original), width);
+            referenceHeight = Math.min(lines.length * referenceLineHeight + 8, Math.floor(maxBody * .3));
+            ref.move(this.padding + indent, this.padding, width, referenceHeight);
+            ref.createContents(); ref.resetFontSettings();
+            ref.contents.fontSize = referenceSize; ref.contents.textColor = '#c7cbd3';
             var count = Math.max(1, Math.floor((referenceHeight - 8) / referenceLineHeight));
-            englishLines.slice(0, count).forEach(function (line, i) {
-                if (i === count - 1 && englishLines.length > count) {
-                    while (line.length && ref.textWidth(line + '…') > width) line = line.slice(0, -1);
+            lines.slice(0, count).forEach(function (line, i) {
+                if (i === count - 1 && lines.length > count) {
+                    while (line.length && drawWidth(ref, line + '…') > width) line = line.slice(0, -1);
                     line += '…';
                 }
                 ref.drawText(line, 0, 4 + i * referenceLineHeight, width, 'left');
             });
-            ref.visible = true;
         }
-        startMessage.apply(this, arguments);
-        if (original && this._textState) {
-            this._textState.text = koreanLines.join('\n');
-            this._textState.height = this.calcTextHeight(this._textState, false);
-        }
+        this._rptLayout = {bottom:0,referenceHeight:referenceHeight,maxHeight:maxHeight,
+            bodyLimit:Math.max(this.lineHeight(), maxBody - referenceHeight - 6),
+            baseHeight:Math.min(maxHeight, Math.round((this._rptBaseHeight - 2*this.padding) * options.textboxScale) + 2*this.padding)};
+        bodyBitmap(this);
+        syncReference(this);
     };
     var update = Window_Message.prototype.update;
     Window_Message.prototype.update = function () {
         update.apply(this, arguments);
-        if (this._rptPane) this._rptPane.visible = !!$gameMessage._rptOriginal && this.openness === 255;
+        if (this._rptPane) this._rptPane.visible = !!(this._rptLayout && this._rptLayout.referenceHeight) && this.openness === 255;
     };
     var terminate = Window_Message.prototype.terminateMessage;
     Window_Message.prototype.terminateMessage = function () {
         if (this._rptPane) this._rptPane.visible = false;
+        this._rptLayout = null;
         terminate.apply(this, arguments);
     };
     if (typeof Window_ChoiceList !== 'undefined') {

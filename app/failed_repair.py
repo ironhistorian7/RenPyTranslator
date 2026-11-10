@@ -33,6 +33,8 @@ def saved_output(source,error,cfg,usage=None,*,input_format=None):
 
 
 def run(project,cfg):
+    from job_events import set_phase,progress
+    set_phase('repair.load','미번역 확인')
     cfg=dict(cfg,_trace_dir=str(project/'data'),_trace_phase='failed-repair')
     index=project/'data/failed-items.json'
     report={'indexed':0,'already_resolved':0,'recovered_saved':0,'retranslated':0,'remaining':0,
@@ -42,6 +44,7 @@ def run(project,cfg):
     if not index.exists() and not (project/'data/catalog.json').is_file():
         print('No prepared catalog or failure index: nothing to repair.',flush=True)
         save_json(project/'output/failed-repair-report.json',report)
+        progress('repair.load',0,0)
         return set(),report
     failures=json.loads(index.read_text(encoding='utf-8')) if index.exists() else []
     indexed={f['row']['id']:f for f in failures if f.get('row',{}).get('id')}
@@ -72,13 +75,18 @@ def run(project,cfg):
     def exclude(reason):
         report['exclusions'][reason]=report['exclusions'].get(reason,0)+1
         if reason!='cache_source_mismatch':report['intentional_original_excluded']+=1
-    for uid,failure in indexed.items():
+    set_phase('repair.index','실패 기록 확인',len(indexed))
+    for position,(uid,failure) in enumerate(indexed.items()):
+        progress('repair.index',position,len(indexed))
         row=rows.get(uid)
         if not row or failure['row'].get('source')!=row['source']:
             report['remaining']+=1
             report['issues'].append({'id':uid,'reason':'Stale failure index; left unchanged'})
             unresolved[uid]=failure;stale.add(uid)
-    for uid,row in rows.items():
+    progress('repair.index',len(indexed),len(indexed))
+    set_phase('repair.saved','저장된 번역 복구',len(rows))
+    for position,(uid,row) in enumerate(rows.items()):
+        progress('repair.saved',position,len(rows))
         if uid in stale:continue
         failure=indexed.get(uid);entry=known.get(uid)
         result=classify(row,entry,cfg,ui,known_names,indexed=failure is not None)
@@ -114,11 +122,15 @@ def run(project,cfg):
             if text is not None:
                 keep(row,entry,text,'recovered_saved');break
         else:pending.append((row,entry,errors[0][0]))
+    progress('repair.saved',len(rows),len(rows))
     print('Failed repair candidates: index %d; discovered %d; total %d; original/policy exclusions %d; sources %s'%
           (report['index_entries'],report['discovered'],report['candidates'],
            report['intentional_original_excluded'],json.dumps(report['discovery'],sort_keys=True)),flush=True)
     print('Failed repair: %d saved outputs recovered; %d existing recoveries reapplied; %d entries require local translation.'%
           (report['recovered_saved'],report['reapplied_saved'],len(pending)),flush=True)
+    set_phase('repair.translate','미번역 재번역',len(pending))
+    progress('repair.translate',0,len(pending))
+    remaining_before=report['remaining']
     if pending:
         from source_context import SourceContext
         files={row.get('file','') for row,entry,error in pending}
@@ -132,7 +144,7 @@ def run(project,cfg):
             stack.enter_context(model_session())
             active=stack.enter_context(runtime(active_cfg))
             context_index=SourceContext([r for r in catalog_rows if r.get('file','') in files],project,active)
-            for row,entry,error in pending:
+            for position,(row,entry,error) in enumerate(pending):
                 failure_format=None
                 for attempt in range(2):
                     report['model_calls']+=1
@@ -148,11 +160,15 @@ def run(project,cfg):
                     report['remaining']+=1;report['issues'].append({'id':row['id'],'reason':error})
                     unresolved[row['id']]={'row':row,'error':error,
                         **({'input_format':failure_format} if failure_format else {})}
+                progress('repair.translate',position+1,len(pending),successful=report['retranslated'],
+                         original_kept=report['remaining']-remaining_before)
     # The index is a projection of unresolved work, not the only source of truth.
     # Saved overlays continue to be discovered and reapplied after it becomes [].
+    set_phase('repair.finish','복구 결과 저장')
     save_json(index,list(unresolved.values()))
     report['applied_items']=len(changed)
     save_json(project/'output/failed-repair-report.json',report)
+    progress('repair.finish',1,1)
     print('Failed repair: saved recovery %d; reapplied %d; retranslated %d; still failed %d; model calls %d'%
           (report['recovered_saved'],report['reapplied_saved'],report['retranslated'],report['remaining'],report['model_calls']),flush=True)
     return changed,report

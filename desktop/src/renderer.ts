@@ -14,24 +14,37 @@ let selected=new Set<string>(['run']);
 let refreshing=false,submitting=false,dirty=false;
 let gpuSignature='';
 let modelBusy=false;
+let supportBusy=false;
 let restoringLanguage=0;
 let gameFormat:GameFormat|null=null;
 const models=new ModelsPanel(busy=>{modelBusy=busy;updateControls();},message,renderWizardModels);
 const inference=new InferencePanel((preset,overrides)=>{settings.inference_preset=preset;settings.inference_overrides=overrides;if(snapshot)inference.render(settings,snapshot);changed();},()=>button('save').click());
 const runtimes=new RuntimesPanel(id=>{settings.runtime_id=id;changed();},busy=>{modelBusy=busy;updateControls();},message,refresh);
 const translations=new Set(['run','retranslate','update']);
+function taskTitle(key:string){
+  if(gameFormat?.engine==='rpgmaker'){
+    if(key==='names')return '인명 표기 보정';
+    if(key==='check')return '패치 검사 (정적)';
+  }
+  return snapshot?.tasks[key]||key;
+}
+function modelTaskSelected(){
+  const inference=new Set(['run','retranslate','update','translate','sample','analyze','review','names','failed']);
+  if(gameFormat?.engine==='rpgmaker')inference.delete('names');
+  return [...selected].some(key=>inference.has(key));
+}
 function taskNodes(keys:string[]){
   const nodes:Node[]=[];
   for(const [index,key] of keys.entries()){
     if(index)nodes.push(document.createTextNode(', '));
-    const label=document.createElement('span');label.dataset.taskLabel=key;label.textContent=key==='check'&&gameFormat?.engine==='rpgmaker'?'패치 검사 (정적)':snapshot?.tasks[key]||key;
+    const label=document.createElement('span');label.dataset.taskLabel=key;label.textContent=taskTitle(key);
     if(key==='answers'||key==='routes'){const beta=document.createElement('sup');beta.className='beta-badge';beta.textContent='beta';label.append(beta);}
     nodes.push(label);
   }
   return nodes;
 }
 function message(text:string,error=false){$('message').hidden=!text;$('message').textContent=text;$('message').classList.toggle('error',error);}
-function value<T>(reply:Reply<T>):T|undefined{if(!reply.ok){message(reply.error,true);return undefined;}return reply.value;}
+function value<T>(reply:Reply<T>):T|undefined{if(!reply.ok){message(reply.error.includes('\n로그: ')?job.issue?.title||reply.error.split('\n')[0]:reply.error,true);return undefined;}return reply.value;}
 function applyTheme(dark:boolean){document.documentElement.dataset.theme=dark?'dark':'light';}
 function getSettings():Settings{return {...settings,source_language:($('source-language') as HTMLSelectElement).value as Settings['source_language'],output:input('output').value,suffix:input('suffix').value,scale:input('scale').value,language_corner:($('corner') as HTMLSelectElement).value as 'left'|'right',language_margin:Number(input('margin').value),show_reference:input('show-reference').checked};}
 function changed(){dirty=true;if(snapshot)inference.render(settings,snapshot);updateControls();preview();}
@@ -56,7 +69,8 @@ function renderSummary(){
   $('selection-summary').replaceChildren(...(selected.size?[document.createTextNode('실행: '),...taskNodes([...selected])]:[document.createTextNode('실행할 작업을 하나 이상 선택하세요.')]));
   $('language-default-note').hidden=gameFormat?.engine!=='renpy'||![...selected].some(key=>translations.has(key));
   $('update-fields').hidden=!selected.has('update');
-  document.querySelectorAll<HTMLElement>('[data-task-label="check"]').forEach(label=>label.textContent=gameFormat?.engine==='rpgmaker'?'패치 검사 (정적)':snapshot?.tasks.check||'패치 검사');
+  document.querySelectorAll<HTMLElement>('[data-task-label="check"], [data-task-label="names"]').forEach(label=>label.textContent=taskTitle(label.dataset.taskLabel!));
+  $('wizard-model-note').textContent=modelTaskSelected()&&!(models.library?.selected||snapshot?.defaultModel)?'번역 모델을 선택하세요.':'';
   document.querySelector('label[for="source-path"]')!.textContent=selected.has('update')?'기존 프로젝트·결과 폴더':'게임 또는 프로젝트 폴더';
   preview();
 }
@@ -107,7 +121,10 @@ function renderCompletion(){
   $('completion-pane').classList.toggle('failed',!success);
   $('completion-mark').textContent=success?'✓':'!';
   $('completion-title').textContent=success?(selected.has('run')||selected.has('retranslate')?'번역이 완료되었습니다':'작업이 완료되었습니다'):'작업을 완료하지 못했습니다';
-  $('completion-description').textContent=success?'결과를 저장했습니다. 확인을 누르면 새 작업을 시작할 수 있습니다.':'로그를 확인해 주세요. 저장된 번역은 유지되며 같은 폴더에서 다시 실행하면 이어갈 수 있습니다.';
+  $('completion-description').textContent=success?'결과를 저장했습니다. 확인을 누르면 새 작업을 시작할 수 있습니다.':'저장된 번역은 유지됩니다. 오류 내용을 확인한 뒤 같은 폴더에서 이어갈 수 있습니다.';
+  $('completion-counts').textContent=countSummary();
+  $('completion-notices').textContent=(job.notices||[]).join('\n');
+  $('completion-time').textContent=elapsedText();
   $('completion-path').textContent=success&&job.result?job.result:'';
   button('completion-result').hidden=!success||!job.result;
   $('completion-log').textContent=$('log').textContent;
@@ -123,14 +140,16 @@ async function resetWork(){
   if(workDefaults)fillSettings(structuredClone(workDefaults));
   if(snapshot)inference.render(settings,snapshot);
   dirty=false;job=reply.value;$('log').textContent='';$('completion-log').textContent='';$('completion-path').textContent='';$('review').replaceChildren();
+  for(const id of ['progress-percent','job-counts','completion-counts','completion-notices','completion-time'])$(id).textContent='';
   $('engine-note').textContent='Ren’Py · RPG Maker MV/MZ';
   $('status').textContent='대기 중';$<HTMLProgressElement>('progress').value=0;$('progress').classList.remove('busy');
   renderSummary();navigate('translate');document.querySelector('.wizard-body')!.scrollTop=0;
+  renderIssue();renderProgressTime();
   const theme=value(await window.rpt.appearance(settings.theme));if(theme!==undefined)applyTheme(theme);
 }
 function renderReview(){
-  const s=getSettings(),model=models.library?.selected||snapshot?.defaultModel||'선택 안 함';
-  const pairs=[['게임',gameFormat?.game_name||input('source-path').value],['실행할 작업',currentTasks().map(k=>snapshot?.tasks[k]||k).join(', ')],['원문 → 번역',(s.source_language==='japanese'?'일본어':'영어')+' → 한국어'],['번역 모델',model],['결과 폴더',outputPath()],['대화 표시',(s.show_reference?'한국어 + 원문 참고 (55%)':'한국어만')+' · 높이 '+(s.scale==='default'?'게임 기본값':s.scale+'배')]];
+  const s=getSettings(),model=modelTaskSelected()?(models.library?.selected||snapshot?.defaultModel||'선택 안 함'):'사용 안 함';
+  const pairs=[['게임',gameFormat?.game_name||input('source-path').value],['실행할 작업',currentTasks().map(taskTitle).join(', ')],['원문 → 번역',(s.source_language==='japanese'?'일본어':'영어')+' → 한국어'],['번역 모델',model],['결과 폴더',outputPath()],['대화 표시',(s.show_reference?'한국어 + 원문 참고 (55%)':'한국어만')+' · 높이 '+(s.scale==='default'?'게임 기본값':s.scale+'배')]];
   if(selected.has('update'))pairs.splice(1,0,['새 버전 게임',input('update-source').value]);
   $('review').replaceChildren();for(const [key,text] of pairs){const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=key;if(key==='실행할 작업')dd.append(...taskNodes(currentTasks()));else dd.textContent=text;$('review').append(dt,dd);}
   $('apply-note').textContent=gameFormat?.engine==='rpgmaker'?'결과의 data·js·fonts 폴더를 원본 게임의 같은 위치에 복사해 적용하세요. www 폴더가 있으면 그 구조를 유지하세요.':'결과의 game 폴더를 원본 게임의 game 폴더에 합쳐 적용하세요.';
@@ -138,7 +157,7 @@ function renderReview(){
 function renderWizardModels(library:ModelLibrary){
   const control=$<HTMLSelectElement>('wizard-model');control.replaceChildren(new Option('선택 안 함',''),...library.installed.map(m=>new Option(m.title+(m.ready?'':' · 파일 누락'),m.id)));
   control.value=library.selected||'';
-  $('wizard-model-note').textContent=library.selected?'':'번역 모델을 선택하세요.';
+  $('wizard-model-note').textContent=modelTaskSelected()&&!library.selected?'번역 모델을 선택하세요.':'';
   updateControls();if(step===3)renderReview();
 }
 function wizardHardware(){
@@ -164,6 +183,7 @@ function updateControls(){
   button('cancel').hidden=!job.running;button('cancel').disabled=!job.running||job.canceling;
   button('finish').disabled=locked;
   button('save').disabled=!snapshot||locked||!dirty;button('open-result').disabled=!job.result;
+  for(const id of ['copy-issue','export-issue','issue-logs'])button(id).disabled=supportBusy;
   for(const id of ['source-path','source-language','output','suffix','scale','margin','corner','show-reference','browse-source','browse-output','wizard-model','manage-models','update-source','browse-update'])($<HTMLInputElement>(id)).disabled=locked;
   document.querySelectorAll<HTMLInputElement>('input[name=gpu-mode],[data-task],[data-gpu]').forEach(c=>c.disabled=locked||!snapshot);
   document.querySelectorAll<HTMLInputElement>('[data-task]').forEach(c=>{
@@ -173,13 +193,57 @@ function updateControls(){
   });
   document.body.dataset.ready=snapshot?'true':'false';
 }
+function duration(seconds:number){
+  seconds=Math.max(0,Math.floor(seconds));
+  const hours=Math.floor(seconds/3600),minutes=Math.floor(seconds%3600/60),rest=seconds%60;
+  return hours?`${hours}시간 ${minutes}분`:minutes?`${minutes}분 ${rest}초`:`${rest}초`;
+}
+function elapsedText(now=Date.now()){
+  if(job.started===null)return job.elapsed_seconds!==undefined?'경과 '+duration(job.elapsed_seconds):'';
+  const end=job.running?now:job.finished??job.started;
+  return '경과 '+duration((end-job.started)/1000);
+}
+function countSummary(){
+  const values=[];
+  if(job.successful!==undefined)values.push(`번역 완료 ${job.successful.toLocaleString()}개`);
+  if(job.original_kept)values.push(`원문 유지 ${job.original_kept.toLocaleString()}개`);
+  if(job.cached)values.push(`기존 번역 ${job.cached.toLocaleString()}개 재사용`);
+  return values.join(' · ');
+}
+function renderProgressTime(){
+  $('elapsed-time').textContent=elapsedText();
+  if(!job.running){$('remaining-time').textContent='';return;}
+  if(job.recovery?.state==='waiting'){
+    const until=job.recovery.next_retry_at?Date.parse(job.recovery.next_retry_at):NaN;
+    const remaining=Number.isFinite(until)?Math.max(0,Math.ceil((until-Date.now())/1000)):job.recovery.delay_seconds;
+    $('remaining-time').textContent=(job.recovery.attempt?`${job.recovery.attempt}번째 재시도 · `:'')+(remaining!==undefined?`${remaining}초 후 재시도`:'재시도 대기 중');
+  }else if(job.canceling){$('remaining-time').textContent='작업을 정리하고 있습니다.';
+  }else if(job.eta_seconds!==null&&job.eta_seconds!==undefined){
+    const remaining=Math.max(0,job.eta_seconds-(Date.now()-(job.updated||Date.now()))/1000);
+    $('remaining-time').textContent='이 단계 남은 시간 '+(remaining<60?'1분 미만':`약 ${Math.ceil(remaining/60)}분`);
+  }else $('remaining-time').textContent='이 단계 남은 시간 계산 중';
+}
+function renderIssue(){
+  const issue=job.issue;
+  $('issue-panel').hidden=!issue;
+  if(!issue)return;
+  $('issue-panel').dataset.state=issue.state;
+  $('issue-state').textContent=issue.state==='failed'?(job.running?'오류 · 작업 정리 중':'작업 중단'):issue.state==='retrying'||job.recovery?'자동 복구 중':'확인할 사항';
+  $('issue-title').textContent=issue.title;
+  $('issue-detail').textContent=issue.detail||'';$('issue-detail').hidden=!issue.detail;
+  $('issue-id').textContent=issue.error_id?'오류 ID: '+issue.error_id:'';$('issue-id').hidden=!issue.error_id;
+}
 function renderJob(next:Job){
   job=next;
   $('status').textContent=job.stage+(job.running&&job.total!==null&&job.completed!==null?` · ${job.completed.toLocaleString()} / ${job.total.toLocaleString()}`:'');
   const progress=$<HTMLProgressElement>('progress');
   const hasProgress=job.running&&job.total!==null&&job.total>0&&job.completed!==null;
-  progress.value=hasProgress?100*job.completed!/job.total!:job.exitCode===0?100:0;
+  const percent=hasProgress?Math.min(100,Math.max(0,100*job.completed!/job.total!)):null;
+  if(percent!==null)progress.value=percent;else if(job.running)progress.removeAttribute('value');else progress.value=job.exitCode===0?100:0;
+  $('progress-percent').textContent=percent===null?'':`${Math.floor(percent)}%`;
+  $('job-counts').textContent=countSummary();
   progress.classList.toggle('busy',job.running&&!hasProgress);
+  renderProgressTime();renderIssue();
   if(job.running||job.exitCode!==null)showJob=true;
   else showJob=false;
   renderWizard();
@@ -294,6 +358,23 @@ button('finish').addEventListener('click',async()=>{
   }catch(e){message(String(e),true);}finally{submitting=false;updateControls();}
 });
 button('open-logs').addEventListener('click',async()=>{value(await window.rpt.open('logs'));});
+for(const [id,op] of [['copy-issue','copy'],['export-issue','export']] as const)button(id).addEventListener('click',async()=>{
+  supportBusy=true;updateControls();
+  try{
+    const reply=await window.rpt.support({op});
+    if(!reply.ok){message(reply.error,true);return;}
+    if(!reply.value.cancelled)message(op==='copy'?'오류 내용을 복사했습니다.':'진단 파일을 저장했습니다.');
+  }catch(error){message(String(error),true);}finally{supportBusy=false;updateControls();}
+});
+button('issue-logs').addEventListener('click',async()=>{
+  supportBusy=true;updateControls();
+  try{
+    const opened=await window.rpt.open('logs');
+    if(!opened.ok){message(opened.error,true);return;}
+    if(!job.running&&job.issue?.state==='failed')await resetWork();
+  }catch(error){message(String(error),true);}finally{supportBusy=false;updateControls();}
+});
 window.rpt.subscribe(event=>{if(event.type==='log')appendLog(event.text);else if(event.type==='job'){renderJob(event.job);if(!event.job.running&&page==='info')void refresh();}else if(event.type==='theme')applyTheme(event.dark);else if(event.type==='navigate')navigate(event.page);else if(event.type==='modelJob'){if(event.job.kind==='runtime')runtimes.job(event.job);else models.job(event.job);}});
 void (async()=>{const state=value(await window.rpt.state());if(state){applyTheme(state.dark);renderJob(state.job);if(state.modelJob.kind==='runtime')runtimes.job(state.modelJob);else models.job(state.modelJob);if(state.log)$('log').textContent=state.log;}await refresh();await models.refresh();renderWizard();})();
 setInterval(()=>{if((page==='info'||page==='models')&&!document.hidden)void refresh();},8000);
+setInterval(()=>{if(job.running)renderProgressTime();},1000);

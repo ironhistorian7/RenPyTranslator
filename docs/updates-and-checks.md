@@ -23,6 +23,8 @@ $tool = 'E:\Tools\RenPyTranslator'
 
 기존 프로젝트를 선택하고 **기타 설정 → 패치 검사**를 체크합니다. 단독으로 실행하거나 번역 뒤에 함께 실행할 수 있습니다.
 
+RPG Maker는 번역·번역 재개·결과 재생성 뒤에 빠른 정적 검사를 한 번 수행합니다. JSON·JavaScript 문법, 번역 위치의 실제 값, 이벤트 구조와 선택지·원문 병기의 대응을 확인합니다. 게임을 실행하는 화면 검사는 아니며, 원문 유지 항목은 별도로 보고합니다.
+
 ```powershell
 & "$tool\translate.ps1" -Command check -Project "$tool\project\YourGame-kr"
 ```
@@ -30,6 +32,8 @@ $tool = 'E:\Tools\RenPyTranslator'
 Ren’Py는 해당 게임에 포함된 엔진으로 검사용 원본 상태와 패치 상태를 비교합니다. 컴파일·lint·시작·화면 표시를 확인하고, 생성된 최종 문장을 렌더링합니다. 원본 리소스는 저장된 게임 경로에서 참조하므로 해당 폴더를 유지해야 합니다. 검사 작업 공간과 저장 위치는 별도로 생성합니다. 실제 게임 코드를 초기화하고 화면을 표시하는 검사이므로 시간이 걸릴 수 있습니다.
 
 보고서는 내부 프로젝트의 `data/patch-validation.json`과 `data/validation-runs/<검사 ID>/report.json`에 저장됩니다.
+
+검사 중에는 텍스트 처리 진행 상황을 표시합니다. 종료 시 성공·실패·취소 여부와 관계없이 검사 복사본을 삭제하고 보고서·진단 로그만 남깁니다. 파일 해시를 대조하지 않으며, 같은 준비 자료로 만든 두 검사본의 결과를 비교합니다. 비교본에서도 발생한 lint 지적과 초기화 우선순위 권고는 별도 진단으로 기록하고, 새로 발생한 패치 오류와 구분합니다.
 
 | 분류 | 의미 |
 | --- | --- |
@@ -72,6 +76,8 @@ $tool = 'E:\Tools\RenPyTranslator'
 
 Select **Other settings → Patch check**, alone or alongside translation.
 
+RPG Maker also runs one static check after translation, resume and rebuilding. It checks JSON/JavaScript syntax, applied text locations, event structure and choice/reference correspondence. It does not launch a game or verify its runtime display; retained original text is reported separately.
+
 ```powershell
 & "$tool\translate.ps1" -Command check -Project "$tool\project\YourGame-kr"
 ```
@@ -79,6 +85,8 @@ Select **Other settings → Patch check**, alone or alongside translation.
 Ren’Py checks compare isolated original and patched workspaces using the game's matching engine. Checks cover compilation, lint, startup, supported screens and final-text rendering. Original assets are referenced through the stored source path; keep that folder available. Workspaces and saves are separate. The check initializes actual game code and displays screens.
 
 Reports are written to `data/patch-validation.json` and `data/validation-runs/<id>/report.json`. Errors are classified as `ours`, `original`, `mixed` or `unknown` from comparison evidence. Probe defects and unsupported checks are not attributed to the original game. A pass covers the recorded checks rather than every quest, save state or custom screen. RPG Maker reports static checks separately from runtime coverage.
+
+Text-rendering progress is displayed during the check. Test copies are removed after success, failure or cancellation; reports and diagnostic logs remain. Checks compare results from copies of the same prepared inputs without file-hash comparisons. Shared baseline lint findings and init-priority advisories are recorded separately from new patch failures.
 
 Known generated-patch defects can be corrected once in the test copy. Only files that pass the recheck are committed, with backups in the validation artifacts. Original game code and translation caches are retained. Missing game labels and quest conditions are never invented or bypassed.
 

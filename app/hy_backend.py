@@ -94,6 +94,7 @@ def is_hy(cfg):
 def body(inputs, context, cfg, glossary, retry_note):
     from source_language import instruction
     from label_policy import LABEL_USES, context_for
+    from translation_output import estimate_output
     rpg=cfg.get('engine')=='rpgmaker'
     if rpg:
         from rpgmaker_protocol import wire_inputs,wire_markers
@@ -176,7 +177,7 @@ def body(inputs, context, cfg, glossary, retry_note):
                 '\n\n[Source Text]\n'+'\n'.join('['+item['id']+'] '+item['text'] for item in inputs))
     return {'model':cfg['model'], 'stream':False, 'keep_alive':'30s',
             'messages':[{'role':'user','content':prompt}],
-            'options':{'num_ctx':cfg.get('num_ctx',16384), 'num_predict':1800,
+            'options':{'num_ctx':cfg.get('num_ctx',16384), 'num_predict':estimate_output(inputs,cfg),
                        'temperature':0.7, 'top_p':0.6, 'top_k':20, 'repeat_penalty':1.05, 'seed':42}}
 
 

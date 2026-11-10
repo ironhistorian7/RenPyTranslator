@@ -74,7 +74,7 @@ class RPGMakerTests(unittest.TestCase):
 
     def test_unsupported_rpg_task_stops_before_work(self):
         fixture(self.source)
-        for task in ('routes','names'):
+        for task in ('routes','answers'):
             with self.subTest(task=task),self.assertRaisesRegex(ValueError,'지원하지 않는 작업'):
                 game_engine.require(self.source,True,[task])
 

@@ -50,6 +50,7 @@ def extract(
     include_dll: bool = False,             # 유니티 Mono: 게임 코드(DLL)에 박힌 문구까지
     pick: list[str] | None = None,         # Ren'Py: 손으로 고른 파일만
     progress: Progress = _noop,
+    on_notice: Callable[..., None] | None = None,
 ) -> Project:
     info = detect(root)
     threshold = heuristics.LEVELS[filter_level]
@@ -78,13 +79,15 @@ def extract(
             try:
                 found = _from_loose(path, info.root, threshold, stats)
             except Exception as e:  # noqa: BLE001
-                progress(f"  ! {path.name}: {e}")
+                if on_notice:on_notice('rpg_read_failure',file=str(path.relative_to(info.root)),error_type=type(e).__name__)
+                else:progress(f"  ! {path.name}: {e}")
                 continue
             raw += found
             got += len(found)
             if found:
-                progress(f"  · {path.name} 에서 문자열 {len(found)}개 "
-                         "(이 게임이 직접 만든 파일)")
+                if on_notice:on_notice('rpg_custom_strings',file=str(path.relative_to(info.root)),count=len(found))
+                else:progress(f"  · {path.name} 에서 문자열 {len(found)}개 "
+                              "(이 게임이 직접 만든 파일)")
         stats["rm_custom_files"] = len(custom)
         stats["rm_custom_strings"] = got
 
@@ -105,11 +108,13 @@ def extract(
             lurking = rpgmaker.count_js_dialogue(info.rm_base)
             stats["rm_js_lurking"] = lurking
             if lurking:
-                progress("")
-                progress(f"※ 플러그인 js 안에 **대사로 보이는 문장 {lurking}개** 가 "
-                         "있습니다. 지금 설정으로는 안 가져옵니다.")
-                progress("   화면에 원문이 그대로 남는다면 [고급 설정]에서 "
-                         "**플러그인 js 파일까지** 를 켜고 다시 뽑으세요.")
+                if on_notice:on_notice('rpg_js_candidates',count=lurking)
+                else:
+                    progress("")
+                    progress(f"※ 플러그인 js 안에 **대사로 보이는 문장 {lurking}개** 가 "
+                             "있습니다. 지금 설정으로는 안 가져옵니다.")
+                    progress("   화면에 원문이 그대로 남는다면 [고급 설정]에서 "
+                             "**플러그인 js 파일까지** 를 켜고 다시 뽑으세요.")
 
         # 게임이 이름으로 찾는 것들은 빼냅니다 (애니메이션·모델·이벤트 이름 등).
         # 번역하면 게임이 대상을 못 찾아 죽습니다.
@@ -132,7 +137,8 @@ def extract(
         stats["identifiers_indexed"] = len(ids)
         stats["dropped_as_identifier"] = dropped
         if dropped:
-            progress(f"게임이 이름으로 참조하는 문자열 {dropped}개를 제외했습니다.")
+            if on_notice:on_notice('rpg_identifiers_preserved',count=dropped)
+            else:progress(f"게임이 이름으로 참조하는 문자열 {dropped}개를 제외했습니다.")
 
         entries = _collapse(raw, dedup=dedup)
         # System.json 의 기본 용어·전투 메시지는 정해진 한국어로 미리 채웁니다(기계번역은

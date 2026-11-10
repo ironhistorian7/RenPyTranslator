@@ -87,13 +87,23 @@ class VisualStyleRecoveryTests(unittest.TestCase):
                 self.assertGreater(changes.get('outer_style_markers_rebuilt',0),0)
                 self.assertEqual(validate_text(source,text,CFG),[])
 
-    def test_malformed_unknown_and_functional_ids_are_not_guessed(self):
-        cases=[('{color=#92a8cd}{i}Notice [name].{/i}', '<rpt000/><rpt001/><rpt002/>새 안내.</rpt999>'),
-               ('{color=#92a8cd}Hello [name].', '<rpt000/>안녕 </rpt001>.'),
-               ('Please {i}[name]{/i}.', '<rpt000/>와요.</rpt001>')]
-        for source,raw in cases:
-            with self.subTest(source=source),self.assertRaises(ValueError):
-                restore_renpy_output(source,raw)
+    def test_malformed_unknown_id_is_not_guessed(self):
+        source='{color=#92a8cd}{i}Notice [name].{/i}'
+        raw='<rpt000/><rpt001/><rpt002/>새 안내.</rpt999>'
+        with self.assertRaises(ValueError):
+            restore_renpy_output(source,raw)
+
+    def test_malformed_known_functional_ids_restore_source_tokens(self):
+        cases=[('{color=#92a8cd}Hello [name].', '<rpt000/>안녕 </rpt001>.',
+                '{color=#92a8cd}안녕 [name].'),
+               ('Please {i}[name]{/i}.', '<rpt000/>와요.</rpt001>',
+                '와요.{i}[name]{/i}')]
+        for source,raw,expected in cases:
+            with self.subTest(source=source):
+                text,changes=restore_renpy_output(source,raw)
+                self.assertEqual(text,expected)
+                self.assertGreater(changes.get('marker_spelling_repaired',0),0)
+                self.assertEqual(validate_text(source,text,CFG),[])
 
     def test_missing_inline_markers_rebuild_only_the_exact_variable_anchor(self):
         source = 'Tell {i}[name]{/i} the news.'

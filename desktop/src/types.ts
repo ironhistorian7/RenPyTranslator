@@ -17,7 +17,12 @@ export type Snapshot = {
 };
 export type Request = {path:string;source:boolean;tasks:string[];settings:Settings;update_source?:string};
 export type GameFormat = {source?:boolean;game_name?:string;show_reference?:boolean;textbox_scale?:number|null;engine:string;engine_label:string;supported:boolean;stop_message:string|null;supported_tasks:string[]|null;source_language:Settings['source_language']|null};
-export type Job = {running:boolean;canceling:boolean;exitCode:number|null;result:string|null;stage:string;completed:number|null;total:number|null;started:number|null};
+export type JobIssue = {code:string;title:string;detail?:string;state:'warning'|'retrying'|'failed';error_id?:string|null;log_path?:string|null};
+export type JobRecovery = {state:'waiting'|'resuming';delay_seconds?:number;next_retry_at?:string|null;attempt?:number};
+export type Job = {running:boolean;canceling:boolean;exitCode:number|null;result:string|null;stage:string;completed:number|null;total:number|null;started:number|null;
+  phase?:string;phase_label?:string;unit?:string|null;eta_seconds?:number|null;elapsed_seconds?:number;updated?:number;finished?:number|null;
+  successful?:number;original_kept?:number;cached?:number;issue?:JobIssue|null;recovery?:JobRecovery|null;notices?:string[]};
+export type SupportResult = {text?:string;path?:string;cancelled?:boolean;error?:string;code?:string};
 export type ModelJob = {running:boolean;stage:string;done:number;total:number;error:string|null;kind?:'model'|'runtime'};
 export type RuntimeBundle={id:string;version:string;name:string;installed:boolean;default?:boolean;directory?:string;size?:number;sha256?:string;available?:boolean;published_at?:string};
 export type InstalledModel = {id:string;title:string;size:number;sha?:string;ready:boolean;protocol:string;source:string;quantization:string;context:number|null;estimatedMemory:number|null;recommended:boolean;description:string};
@@ -37,6 +42,7 @@ export interface DesktopAPI {
   cancel():Promise<Reply<Job>>;
   reset():Promise<Reply<Job>>;
   open(which:'result'|'logs'|'models'):Promise<Reply<void>>;
+  support(request:{op:'copy'|'export'}):Promise<Reply<SupportResult>>;
   model<T>(request:Record<string,unknown>):Promise<Reply<T>>;
   modelWork(request:Record<string,unknown>):Promise<Reply<ModelJob>>;
   modelCancel():Promise<Reply<void>>;

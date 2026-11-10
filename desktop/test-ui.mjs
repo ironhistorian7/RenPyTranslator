@@ -21,14 +21,14 @@ try{
     handle('info',()=>snapshot);
     handle('appearance',theme=>theme==='dark');handle('save',s=>s);
     handle('model',r=>{if(r.op==='search')return [];if(r.op==='select'){library.selected=r.model;snapshot.defaultModel=r.model;}return library;});
-    handle('project',r=>{const rpg=r.path.includes('RPG'),source=!r.path.endsWith('-kr');return {source,game_name:rpg?'SampleRPG':'SampleVN',engine:rpg?'rpgmaker':'renpy',engine_label:rpg?'RPG Maker MZ':'Ren’Py',supported:!r.path.includes('Unknown'),stop_message:r.path.includes('Unknown')?'지원되지 않는 게임입니다.':null,supported_tasks:rpg?['run','retranslate','font','failed','display','layout']:null,source_language:source?null:'japanese'};});
+    handle('project',r=>{const rpg=r.path.includes('RPG'),source=!r.path.endsWith('-kr');return {source,game_name:rpg?'SampleRPG':'SampleVN',engine:rpg?'rpgmaker':'renpy',engine_label:rpg?'RPG Maker MZ':'Ren’Py',supported:!r.path.includes('Unknown'),stop_message:r.path.includes('Unknown')?'지원되지 않는 게임입니다.':null,supported_tasks:rpg?['run','retranslate','font','names','failed','display','layout']:null,source_language:source?null:'japanese'};});
     // Real start/cancel/reset/open handlers; the child process and OS folder opener are synthetic.
     const require=process.getBuiltinModule('node:module').createRequire(process.cwd()+'/test.js');
     const cp=require('node:child_process'),fs=require('node:fs'),{EventEmitter}=require('node:events'),{PassThrough,Writable}=require('node:stream');
     const exec=cp.execFile,spawn=cp.spawn;
     cp.execFile=(exe,args,opts,callback)=>{
       if(!args.includes('--desktop-project')&&!args.includes('--desktop-models'))return exec(exe,args,opts,callback);
-      const p=new EventEmitter();p.stdin=new Writable({write(chunk,_enc,done){const r=JSON.parse(chunk.toString());const result=args.includes('--desktop-models')?{result:null}:{engine:'rpgmaker',supported:true,supported_tasks:['run','retranslate','font','failed','display','layout'],stop_message:null};done();setTimeout(()=>callback(null,JSON.stringify(result),''),0);}});return p;
+      const p=new EventEmitter();p.stdin=new Writable({write(chunk,_enc,done){const r=JSON.parse(chunk.toString());const result=args.includes('--desktop-models')?{result:null}:{engine:'rpgmaker',supported:true,supported_tasks:['run','retranslate','font','names','failed','display','layout'],stop_message:null};done();setTimeout(()=>callback(null,JSON.stringify(result),''),0);}});return p;
     };
     cp.spawn=(exe,args,opts)=>{
       if(!args.includes('--desktop-run'))return spawn(exe,args,opts);
@@ -73,7 +73,7 @@ try{
   await page.screenshot({path:path.join(out,'03-output-renpy-dark.png')});
   await back();await back();await choose('X:/SampleRPG-kr');
   await page.locator('#task-options summary').first().click();
-  for(const k of ['names','answers','routes','language'])assert.equal(await page.locator(`[data-task=${k}]`).isVisible(),false,k);
+  for(const k of ['answers','routes','language'])assert.equal(await page.locator(`[data-task=${k}]`).isVisible(),false,k);
   assert.equal(await page.locator('[data-task=routes]').isChecked(),false);
   await page.locator('#repairs summary').click(); // close from earlier test
   await page.locator('#repairs summary').click();

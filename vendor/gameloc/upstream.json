@@ -3,7 +3,7 @@
   "repository": "https://github.com/eeewsm123123/gameloc",
   "license": "GPL-3.0-or-later",
   "files": {
-    "gameloc/apply.py": "87dc376dc29346e528741d1209a2a04ef6125cf19715bb157e4795517839850c",
+    "gameloc/apply.py": "d23059fc7d62f862da490db3bc7e7eabd10a557e685e59695cf1f950182ca234",
     "gameloc/asar.py": "2b0f26122cc1839ba810ee262d403fd02cb16e60528d1e7883d8a537844b614f",
     "gameloc/bulk.py": "2d4261d36e6d2d5998b2e86e8dd9196f47a0d54a60a8cbd9770a20f3bdf5f23b",
     "gameloc/bundle.py": "a3cecddd2ceb9b8f50ee785dec2cd91b4264e3c8e118e7cc5301db3779240919",
@@ -12,7 +12,7 @@
     "gameloc/containers.py": "21357a2ee866f46e36d005d34b41c8d65b6d90efb7c6fc2da5705ffd836636e0",
     "gameloc/detect.py": "d9e1f83fcaf0302c612f05d375b0f84caf3422e17f4f2000d095ce97e652ce17",
     "gameloc/dllstrings.py": "724e76b56812a897ce7504fa78c7d22ad18223445fa8beb3d91f36fc3a9eaf2d",
-    "gameloc/extract.py": "fdf15adb6e035c785bd90094faa799f0268346be755d1fd55688e95d660514b3",
+    "gameloc/extract.py": "745a718d90c8b5497c47ae85e56ae27baea3baaa7dd78cd034d2cc08fed151be",
     "gameloc/eztrans.py": "78eab4d34afd2ebdcf74db86aa2ab83a0916d21f9318005befdec258b1048bee",
     "gameloc/fixups.py": "6cf86effc8269fc36206c33f4d20c6ab7912e8666bacbea3d64a8fd41850c98f",
     "gameloc/font.py": "a78f7e7b0cb329998fd603ec9d9da05f7ee32fe1c5831457967a43b9b132a82f",
@@ -24,7 +24,7 @@
     "gameloc/imagetrans.py": "8802a9bb1779b54b99fe9728fcfe7594a0050bb5d91d74dc855f4ac4a020184d",
     "gameloc/isolate.py": "d3a2972dfd939398c1c24e0f77eec822b73d66bf3e5ed93e39a5fd91be842995",
     "gameloc/jslex.py": "13f322472e2479529865c2d0870ba2ce9b8c75835cb434414c6ed4fb8f219a9b",
-    "gameloc/jsonnest.py": "c5ede345690e1d902ebdb4521a5ead1c0cb764d0f7e1873134911c2a970dcf7e",
+    "gameloc/jsonnest.py": "e0ff34c5eaae4380040f5e59bada2dbd31e9e64f5658556c46d96857d89a5b5d",
     "gameloc/langs.py": "b62c58797170bb51d4985ad0d841f5bd525992424f121ea1c5ca237b337e99ec",
     "gameloc/localefill.py": "5006d47796a52ad0be408113e50ef16ca52c21aea3a44c1ed64d3b745d5fc4d2",
     "gameloc/locate.py": "61068c2e00a5e5dad47093db90c2ca4d955f3a76cb2f965112eef6a051e007c1",
@@ -48,7 +48,7 @@
     "gameloc/throttle.py": "916a7abd0ff10824583e98d618993c1703e507c0e359d78ed765936b6314eb0d",
     "gameloc/tmpraw.py": "26cedca32d3ca3b2db16893f7aa910115c760ce85f2265e713bdc0665185bf6d",
     "gameloc/translate.py": "8bacc5915dca5354320f8ccb08b7ae08a22b6d0a6e5b5209b6f8f330e0e3a1f4",
-    "gameloc/treepath.py": "2621ad2c48d93b4b4c33b133843ade86f6604155332b0abe8752c8a0cf1b26a2",
+    "gameloc/treepath.py": "4ab35e69dedaf216e4a3ee0a7b981992680aff8abd12c905d32bc5479cba8332",
     "gameloc/typetree.py": "8b0ea5dee2707687d98998668c93033d7848096ef8559bc2ad82e86d6bc9b3d8",
     "gameloc/unityraw.py": "2ab54f7826f5149b16497694fbfea5510b7d5f5d99743dc3a569d9f9ddee9e43",
     "gameloc/webui.py": "0e3d1c4bf8ec342103f330f773f7771822c3510f06d664ede768343738bd2476",
@@ -65,5 +65,38 @@
     "THIRD-PARTY-NOTICES.txt": "74fd23282858127ba10df8793917dc71e5d2bd421691e95f292702fa43c95a27",
     "README.md": "b912956ff0502b53066b468c61788ea1e38905db880f68286964cb201c0debea",
     "pyproject.toml": "c9068a5cbf113700c588404a82266362ace3f8591e65eb1b95417d0fb244eb06"
+  },
+  "local_changes": {
+    "2026-11-11-json-key-paths": {
+      "description": "Quoted literal JSON keys and distinct nested-JSON unwrap tokens; preserve ordinary path syntax.",
+      "files": {
+        "gameloc/treepath.py": {
+          "upstream_sha256": "2621ad2c48d93b4b4c33b133843ade86f6604155332b0abe8752c8a0cf1b26a2",
+          "modified_sha256": "4ab35e69dedaf216e4a3ee0a7b981992680aff8abd12c905d32bc5479cba8332"
+        },
+        "gameloc/jsonnest.py": {
+          "upstream_sha256": "c5ede345690e1d902ebdb4521a5ead1c0cb764d0f7e1873134911c2a970dcf7e",
+          "modified_sha256": "e0ff34c5eaae4380040f5e59bada2dbd31e9e64f5658556c46d96857d89a5b5d"
+        }
+      }
+    },
+    "2026-11-11-source-identifiers": {
+      "description": "Share original snapshot identifiers between applying translations and validation; do not rescan generated output plugins.",
+      "files": {
+        "gameloc/apply.py": {
+          "upstream_sha256": "87dc376dc29346e528741d1209a2a04ef6125cf19715bb157e4795517839850c",
+          "modified_sha256": "d23059fc7d62f862da490db3bc7e7eabd10a557e685e59695cf1f950182ca234"
+        }
+      }
+    },
+    "2026-11-11-structured-notices": {
+      "description": "Optional structured extraction notices; retain upstream CLI prose without callback and let the desktop adapter distinguish scope information from file-read failures.",
+      "files": {
+        "gameloc/extract.py": {
+          "upstream_sha256": "fdf15adb6e035c785bd90094faa799f0268346be755d1fd55688e95d660514b3",
+          "modified_sha256": "745a718d90c8b5497c47ae85e56ae27baea3baaa7dd78cd034d2cc08fed151be"
+        }
+      }
+    }
   }
 }

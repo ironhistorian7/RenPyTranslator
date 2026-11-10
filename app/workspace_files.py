@@ -102,22 +102,29 @@ def script_archive(paths, game):
 def create(project, source, selection=None):
     """New/unfinished preparation only. Never shrink an existing user project."""
     from engine import extract_scripts
+    from job_events import set_phase,progress
     selection = selection or plan(source)
     stage = project / 'staging'; game = stage / 'game'
     game.mkdir(parents=True, exist_ok=True)
     save_json(project / 'data' / RECORD, selection)
-    for name in selection['copied_files']:
+    copied=selection['copied_files']
+    set_phase('prepare.copy','작업 파일 복사 중',len(copied),'files')
+    for index,name in enumerate(copied,1):
         target = stage / name
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source / name, target)
+        progress('prepare.copy',index,len(copied))
     extracted = []; seen = set()
+    set_phase('prepare.archives','스크립트 압축 해제 중',len(selection['archives']),'files')
     # Match the loader: later archive names have priority; loose files win.
-    for name in sorted(selection['archives'], reverse=True):
+    for index,name in enumerate(sorted(selection['archives'], reverse=True),1):
         if Path(name).name == SCRIPT_ARCHIVE:
             # A comparison of a small workspace must retain its original nodes.
             extracted += extract_scripts(source / name, game, extensions=INPUTS)
         else:
             extracted += extract_scripts(source / name, game, seen, extensions=INPUTS)
+        progress('prepare.archives',index,len(selection['archives']))
+    set_phase('prepare.snapshot','스크립트 작업 자료 정리 중')
     original_scripts = script_archive(extracted, game)
     # Reference inputs are assets only. Runtime bridge excludes external code.
     selection.update(status='ready', original_archive_scripts=original_scripts,

@@ -49,7 +49,7 @@ handle('modelWork',request=>{probe.unexpected.push({operation:'modelWork',reques
 handle('modelCancel',()=>modelJob);
 handle('runtime',request=>{probe.runtimeQueries.push(request);return [{id:'ollama-0.40.15',name:'Ollama 0.40.15',installed:true,available:true}];});
 handle('runtimeWork',request=>{probe.unexpected.push({operation:'runtimeWork',request});throw new Error('No actual download is permitted');});
-handle('project',request=>{if(!request.path.startsWith('X:/'))throw new Error('Only invented X:/ paths are permitted');probe.projectQueries.push(request);const rpg=request.path.includes('RPG');return {source:!request.path.endsWith('-project'),game_name:rpg?'InventedRPG':'InventedRenPy',engine:rpg?'rpgmaker':'renpy',engine_label:rpg?'RPG Maker MZ':'Ren’Py',supported:true,supported_tasks:rpg?['run','retranslate','update','check','font','failed','display','layout']:null,source_language:null};});
+handle('project',request=>{if(!request.path.startsWith('X:/'))throw new Error('Only invented X:/ paths are permitted');probe.projectQueries.push(request);const rpg=request.path.includes('RPG');return {source:!request.path.endsWith('-project'),game_name:rpg?'InventedRPG':'InventedRenPy',engine:rpg?'rpgmaker':'renpy',engine_label:rpg?'RPG Maker MZ':'Ren’Py',supported:true,supported_tasks:rpg?['run','retranslate','update','check','font','names','failed','display','layout']:null,source_language:null};});
 handle('start',request=>{if(!request.path.startsWith('X:/'))throw new Error('Only synthetic paths are permitted');probe.requests.push(JSON.parse(JSON.stringify(request)));return idle;});
 handle('cancel',()=>idle);
 app.whenReady().then(()=>{const window=new BrowserWindow({show:false,width:1180,height:900,webPreferences:{preload:${JSON.stringify(path.join(desktop,'dist','preload.js'))},contextIsolation:true,nodeIntegration:false,sandbox:false}});window.webContents.setWindowOpenHandler(()=>({action:'deny'}));window.webContents.session.webRequest.onBeforeRequest({urls:['http://*/*','https://*/*']},(details,callback)=>{probe.blockedNetwork.push(details.url);callback({cancel:true});});window.loadFile(${JSON.stringify(path.join(desktop,'dist','index.html'))});});
@@ -145,22 +145,23 @@ try{
   await openRepairs();
   for(const task of [...fixes,'answers','routes'])await page.locator('[data-task='+task+']').check();
   await choose('X:/InventedRPG-source');
-  for(const task of ['names','answers','routes']){
+  for(const task of ['answers','routes']){
     assert.equal(await page.locator('[data-task='+task+']').isVisible(),false,task+' is hidden for RPG Maker');
     assert.equal(await checked(task),false,task+' is removed when switching engines');
   }
   assert.equal(await page.locator('[data-task=language]').count(),0);
   assert.equal(await page.locator('#language-default-note').isVisible(),false);
-  const sharedFixes=['font','failed','display','layout'];
+  const sharedFixes=['font','names','failed','display','layout'];
   for(const task of sharedFixes){
     assert.equal(await enabled(task),true,task+' remains enabled for an RPG Maker source');
     assert.equal(await checked(task),true,task+' remains selected after switching engines');
   }
+  assert.equal(await page.locator('[data-task-label=names]').first().innerText(),'인명 표기 보정');
   const rpg=await capture();
   assert.equal(rpg.source,true);
   assert.deepEqual(rpg.tasks,sharedFixes);
-  assert.equal(rpg.tasks.some(task=>['run','retranslate','names','answers','routes','language'].includes(task)),false);
-  completed.push('Switching to RPG Maker removes names/answers/routes while retaining all four supported source-folder fixes in the actual mock request');
+  assert.equal(rpg.tasks.some(task=>['run','retranslate','answers','routes','language'].includes(task)),false);
+  completed.push('Switching to RPG Maker removes unsupported hints and retains five supported source-folder fixes including name spelling');
 
   await fresh();await choose('X:/InventedRPG-default-source');
   assert.equal(await checked('run'),true);
@@ -170,7 +171,8 @@ try{
   assert.equal(await checked('run'),true);
   assert.equal(await page.locator('#basic-tasks [data-task=run]').isVisible(),true);
   assert.equal(await page.locator('#language-default-note').isVisible(),true);
-  completed.push('Returning from RPG Maker to RenPy restores the included-panel note for basic translation');
+  assert.equal(await page.locator('[data-task-label=names]').first().textContent(),'이름·호칭·입력 보정');
+  completed.push('Returning from RPG Maker to RenPy restores its name-correction label and included-panel note');
 
 
   await fresh();await choose('X:/InventedRenPy-old-project');await openOther();

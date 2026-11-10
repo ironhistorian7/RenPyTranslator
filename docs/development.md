@@ -40,7 +40,7 @@ Python을 직접 지정하려면:
 
 실행 폴더는 `dist/RenPyTranslator/`에 생성합니다. FULL에 필요한 HY가 없으면 고정된 공식 파일만 다운로드하고 해시를 검증합니다. 다른 모델이나 게임·설정·번역 캐시는 배포본에 넣지 않습니다. 큰 DLL과 EXE도 표준 ZIP Deflate로 압축하며, 기능이나 GPU 실행 라이브러리를 빼서 용량을 줄이지 않습니다. 분할 ZIP 빌드용 반디집과 7-Zip 도구는 고정 해시를 확인해 `build/tools`에만 준비하며 시스템에 설치하거나 배포본에 포함하지 않습니다.
 
-빌드한 EXE와 앱 실행 폴더는 저장소 루트에도 갱신하여 바로 실행할 수 있게 합니다. ZIP은 소스 레포에 넣지 말고 Releases에 게시하세요. `.gitignore`는 ZIP·`dist`·런타임·모델·캐시를 제외합니다. Git 저장소를 자동 생성하지 않습니다.
+일반 ZIP 빌드는 작업 폴더의 EXE와 앱 실행 폴더를 바꾸지 않습니다. 이를 갱신하려면 앱과 CLI를 모두 닫고 `-LocalOnly`를 명시하세요. 로컬 갱신은 실행 중인 앱과 잠긴 파일을 먼저 확인하고, 준비한 EXE·`_internal`·`_desktop` 전체를 교체하며 중간 오류 시 이전 구성요소를 되돌립니다. 모델·프로젝트·설정·캐시·기존 배포 ZIP·소스는 갱신 대상이 아닙니다. ZIP은 소스 레포에 넣지 말고 Releases에 게시하세요. `.gitignore`는 ZIP·`dist`·런타임·모델·캐시를 제외합니다. Git 저장소를 자동 생성하지 않습니다.
 
 글꼴과 unrpyc 소스·라이선스는 `vendor`에 보관합니다. 버전·출처는 `vendor/versions.json`, 파일 해시는 `vendor/asset-lock.json`, 런타임과 FULL 모델 정보는 `runtime-lock.json`에서 관리합니다. README, `docs` 바로 아래의 Markdown·TXT 문서, 프로그램 라이선스와 [외부 구성요소 고지](../THIRD_PARTY_NOTICES.md)를 함께 배포합니다.
 
@@ -93,7 +93,7 @@ Release assets are written to `portable/V<version>/`, using the release version 
 
 The runnable bundle is generated in `dist/RenPyTranslator/`. FULL downloads only the pinned official HY file when missing and verifies its hash. Other models, games, personal settings and translation caches are excluded. Large DLLs and executables are compressed with standard ZIP Deflate; application features and GPU runtimes are retained. The pinned Bandizip and 7-Zip packaging tools are downloaded with hash verification into `build/tools` only; they are neither installed system-wide nor shipped in the distribution.
 
-The builder also updates the local EXEs and application runtime folders beside the source so they can be launched directly. Publish ZIPs in Releases rather than committing them. `.gitignore` excludes archives, `dist`, runtimes, models and caches. No Git repository is created automatically.
+Normal ZIP builds leave the working-folder EXEs and application runtimes unchanged. To update them, close the app and CLI and explicitly use `-LocalOnly`. Local publishing checks for running apps and locked files before replacing complete EXE, `_internal` and `_desktop` components; a failed replacement restores the previous components. Models, projects, settings, caches, existing release ZIPs and sources are outside this update. Publish ZIPs in Releases rather than committing them. `.gitignore` excludes archives, `dist`, runtimes, models and caches. No Git repository is created automatically.
 
 Fonts, unrpyc sources and licenses are vendored. Provenance is in `vendor/versions.json`, integrity hashes in `vendor/asset-lock.json`, and pinned runtime/FULL model assets in `runtime-lock.json`. The build includes README, top-level Markdown/TXT files in `docs`, the application license and [third-party notices](../THIRD_PARTY_NOTICES.md).
 

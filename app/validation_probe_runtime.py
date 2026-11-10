@@ -22,23 +22,101 @@ def _rpt_probe_attempt(name, operation, row=None):
         data.update(id=row.get('id'), file=row.get('file'), line=row.get('line'))
     _rpt_probe_event(data)
     try:
-        operation()
+        result = operation()
     except Exception as exc:
         data.update(status='failed', error_type=type(exc).__name__, error=str(exc),
                     traceback=_rpt_probe_traceback.format_exc())
     else:
         data.update(status='passed')
+        if isinstance(result, dict) and result.get('sampled_format_fields'):
+            data['sampled_format_fields'] = result['sampled_format_fields']
     data['seconds'] = round(_rpt_probe_time.time() - started, 4)
     _rpt_probe_event(data)
+
+
+def _rpt_probe_format_slots(text):
+    """Find empty UI format fields, keeping escapes, tags and expressions opaque."""
+    slots = []
+    position = 0
+    while position < len(text):
+        if text.startswith('{{', position) or text.startswith('[[', position):
+            position += 2
+            continue
+        char = text[position]
+        if char == '[':
+            # Do not treat an empty Python dictionary in interpolation as a field.
+            depth = 1
+            quote = None
+            position += 1
+            while position < len(text) and depth:
+                char = text[position]
+                if char == '\\':
+                    position += 2
+                    continue
+                if quote:
+                    if text.startswith(quote, position):
+                        position += len(quote)
+                        quote = None
+                        continue
+                elif char in ('"', "'"):
+                    quote = char * 3 if text.startswith(char * 3, position) else char
+                    position += len(quote)
+                    continue
+                elif char == '[':
+                    depth += 1
+                elif char == ']':
+                    depth -= 1
+                position += 1
+            continue
+        if text.startswith('{}', position):
+            slots.append(position)
+            position += 2
+            continue
+        if char == '{':
+            end = text.find('}', position + 1)
+            if end >= 0:
+                position = end + 1
+                continue
+        position += 1
+    return slots
+
+
+def _rpt_probe_sample_text(row):
+    text = row['text']
+    # These UI templates normally receive .format() arguments before display.
+    # Sampling is probe-only; unknown tags and mismatched fields still fail.
+    if row.get('kind') != 'string' or 'source' not in row:
+        return text, 0
+    original = _rpt_probe_format_slots(row['source'])
+    if not original:
+        return text, 0
+    slots = _rpt_probe_format_slots(text)
+    if len(slots) != len(original):
+        return text, 0
+    pieces = []
+    start = 0
+    for position in slots:
+        pieces.extend((text[start:position], u'0'))
+        start = position + 2
+    pieces.append(text[start:])
+    return u''.join(pieces), len(slots)
 
 
 def _rpt_probe_text(row):
     # Interpolation is deliberately not evaluated without the game's save state.
     # Markup/font/layout still run in the actual engine and actual game styles.
-    text = row['text']
+    text, sampled = _rpt_probe_sample_text(row)
     displayable = _rpt_probe_engine.text.text.Text(text, substitute=False, slow=False,
                                      style='say_dialogue' if row.get('kind') == 'dialogue' else 'choice_button_text')
     renpy.render(displayable, int(config.screen_width), int(config.screen_height), 0, 0)
+    return dict(sampled_format_fields=sampled)
+
+
+def _rpt_probe_progress(done, total):
+    _rpt_probe_event(dict(check='progress', status='running', done=done, total=total))
+    # The modal screen ends its own interaction with a timer/Return action.
+    # A timed pause below a modal screen can otherwise wait forever.
+    renpy.call_screen('_rpt_validation_progress', done=done, total=total)
 
 
 def _rpt_probe_active_menus(screen):
@@ -105,10 +183,23 @@ def _rpt_probe_main():
         _rpt_probe_attempt('screen:choice', choice)
     else:
         _rpt_probe_event(dict(check='screen:choice', status='not_available'))
-    for index, row in enumerate(data.get('rows', [])):
-        _rpt_probe_attempt('text', lambda r=row: _rpt_probe_text(r), row)
-        if index and index % 256 == 0:
-            renpy.free_memory()
+    rows = data.get('rows', [])
+    try:
+        _rpt_probe_progress(0, len(rows))
+        last_update = _rpt_probe_time.time()
+        shown = 0
+        for index, row in enumerate(rows):
+            _rpt_probe_attempt('text', lambda r=row: _rpt_probe_text(r), row)
+            if index and index % 256 == 0:
+                renpy.free_memory()
+            if _rpt_probe_time.time() - last_update >= .25:
+                shown = index + 1
+                _rpt_probe_progress(shown, len(rows))
+                last_update = _rpt_probe_time.time()
+        if shown != len(rows):
+            _rpt_probe_progress(len(rows), len(rows))
+    finally:
+        renpy.hide_screen('_rpt_validation_progress')
     _rpt_probe_event(dict(check='complete', status='passed'))
 
 

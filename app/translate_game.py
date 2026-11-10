@@ -1,6 +1,7 @@
 """CLI for producing copy-and-paste patches. Playing needs only the game exe."""
 import argparse
 from contextlib import contextmanager
+from contextvars import ContextVar
 import json
 import sys
 from pathlib import Path
@@ -10,6 +11,19 @@ from packaging import install_support, package
 from automatic import resolve_project, settings, analyze, inspection, add_literal_templates, presentation, review
 from model_runtime import model_session
 from hy_backend import is_hy
+
+_LOG_CLEANUP_DONE = ContextVar('rpt_log_cleanup_done', default=False)
+
+
+def _translation_log_cleanup(args):
+    jobs = args.tasks if args.command == 'tasks' else [args.command]
+    if not {'run', 'translate', 'sample', 'retranslate', 'update'}.intersection(jobs or ()):
+        return
+    if _LOG_CLEANUP_DONE.get():
+        return
+    _LOG_CLEANUP_DONE.set(True)
+    from log_retention import cleanup_logs
+    cleanup_logs()
 
 def repair(project,cfg,fix):
     """User-triggered repair; preserve raw translations and never access the source game."""
@@ -217,6 +231,16 @@ def selected_tasks(args,parser):
 
 
 def main(argv=None):
+    # The tasks command may call main again for its translation phase. Keep one
+    # cleanup pass for that whole operation, and reset it for the next request.
+    token = _LOG_CLEANUP_DONE.set(_LOG_CLEANUP_DONE.get())
+    try:
+        return _main(argv)
+    finally:
+        _LOG_CLEANUP_DONE.reset(token)
+
+
+def _main(argv=None):
     parser=argparse.ArgumentParser(description='Local Korean patches for RenPy and RPG Maker MV/MZ',
         formatter_class=argparse.RawDescriptionHelpFormatter,epilog='''Commands:
   run       Prepare, translate, and package an explicitly selected game
@@ -274,6 +298,7 @@ Omit the command, or repair --fix, to display help.''')
     if args.fix and args.command!='repair':parser.error('--fix is only for repair')
     if args.tasks and args.command!='tasks':parser.error('--tasks is only for tasks')
     if args.sample<0 or (args.sample and args.command!='analyze'):parser.error('--sample is only for analyze and must be positive')
+    _translation_log_cleanup(args)
     # Update uses both paths intentionally. Prepare the revision before normal
     # engine routing so it cannot enter a fresh full translation by accident.
     if args.command=='update':args.command='tasks';args.tasks=['update']
@@ -281,9 +306,9 @@ Omit the command, or repair --fix, to display help.''')
         selected_tasks(args,parser);return
     from model_store import needs_model,require_selected
     jobs=args.tasks if args.command=='tasks' else (['names','failed'] if args.command=='repair' and args.fix=='all' else [args.fix] if args.command=='repair' else [args.command])
-    if needs_model(jobs):args.model=require_selected(args.model)
     from game_engine import dispatch
     if dispatch(args,parser):return
+    if needs_model(jobs):args.model=require_selected(args.model)
     if args.project and args.project.is_dir():
         link=args.project/'project-link.json'
         if link.exists():args.project=(args.project/json.loads(link.read_text(encoding='utf-8'))['project']).resolve()

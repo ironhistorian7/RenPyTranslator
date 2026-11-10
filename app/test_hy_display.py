@@ -122,6 +122,8 @@ class HyBackendTests(unittest.TestCase):
                 proc=Mock();proc.poll.return_value=None;proc.pid=87654
                 def api(endpoint,route):return {'models':[{'name':DEFAULT_MODEL}]} if route=='/api/tags' else {'version':'test'}
                 with patch('engine.ROOT',root),patch('hy_backend.subprocess.Popen',return_value=proc), \
+                     patch('runtime_assets.runtime_executable',return_value=exe), \
+                     patch('gpu_policy.configure',side_effect=lambda cfg:cfg), \
                      patch('native_process.run') as kill,patch('hy_backend.api',side_effect=api), \
                      patch('model_runtime.unload_model') as unload:
                     try:

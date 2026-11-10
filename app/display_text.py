@@ -85,6 +85,22 @@ def display_name_variables(text, names):
     return INTERPOLATION.sub(replace, text)
 
 
+def display_percents(text):
+    """Render literal percentages safely with either legacy substitution mode.
+
+    Full-width percent is display text, not a Python percent-format operator.
+    Keep genuine format fields, escapes, interpolation and tag payloads intact.
+    """
+    if '%' not in text:return text
+    from translation import TOKENS, FORMATS
+    parts=[];position=0
+    for match in TOKENS.finditer(text,formats=FORMATS):
+        parts.append(text[position:match.start()].replace('%','\uff05'))
+        parts.append(match.group());position=match.end()
+    parts.append(text[position:].replace('%','\uff05'))
+    return ''.join(parts)
+
+
 def compose(row, entry, metadata):
     source = row['source']; target = entry['text']
     if entry.get('status') == 'source_fallback': return target
@@ -94,6 +110,7 @@ def compose(row, entry, metadata):
     names=metadata.get('display_variables',metadata.get('names',{}))
     target = attach_josa(target, names)
     target = display_name_variables(target, names)
+    target = display_percents(target)
     if not metadata.get('show_reference',True):return target
     choice_source=re.sub(r'\{#[^{}]*\}', '', source)
     if row['kind'] != 'dialogue' and (metadata.get('runtime_choices') or
@@ -106,7 +123,7 @@ def compose(row, entry, metadata):
         return match.group()
     target = TAG.sub(controls, target)
     target = close_styles(target)
-    reference=reference_text(source,metadata.get('names',{}) if metadata.get('reference_guard') else {})
+    reference=display_percents(reference_text(source,metadata.get('names',{}) if metadata.get('reference_guard') else {}))
     if metadata.get('reference_guard'):
         return target + '\n{rpt_ref=0.55}{cps=0}' + reference + '{/cps}{/rpt_ref}' + ''.join(terminal)
     return target + '\n{size=*0.55}{cps=0}' + reference + '{/cps}{/size}' + ''.join(terminal)

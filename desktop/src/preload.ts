@@ -7,6 +7,7 @@ const api:DesktopAPI = {
   start:r=>ipcRenderer.invoke('rpt:start',r), cancel:()=>ipcRenderer.invoke('rpt:cancel'),
   reset:()=>ipcRenderer.invoke('rpt:reset'),
   open:w=>ipcRenderer.invoke('rpt:open',w), appearance:t=>ipcRenderer.invoke('rpt:appearance',t),
+  support:r=>ipcRenderer.invoke('rpt:support',r),
   model:r=>ipcRenderer.invoke('rpt:model',r),modelWork:r=>ipcRenderer.invoke('rpt:modelWork',r),modelCancel:()=>ipcRenderer.invoke('rpt:modelCancel'),
   runtime:r=>ipcRenderer.invoke('rpt:runtime',r),runtimeWork:r=>ipcRenderer.invoke('rpt:runtimeWork',r),
   subscribe:callback=>{const listener=(_:unknown,event:Event)=>callback(event);ipcRenderer.on('rpt:event',listener);return()=>ipcRenderer.removeListener('rpt:event',listener);}

@@ -66,11 +66,11 @@ class PlainRetryTests(unittest.TestCase):
         self.assertEqual(english['text'],'Hello there')
 
     def test_renpy_translation_does_not_enable_rpg_plain_retry(self):
-        row=dict(id='x',source='Hello {i}friend{/i}',kind='dialogue',usage='dialogue')
+        row=dict(id='x',source='Hello [friend]',kind='dialogue',usage='dialogue')
         cfg=dict(CFG,engine='renpy',_rpg_retry_errors={'x':ERROR})
-        with patch('translation.request',return_value={'message':{'content':'[0] 안녕 <rpt000/>친구<rpt001/>'}}) as request,patch('hy_backend.runtime',side_effect=lambda cfg:nullcontext(cfg)):
+        with patch('translation.request',return_value={'message':{'content':'[0] 안녕 <rpt000/>'}}) as request,patch('hy_backend.runtime',side_effect=lambda cfg:nullcontext(cfg)):
             result,_=translate_batch([row],{},cfg)
-        self.assertEqual(result[0]['text'],'안녕 {i}친구{/i}')
+        self.assertEqual(result[0]['text'],'안녕 [friend]')
         self.assertIn('<rpt000/>',request.call_args.args[2]['messages'][0]['content'])
 
     def test_aggregated_controls_round_trip_and_unknown_codes_use_existing_retry(self):

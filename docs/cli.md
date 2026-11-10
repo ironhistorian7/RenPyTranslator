@@ -55,7 +55,7 @@ $tool = 'E:\Tools\RenPyTranslator'
 | `failed` | 실패 목록의 항목만 복구. 저장된 응답을 먼저 사용하고 필요하면 로컬 번역 | 두 엔진 |
 | `display` | 원문 참고 표시·배치 | 두 엔진 |
 | `layout` | 대화창 높이 조정 | 두 엔진 |
-| `names` | 인명·호칭·입력 문구 및 관련 텍스트 | Ren’Py |
+| `names` | 인명·호칭·입력 문구 및 관련 텍스트; RPG Maker는 인명 표기 통일 | 두 엔진 |
 | `all` | Ren’Py는 전체 보정, RPG Maker는 폰트·메뉴와 미번역 복구 | 두 엔진 |
 
 원문 참고를 다시 켜려면 `-ReferenceDisplay show`를 사용합니다. 높이는 `default` 또는 `1.2` 같은 배율로 지정합니다. 표시만 바꾸는 작업은 번역 캐시를 유지합니다.
@@ -88,7 +88,7 @@ $tool = 'E:\Tools\RenPyTranslator'
 
 `verify-source`는 Ren’Py 원본 변경 확인에 사용합니다. RPG Maker 경로에서는 내부에 준비한 원문 사본의 해시를 확인합니다. `analyze`는 Ren’Py의 명시적인 사전 분석 작업으로 기본 번역에 포함되지 않으며 HY 같은 번역 전용 모델로 실행하지 않습니다. 나머지 단계별 명령은 `-Help`에서 확인할 수 있습니다.
 
-RPG Maker MV/MZ는 `run`, `retranslate`, `update`, `check`, `prepare`, `status`, `rebuild`와 `font`·`failed`·`display`·`layout` 보정을 지원합니다. 인명·정답·선택지 힌트·언어 패널은 지원하지 않습니다.
+RPG Maker MV/MZ는 `run`, `retranslate`, `update`, `check`, `prepare`, `status`, `rebuild`와 `font`·`names`·`failed`·`display`·`layout` 보정을 지원합니다. `names`는 번역된 캐릭터 DB의 표기를 화자 이름에 재사용하며 모델이 필요하지 않습니다. 정답·선택지 힌트·언어 패널은 지원하지 않습니다.
 
 ---
 
@@ -129,7 +129,7 @@ Use `update -Project <old-project> -Source <new-game>` to import a newer game, o
 | `failed` | Indexed failures only; saved responses first, local inference if needed | Both |
 | `display` | Original-reference visibility and placement | Both |
 | `layout` | Textbox height | Both |
-| `names` | Names, address, input prompts and affected text | Ren’Py |
+| `names` | Names, address, inputs and affected text; RPG Maker actor-name consistency | Both engines |
 | `all` | All Ren’Py corrections; fonts/menus and failed items for RPG Maker | Both |
 
 Use `-ReferenceDisplay show` to restore references. Heights accept `default` or a multiplier such as `1.2`. Display-only changes retain the translation cache.
@@ -152,4 +152,4 @@ Common options are `-Source`, `-Project`, `-Model`, `-RuntimeId`, `-SourceLangua
 
 `verify-source` checks original-source changes for Ren’Py and prepared snapshot hashes for RPG Maker. `analyze` is an optional Ren’Py analysis operation requiring an appropriate general-purpose model, rather than the default HY translation-only model. See `-Help` for other pipeline commands.
 
-RPG Maker MV/MZ supports `run`, `retranslate`, `update`, `check`, `prepare`, `status`, `rebuild`, and `font`/`failed`/`display`/`layout` repairs. Names, answer prompts, route hints and the language panel are not supported for RPG Maker.
+RPG Maker MV/MZ supports `run`, `retranslate`, `update`, `check`, `prepare`, `status`, `rebuild`, and `font`/`names`/`failed`/`display`/`layout` repairs. `names` reuses translated actor database spellings in speaker labels without a model. Answer prompts, route hints and the language panel are not supported for RPG Maker.

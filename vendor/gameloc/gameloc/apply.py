@@ -207,6 +207,7 @@ def apply(
     dry_run: bool = False,
     game_root: Path | None = None,
     progress: Progress = _noop,
+    reserved_names: set[str] | None = None,
 ) -> ApplyReport:
     root = _resolve_root(proj, game_root)
     rep = ApplyReport(lang=lang)
@@ -217,9 +218,10 @@ def apply(
         return _apply_renpy(proj, lang, root, rep, dry_run=dry_run,
                             progress=progress)
 
-    # 저장된 목록을 믿지 않고 **지금 게임 폴더에서 다시** 계산합니다.
-    # 예전 버전으로 뽑아 둔 목록을 그대로 적용해도 보호되어야 하기 때문입니다.
-    reserved = set(proj.identifiers) | _reserved_names(root, proj)
+    # A caller rendering from an original snapshot can share its identifiers
+    # with validation without scanning previously generated output plugins.
+    reserved = set(proj.identifiers) | (
+        _reserved_names(root, proj) if reserved_names is None else reserved_names)
     _CATALOG_UNKNOWN.clear()
 
     plan: dict[str, dict] = defaultdict(lambda: defaultdict(dict))
