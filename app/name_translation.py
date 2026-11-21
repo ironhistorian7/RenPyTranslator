@@ -55,7 +55,8 @@ def mapping(project):
     for source,target in overrides.items():
         if not isinstance(source,str) or not isinstance(target,str) or not target.strip() or any(c in target for c in '{}[]\r\n'):
             raise ValueError('names.json overrides must map names to plain text')
-    return dict(automatic,**overrides)
+    from name_review import confirmed_map
+    return dict(dict(automatic,**overrides),**confirmed_map(project))
 
 def digest(names):
     return hashlib.sha256(json.dumps(names,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
@@ -69,7 +70,7 @@ def apply_names(project,rows,known):
     semantic=read(project/'data/semantic-edits.json',{})
     for row in rows:
         entry=known.get(row['id'])
-        if not entry:continue
+        if not entry or entry.get('status')=='manual_translation':continue
         source=row['source'];bare=visible(source)
         correction=semantic.get(row['id'],{})
         if correction.get('source')==source and correction.get('before')==entry['text'] and correction.get('after')!=entry['text'] and entry.get('status')!='source_fallback':
@@ -242,7 +243,8 @@ def run(project,cfg):
         semantic={}
         if not cfg.get('_names_only'):
             set_phase('names.terms','이름·호칭 확인')
-            semantic=repair_terms(project,rows,known,saved,types,ask,cfg)
+            eligible={uid:item for uid,item in known.items() if item.get('status')!='manual_translation'}
+            semantic=repair_terms(project,rows,eligible,saved,types,ask,cfg)
             progress('names.terms',1,1)
         set_phase('names.candidates','이름 표기 확인')
         aliases={n:set() for n in names}
@@ -256,7 +258,7 @@ def run(project,cfg):
             if cfg.get('_names_only'):break
             entry=known.get(row['id'])
             if not entry or (row['kind']=='string' and visible(row['source']) in names):continue
-            if entry.get('status') == 'source_fallback':continue
+            if entry.get('status') in ('source_fallback','manual_translation'):continue
             if row['kind'] not in ('dialogue','string'):continue
             correction=semantic.get(row['id'],{})
             if correction.get('source')==row['source'] and correction.get('before')==entry['text']:
@@ -339,6 +341,8 @@ def install_runtime(project,cfg):
         item=dict(item);record=defaults.get(item.get('key'),{})
         if record.get('source')==item.get('default'):
             item['translated_default']=record.get('text')
+        if item.get('kind')=='name' and item.get('default') in names:
+            item['translated_default']=names[item['default']]
         inputs.append(item)
         variable=item.get('variable')
         if variable:
@@ -348,7 +352,8 @@ def install_runtime(project,cfg):
     for record in defaults.values():
         variable=record.get('variable')
         if variable and record.get('kind')!='answer':
-            variables.setdefault(variable,{'kind':record['kind'],'values':{}})['values'][record['source']]=record['text']
+            text=names.get(record['source'],record['text']) if record.get('kind')=='name' else record['text']
+            variables.setdefault(variable,{'kind':record['kind'],'values':{}})['values'][record['source']]=text
     save_json(game/inputpath,{'inputs':inputs,'variables':variables,
                              'prompts':prompts})
     code='''# Name display overlay; no font or layout changes.

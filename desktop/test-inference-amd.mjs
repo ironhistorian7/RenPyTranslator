@@ -1,0 +1,38 @@
+import assert from 'node:assert/strict';
+import {build} from 'esbuild';
+import vm from 'node:vm';
+
+const nodes=new Map();
+const node=id=>{
+  if(!nodes.has(id))nodes.set(id,{value:'',checked:false,hidden:false,textContent:'',addEventListener(){},replaceChildren(...items){this.options=items;}});
+  return nodes.get(id);
+};
+const compiled=await build({entryPoints:['src/inference.ts'],bundle:true,write:false,platform:'node',format:'cjs'});
+const module={exports:{}};
+vm.runInNewContext(compiled.outputFiles[0].text,{module,exports:module.exports,document:{getElementById:node,activeElement:null},Option:class{constructor(text,value){this.text=text;this.value=value;}}});
+const panel=new module.exports.InferencePanel(()=>{},()=>{});
+const values={num_ctx:16384,parallel:2,kv_cache_type:'q8_0',context_txt_enabled:true};
+const settings={gpu_mode:'auto',gpu_ids:[],inference_preset:'auto',inference_overrides:{}};
+const preview={presets:[{...values,id:'12gb',minimum_total_mib:11264,support:'measured'}],detected_profile:'12gb',total_mib:12288,vendor:'amd',backend:'unverified',support:'estimated',recommended:values,effective:values,estimated:true};
+const snapshot={settings,gpus:[{id:'DXGI-test',name:'AMD GPU',vendor:'amd',total:12288,selectable:false}],inference:preview};
+panel.render(settings,snapshot);
+assert.match(node('inference-capacity').textContent,/AMD · 용량 기준 추정/);
+assert.match(node('inference-support').textContent,/백엔드 미확인/);
+assert.doesNotMatch(node('inference-support').textContent,/사용한 기본 설정|Vulkan/);
+assert.match(node('inference-preset').options[1].text,/용량 기준 추정/);
+assert.equal(node('inference-estimate').hidden,false);
+const verified={...snapshot,gpus:[{...snapshot.gpus[0],selectable:true,backend:'vulkan'}],inference:{...preview,backend:'vulkan',devices:[{id:'DXGI-test'}]}};
+panel.render(settings,verified);
+assert.match(node('inference-support').textContent,/계획 백엔드: Vulkan/);
+panel.render(settings,{...verified,models:[{device_id:'DXGI-test',device_backend:'rocm',loaded:[{}]}]});
+assert.match(node('inference-support').textContent,/실행 백엔드: ROCm/);
+panel.render(settings,{...verified,inference:{...verified.inference,backend:'rocm'}});
+assert.match(node('inference-support').textContent,/계획 백엔드: ROCm/);
+panel.render({...settings,gpu_mode:'selected'},snapshot);
+assert.match(node('inference-capacity').textContent,/GPU 용량 미확인/);
+const nvidia={...snapshot,inference:{...preview,vendor:'nvidia',backend:null,support:'measured',estimated:false}};
+panel.render(settings,nvidia);
+assert.match(node('inference-support').textContent,/사용한 기본 설정/);
+assert.match(node('inference-preset').options[1].text,/측정 설정/);
+assert.equal(node('inference-estimate').hidden,true);
+console.log('AMD estimate and unverified backend, manual-selection boundary, and NVIDIA labels passed.');

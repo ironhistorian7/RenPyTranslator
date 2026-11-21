@@ -2,10 +2,58 @@
 import unittest
 
 from rpgmaker_protocol import (align_display_anchors, apply_corrections,
-                               correction_ending, correction_parts, parse)
+                               correction_draft, correction_ending, correction_parts,
+                               correction_plan, parse, retry_instruction)
 
 
 class ProtocolBoundaryTests(unittest.TestCase):
+    def test_confirmed_names_are_not_selected_as_correction_fragments(self):
+        source='架空名は挨拶した。'
+        draft='架空名 안녕ッ 끝'
+        cfg={'engine':'rpgmaker','source_language':'japanese',
+             '_rpg_name_groups':(('架空名','미라'),)}
+        words,positions=correction_parts(draft,source=source,cfg=cfg)
+        self.assertEqual(words,['안녕ッ'])
+        self.assertEqual(draft[positions[0][0]:positions[0][1]],'안녕ッ')
+        self.assertEqual(apply_corrections(draft,positions,{'0':'안녕'}),'架空名 안녕 끝')
+        error="['untranslated Japanese text']; output="+repr(draft)
+        self.assertEqual(correction_plan(source,error,cfg)[1][0],['안녕ッ'])
+
+    def test_a_korean_name_is_not_evidence_that_the_body_was_translated(self):
+        source='架空名は挨拶した。'
+        candidate='미라 おはよう'
+        cfg={'engine':'rpgmaker','source_language':'japanese',
+             '_rpg_name_groups':(('架空名','미라'),)}
+        error="['untranslated Japanese text']; output="+repr(candidate)
+        self.assertIsNone(correction_draft(source,error,cfg))
+        note=retry_instruction([{'id':'x','source':source}],{'x':error},cfg)
+        self.assertNotIn(candidate,note)
+        self.assertNotIn('교정할 이전 번역:',note)
+        self.assertIn('원문 전체',note)
+
+    def test_untranslated_responses_are_not_reinjected_as_korean_drafts(self):
+        cfg={'engine':'rpgmaker','source_language':'japanese'}
+        row={'id':'x','source':'おはよう'}
+        for candidate in ('おはよう','挨拶'):
+            with self.subTest(candidate=candidate):
+                note=retry_instruction([row],{'x':"['untranslated Japanese text']; output="+repr(candidate)},cfg)
+                self.assertNotIn(candidate,note)
+                self.assertNotIn('교정할 이전 번역:',note)
+                self.assertIn('원문 전체',note)
+                self.assertNotIn('[ID]',note)
+
+    def test_natural_korean_fragment_characters_are_not_an_ascii_whitelist(self):
+        draft='앞 안녕ッ 뒤'
+        _,positions=correction_parts(draft)
+        for target in ('“안녕”','안녕(친구)','가나/다라','A+B 좋아요','50% 증가',
+                       'ㅋㅋ 좋아요','가나, 다라: 좋아요'):
+            with self.subTest(target=target):
+                self.assertEqual(apply_corrections(draft,positions,{'0':target}),
+                                 '앞 '+target+' 뒤')
+        for target in ('','안녕\n새 줄',None):
+            with self.subTest(target=target),self.assertRaises(ValueError):
+                apply_corrections(draft,positions,{'0':target})
+
     def test_segment_header_alias_matches_the_actual_requested_id(self):
         self.assertEqual(parse('[번역_3] 합성 응답',1,expected_ids={'3'}),({'3':'합성 응답'},True))
         self.assertEqual(parse('[번역_0] 다른 번호',1,expected_ids={'3'}),({},False))

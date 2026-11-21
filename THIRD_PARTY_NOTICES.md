@@ -22,9 +22,23 @@ RPG Maker MV/MZ 지원에 **Gameloc 3.1.1**의 코드를 포함해 사용합니�
 
 `extract.py`는 파일 읽기 실패와 추출 범위 안내를 구조화된 콜백으로 전달하도록 수정했습니다. 프로그램에 없는 설정을 안내하지 않으며, 원본 명령행 출력은 콜백을 지정하지 않았을 때 유지됩니다.
 
+`extract.py`·`apply.py`·`engines/rpgmaker.py`는 같은 문자열이라도 표시 위치와 기능용 위치를 구분하도록 수정했습니다. 표준 대사·선택지·메뉴·설명 필드의 구조를 확인하며, 기능 조회에 쓰일 수 있는 DB 이름·타입 이름·스크립트·플러그인 키는 기존 보호를 유지합니다.
+
 로컬 AI 번역·GUI·캐시·재개·문맥 전달은 RenPyTranslator에서 처리합니다. 한국어와 원문을 함께 표시하는 플러그인은 `app/rpgmaker_bilingual.js`에 구현되어 있습니다. Gameloc 프로그램을 별도로 설치할 필요는 없으며, Ren’Py 번역에는 기존 RenPyTranslator 경로를 사용합니다.
 
 다른 구성요소의 버전·라이선스는 아래 표에 정리되어 있습니다. 포함된 소스와 글꼴의 무결성 정보는 `vendor/asset-lock.json`, 출처 정보는 `vendor/versions.json`에 보관합니다.
+
+### Locale Emulator
+
+휴대용 일본어 로켈 런처는 [Locale Emulator v2.5.0.1](https://github.com/xupefei/Locale-Emulator/releases/tag/v2.5.0.1)의 DLL과 수정된 LEProc 래퍼를 사용합니다. 라이선스는 LGPL-3.0이며 포함된 `runtimes/locale`의 `COPYING`, `COPYING.LESSER`, `PROVENANCE.txt`, `SOURCE-NOTICE.txt`, 런처 소스와 상류 소스 압축파일을 참고하세요. Core 소스의 정확한 DLL 대응 커밋은 확인되지 않아 해당 압축파일만으로 완전한 대응 소스임을 입증하지 못합니다.
+
+### Unity 에셋 처리
+
+Windows Unity의 직렬화된 TextAsset은 [UnityPy](https://github.com/K0lb3/UnityPy) 1.25.3으로 읽고 저장합니다. UnityPy와 함께 배포하는 Python 의존성의 고지는 `licenses`에 들어 있습니다.
+
+### KiriKiri 형식 참고
+
+KAG 태그와 패치 적용은 [KiriKiri 공식 문서](https://krkrz.github.io/krkr2doc/kag3doc/contents/Tags.html)를 참고했습니다. PSB 읽기·쓰기 형식은 MIT 라이선스의 [storycraft/emote-psb-rs](https://github.com/storycraft/emote-psb-rs)를 참고해 Python으로 구현했습니다. 해당 Rust 라이브러리나 게임의 스크립트·실행 파일은 배포본에 포함하지 않습니다.
 
 ---
 
@@ -48,6 +62,20 @@ The bundled `treepath.py` and `jsonnest.py` contain local changes for literal JS
 `apply.py` also accepts source identifiers shared by rendering and validation, so generated output plugins are not scanned as original game code.
 
 `extract.py` adds an optional structured-notice callback for file-read failures and extraction-scope information. The adapter replaces instructions for settings absent from this application, while calls without the callback retain upstream CLI output.
+
+`extract.py`, `apply.py` and `engines/rpgmaker.py` also distinguish displayed and functional occurrences of equal strings by standard message, choice, menu and description locations. Database/type names, scripts and plugin keys that may act as lookup values retain identifier protection.
+
+### Locale Emulator
+
+The portable Japanese-locale launcher uses DLLs from [Locale Emulator v2.5.0.1](https://github.com/xupefei/Locale-Emulator/releases/tag/v2.5.0.1) and an adapted LEProc wrapper under LGPL-3.0. See bundled `runtimes/locale` for `COPYING`, `COPYING.LESSER`, `PROVENANCE.txt`, `SOURCE-NOTICE.txt`, launcher source and upstream source archives. The exact Core commit corresponding to the released DLLs is unconfirmed; those archives do not establish complete corresponding source.
+
+### Unity assets
+
+[UnityPy](https://github.com/K0lb3/UnityPy) 1.25.3 reads and writes serialized TextAssets in Windows Unity builds. Notices for UnityPy and bundled Python dependencies are in `licenses`.
+
+### KiriKiri format references
+
+The KAG adapter follows the [official KiriKiri documentation](https://krkrz.github.io/krkr2doc/kag3doc/contents/Tags.html). The Python PSB reader/writer uses [storycraft/emote-psb-rs](https://github.com/storycraft/emote-psb-rs), licensed under MIT, as a format reference. Neither that Rust library nor game scripts or binaries are bundled.
 
 ### Bundled components
 

@@ -31,6 +31,7 @@ _ARTIFACT = re.compile(r'<(?:rpt|rtpt)\d+\s*/>|\[/?target_id(?:=[^\]]*)?\]')
 _FRAME = re.compile(r'File "([^"]+)", line (\d+)')
 _SHOWMENU = re.compile(r'\bShowMenu\(\s*(["\'])([^"\'\r\n]+)\1\s*[,)]')
 _INIT_PRIORITY_ADVISORY = re.compile(r'^The init priority \(-?\d+\) is not in the -999 to 999 range\.$')
+_SAY_IMAGE_LINT = re.compile(r'Could not find image \([^\r\n]+\) corresponding to attributes on say statement\.')
 
 
 def _read(path, default=None):
@@ -359,6 +360,7 @@ def _render_rows(project, cfg, failures=None):
             continue
         rows.append(dict(id=row['id'], file=relative, line=row['line'] + 1,
                          kind=row.get('kind'), source=row['source'], text=text,
+                         source_file=row.get('source_file'), source_line=row.get('source_line'),
                          literal_index=row.get('literal_index', 0)))
     return rows
 
@@ -506,7 +508,61 @@ def _patch_frame(failure, language):
                '/game/tl/' + language + '/' in '/' + path for path in paths)
 
 
-def classify(baseline_checks, patched_checks, evidence):
+def _lint_location(file, line):
+    if not isinstance(file, str) or type(line) is not int or line <= 0:
+        return None
+    path = PurePosixPath(file.replace('\\', '/'))
+    if path.parts[:1] != ('game',) or '..' in path.parts or ':' in file:
+        return None
+    return path.as_posix(), line
+
+
+def _say_image_site(failure):
+    if (failure.get('operation') == 'lint' and failure.get('check') == 'lint_issue'
+            and failure.get('error_type') == 'LintIssue' and not failure.get('traceback')
+            and _SAY_IMAGE_LINT.fullmatch(failure.get('error', ''))):
+        return _lint_location(failure.get('file'), failure.get('line'))
+    return None
+
+
+def _completed_lint(checks):
+    return any(check.get('check') == 'lint' and check.get('returncode') == 0
+               and check.get('status') in ('passed', 'failed')
+               and not any(check.get(key) for key in ('error_type', 'traceback', 'parse_errors'))
+               and any(event.get('check') == 'lint_capture' and event.get('status') == 'passed'
+                       for event in check.get('events', ())) for check in checks)
+
+
+def _paired_say_image_lint(original, patched, rows, language):
+    """Match the copied say attributes to their exact original lint diagnostic."""
+    originals = Counter((site, item['error']) for item in original if (site := _say_image_site(item)))
+    if not originals:
+        return {}
+    candidates = {i: site for i, item in enumerate(patched) if (site := _say_image_site(item))}
+    wanted = set(candidates.values())
+    if not wanted:
+        return {}
+    origins = {}
+    prefix = 'game/tl/' + language + '/'
+    for row in rows:
+        site = _lint_location(prefix + row['file'], row['line'])
+        if site not in wanted:
+            continue
+        source = _lint_location(row.get('source_file'), row.get('source_line'))
+        # A translated line must identify a single source statement.
+        origins[site] = (source if site not in origins and row.get('kind') == 'dialogue'
+                         and source and not _owned(source[0], language) else None)
+    matches = {}
+    for i, site in candidates.items():
+        origin = origins.get(site)
+        signature = origin, patched[i]['error']
+        if origin and originals[signature]:
+            matches[i] = dict(file=origin[0], line=origin[1])
+            originals[signature] -= 1
+    return matches
+
+
+def classify(baseline_checks, patched_checks, evidence, rows=()):
     """Attribute exact matched outcomes, preserving unknown/mixed failures."""
     original = _failures(baseline_checks)
     patched = _failures(patched_checks)
@@ -518,11 +574,17 @@ def classify(baseline_checks, patched_checks, evidence):
                  if event.get('status') == 'passed'}
     lint_complete = any(event.get('check') == 'lint_capture' and event.get('status') == 'passed'
                         for check in baseline_checks for event in check.get('events', []))
+    language = evidence.get('language', 'korean')
+    mapped_lint = (_paired_say_image_lint(original, patched, rows, language)
+                   if equivalent and rows and _completed_lint(baseline_checks) and _completed_lint(patched_checks)
+                   else {})
     items = []
-    for failure in patched:
+    for index, failure in enumerate(patched):
         matched = _signature(failure) in original_signatures
         if not equivalent:
             owner, reason = 'unknown', 'Original input inventory or paired probe coverage was unavailable'
+        elif index in mapped_lint:
+            owner, reason = 'original', 'The same say image diagnostic occurs at the mapped original line'
         elif matched:
             trace = failure.get('traceback', '').replace('\\', '/')
             original_source = evidence.get('source_authenticity', {})
@@ -543,7 +605,7 @@ def classify(baseline_checks, patched_checks, evidence):
                 owner, reason = 'unknown', 'The shared failure may be caused by the probe or unavailable game state'
         elif ((not original or (failure.get('check'), failure.get('id'), failure.get('target')) in successes
                or failure.get('operation') == 'lint' and lint_complete)
-              and (_patch_frame(failure, evidence.get('language', 'korean'))
+              and (_patch_frame(failure, language)
                    or failure.get('known_generated_rule')
                    or failure.get('check') == 'text' and failure.get('id') in evidence.get('changed_text_ids', []))):
             owner, reason = 'ours', 'The matching original check succeeds; only the tool-owned code or rendered text differs'
@@ -551,8 +613,10 @@ def classify(baseline_checks, patched_checks, evidence):
             owner, reason = 'unknown', 'Different outcomes require a causal check; no repair was inferred'
         advisory = (failure.get('operation', failure.get('check')) == 'lint'
                     and bool(_INIT_PRIORITY_ADVISORY.fullmatch(failure.get('error', '').strip())))
-        items.append(dict(failure, attribution=owner, reason=reason,
-                          severity='warning' if advisory else 'error'))
+        item = dict(failure, attribution=owner, reason=reason, severity='warning' if advisory else 'error')
+        if index in mapped_lint:
+            item['original_location'] = mapped_lint[index]
+        items.append(item)
     owners = {item['attribution'] for item in items}
     if not patched:
         overall = 'none' if not original else 'unknown'
@@ -749,13 +813,25 @@ def _commit_repairs(project, workspace, proposals, artifact):
         raise
 
 
-def _rpg_check(project, cfg, artifact, mode='static'):
+def _rpg_check(project, cfg, artifact, mode='static', output_root=None):
     from job_events import set_phase
     set_phase('validate.rpg','RPG Maker 패치 검사 중')
     snapshot = project / 'data/rpg-source'
     base = project / 'staging'
     report = _read(project / 'data/rpg-output.json', {})
     files = report.get('files', [])
+    if output_root is not None:
+        base = Path(output_root).resolve(strict=True)
+        link = _read(base / 'project-link.json', {})
+        if link.get('engine') != 'rpgmaker' or not isinstance(link.get('project'), str) or (base / link['project']).resolve() != project.resolve():
+            raise ValueError('Selected RPG Maker output does not belong to this project')
+        if not report.get('output') or Path(report['output']).resolve() != base:
+            raise ValueError('Selected RPG Maker output does not match the saved output manifest')
+    file_set = set(files)
+    def final_path(name):
+        # Export contains only changed files; unchanged data comes from the
+        # captured original, never from the unrelated staging directory.
+        return _safe(base if output_root is None or name in file_set else snapshot, name)
     control_pairs = 0
     js_checked = 0
     js_available = False
@@ -764,12 +840,20 @@ def _rpg_check(project, cfg, artifact, mode='static'):
     location_count = event_count = choice_count = 0
     catalog_checked = False
     diagnostics = []
+    manual_repairs = []
+    actor_class_references = 0
+    actor_class_problems = {}
     if not files:
         result = dict(status='incomplete', attribution='unknown', failures=[],
                       reason='No prepared RPG Maker output is available')
     else:
         checks = []
         from runtime_assets import runtime_executable
+        from rpgmaker_class_repair import apply_overrides, reference_diagnostics, observe_actor_reference
+        database_base = PurePosixPath(cfg.get('rpg_base') or '.') / 'data'
+        actors_file = (database_base / 'Actors.json').as_posix()
+        classes_file = (database_base / 'Classes.json').as_posix()
+        system_file = (database_base / 'System.json').as_posix()
         node = runtime_executable('node')
         js_available = node.is_file()
         checker_environment = dict(os.environ)
@@ -816,7 +900,7 @@ def _rpg_check(project, cfg, artifact, mode='static'):
         def read_pair(name):
             nonlocal json_checked
             if name in documents:return documents[name]
-            path = _safe(base, name)
+            path = final_path(name)
             original = _safe(snapshot, name)
             json_checked += 1
             before = after = None
@@ -825,6 +909,16 @@ def _rpg_check(project, cfg, artifact, mode='static'):
             except Exception as exc:before = dict(error_type=type(exc).__name__, error=str(exc))
             try:b = json.loads(path.read_text(encoding='utf-8-sig'))
             except Exception as exc:after = dict(error_type=type(exc).__name__, error=str(exc))
+            overrides = cfg.get('rpg_actor_class_overrides')
+            if name == actors_file and before is None and overrides is not None and overrides != {}:
+                class_original, _, class_before, _ = read_pair(classes_file)
+                try:
+                    if class_before:raise ValueError('Original classes are unavailable for the declared actor-class repair')
+                    a, changes = apply_overrides(a, cfg, class_original)
+                    manual_repairs.extend(dict(file=name, pointer=f"[{change['actor_id']}].classId", **change)
+                                          for change in changes)
+                except ValueError as exc:
+                    checks.append(dict(file=name, attribution='ours', error_type='RPGClassOverrideInvalid', error=str(exc)))
             if after:
                 checks.append(dict(file=name, attribution='original' if before == after and original.is_file() else 'ours' if before is None else 'unknown', **after))
             documents[name] = (a, b, before, after)
@@ -832,6 +926,7 @@ def _rpg_check(project, cfg, artifact, mode='static'):
         def controls(document, original, name, pointer=''):
             nonlocal control_pairs
             if isinstance(document, dict):
+                observe_actor_reference(document, name, pointer, actor_class_problems)
                 if isinstance(document.get('_rpt_original'), str) and isinstance(document.get('_rpt_translation'), str):
                     from rpgmaker_tokens import validate
                     control_pairs += 1
@@ -864,12 +959,25 @@ def _rpg_check(project, cfg, artifact, mode='static'):
             if path.suffix.lower() != '.json':
                 continue
             read_pair(name)
+        # These three standard databases share the existing parsed pairs and
+        # structural comparison. No second numeric scan or runtime is needed.
+        for name in (classes_file, actors_file, system_file):
+            if name not in documents and (_safe(snapshot, name).is_file() or final_path(name).is_file()):
+                read_pair(name)
+        actors = documents.get(actors_file)
+        classes = documents.get(classes_file)
+        system = documents.get(system_file)
+        if actors and classes and not actors[2] and not actors[3] and not classes[2] and not classes[3]:
+            actor_class_problems, actor_class_references = reference_diagnostics(
+                actors[1], classes[1], actors[0], classes[0], system[1] if system and not system[3] else None,
+                actors_file=actors_file)
         if (project/'data/catalog.json').is_file():
             from gameloc_vendor import load
             load()
             from gameloc import jsonnest, heuristics
             from gameloc.model import Project, Entry, Location
             from gameloc.apply import _distribute, _reserved_names
+            from gameloc.engines.rpgmaker import is_display_location
             from rpgmaker_paths import normalize_locations
             from translation import read_catalog, cache, validate_entry
             from replacements import load_rules, replace_visible
@@ -877,8 +985,12 @@ def _rpg_check(project, cfg, artifact, mode='static'):
             known = cfg.get('_rpg_render_known')
             if known is None:
                 known = cache(project, cfg)
+                manual = {uid:dict(item) for uid,item in known.items() if item.get('status')=='manual_translation'}
                 from rpgmaker_names import apply_names
                 known, _ = apply_names(project, cfg, rows, known)
+                known.update(manual)
+            from rpgmaker_names import validation_config
+            cfg = validation_config(cfg, rows, known)
             rendered_validation = cfg.get('_rpg_render_validated', {})
             metadata = project/'data/rpgmaker-project.json'
             if metadata.is_file():upstream = Project.load(metadata)
@@ -902,6 +1014,7 @@ def _rpg_check(project, cfg, artifact, mode='static'):
                     reserved = set(upstream.identifiers) | _reserved_names(snapshot, upstream)
                 else:
                     reserved = set(reserved)
+                display_documents={name.replace('\\','/'):pair[0] for name,pair in documents.items() if not pair[2]}
                 for row in rows:
                     entry = entries.get(row['id'])
                     item = known.get(row['id'])
@@ -909,18 +1022,17 @@ def _rpg_check(project, cfg, artifact, mode='static'):
                         issue(row.get('file',''), '', 'RPGTranslationUnavailable',
                               'Catalog location or cached translation is unavailable', id=row['id'])
                         continue
-                    text, _ = replace_visible(item['text'], rules)
+                    text = item['text'] if item.get('status')=='manual_translation' else replace_visible(item['text'], rules)[0]
                     pair = (row['source'], text)
                     validation_key = pair+(item.get('status') in ('source_fallback','ui_original') and text == row['source'],)
                     if validation_key not in validated:
                         validated[validation_key] = ([] if rendered_validation.get(row['id']) == pair else
-                                                     validate_entry(row['source'], dict(item,text=text), cfg))
+                                                     validate_entry(row['source'], dict(item,text=text), cfg,allow_partial=True))
                         validated_pairs.add(pair)
                         if validated[validation_key]:
                             issue(row.get('file',''), '', 'RPGTranslationInvalid',
                                   '; '.join(validated[validation_key]), id=row['id'])
-                    entry_skip = (entry.text in reserved or heuristics.looks_like_identifier(entry.text)
-                                  or heuristics.looks_like_kv_code(entry.text) or heuristics.looks_like_dotnet(entry.text))
+                    entry_skip = (heuristics.looks_like_kv_code(entry.text) or heuristics.looks_like_dotnet(entry.text))
                     for loc in entry.locations:
                         if loc.kind != 'loose' or loc.fmt != 'json':continue
                         original_doc, final_doc, before, after = read_pair(loc.file)
@@ -929,7 +1041,10 @@ def _rpg_check(project, cfg, artifact, mode='static'):
                                 checks.append(dict(file=loc.file, attribution='unknown', error_type='RPGOriginalUnavailable',
                                                    error='Original JSON is unavailable for structural comparison'))
                             continue
-                        skipped = entry_skip or heuristics.is_denied_key(loc.ptr)
+                        display=is_display_location(snapshot,loc,display_documents)
+                        skipped = (item.get('status')!='manual_translation' and
+                                   (entry_skip or heuristics.looks_like_identifier(entry.text) and not display or heuristics.is_denied_key(loc.ptr) or
+                                    entry.text in reserved and not display))
                         expected = _distribute(text, loc)
                         for pointer, value in expected.items():
                             parts = tuple(jsonnest.parse_path(pointer))
@@ -973,7 +1088,7 @@ def _rpg_check(project, cfg, artifact, mode='static'):
                                 command_parts = parts[:parts.index('parameters')]
                                 applied = [allowed.get((loc.file,tuple(jsonnest.parse_path(pointer)))) for pointer in loc.span]
                                 if all(isinstance(value,str) for value in applied):
-                                    body = '\n'.join(applied)
+                                    body = text if item.get('status')=='manual_translation' else '\n'.join(applied)
                                     original = row['source'] if cfg.get('show_reference',True) and body != row['source'] else None
                                     references[(loc.file,command_parts)] = (original,body)
                 def compare(original, final, name, parts=()):
@@ -990,7 +1105,7 @@ def _rpg_check(project, cfg, artifact, mode='static'):
                         return
                     if isinstance(original,dict) and isinstance(final,dict):
                         event = isinstance(original.get('code'),int) and isinstance(original.get('parameters'),list)
-                        generated = {'_rpt_original','_rpt_translation','_rpt_choice_originals','_rpt_choice_translations'} if event else set()
+                        generated = {'_rpt_original','_rpt_translation','_rpt_choice_originals','_rpt_choice_translations','_rpt_manual'} if event else set()
                         if event:
                             event_count += 1
                             if original.get('code') == 102:
@@ -1028,6 +1143,7 @@ def _rpg_check(project, cfg, artifact, mode='static'):
                     if not before and not after:compare(original_doc,final_doc,name)
         for name,(original_doc,final_doc,before,after) in documents.items():
             if not after:controls(final_doc,original_doc,name)
+        diagnostics.extend(actor_class_problems.values())
         requires_js = any(PurePosixPath(name).suffix.lower() == '.js' for name in files)
         complete = bool(json_checked or js_checked) and (not requires_js or js_available)
         result = dict(status='failed' if checks else 'passed' if complete else 'incomplete', attribution='mixed' if len({c['attribution'] for c in checks}) > 1 else checks[0]['attribution'] if checks else 'none', failures=checks)
@@ -1035,8 +1151,13 @@ def _rpg_check(project, cfg, artifact, mode='static'):
                   coverage={'json': json_checked > 0, 'json_files': json_checked, 'runtime': 'not_run', 'plugin_syntax': 'checked' if js_checked else 'not_available',
                             'javascript_files': js_checked, 'javascript_checker': js_checker, 'control_pairs': control_pairs,
                             'catalog_locations':location_count, 'catalog_checked':catalog_checked,
-                            'event_commands':event_count, 'choice_groups':choice_count},
-                  diagnostics=diagnostics, repairs=[], report=str(artifact / 'report.json'))
+                             'event_commands':event_count, 'choice_groups':choice_count,
+                             'actor_class_references':actor_class_references,
+                             'invalid_actor_classes':len(actor_class_problems),
+                             'actor_usage':'initial_party_and_literal_events_only'},
+                  checked_root=str(base), checked_target='output' if output_root is not None else 'staging',
+                  diagnostics=diagnostics, repairs=[], manual_repairs=manual_repairs,
+                  report=str(artifact / 'report.json'))
     save_json(artifact / 'report.json', result)
     save_json(project / 'data/patch-validation.json', result)
     return result
@@ -1109,7 +1230,7 @@ def cleanup_workspaces(artifact, result=None):
     return records
 
 
-def run(project, cfg, mode='render', auto_fix=True):
+def run(project, cfg, mode='render', auto_fix=True, output_root=None):
     """Explicit user check. No inference, extraction or translation is started."""
     project = Path(project).resolve(strict=True)
     if mode not in ('static', 'compile', 'render'):
@@ -1117,8 +1238,17 @@ def run(project, cfg, mode='render', auto_fix=True):
     identity = datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S-') + uuid.uuid4().hex[:8]
     artifact = project / 'data/validation-runs' / identity
     artifact.mkdir(parents=True)
+    if cfg.get('engine') == 'kirikiri':
+        from kirikiri_project import static_check
+        result = dict(static_check(project, cfg))
+        result.update(version=1, engine='kirikiri', mode='static',
+                      report=str(artifact / 'report.json'))
+        save_json(artifact / 'report.json', result)
+        save_json(project / 'data/patch-validation.json', result)
+        print('Patch check: ' + result['status'] + '; report: ' + result['report'], flush=True)
+        return result
     if cfg.get('engine') == 'rpgmaker' or (project / 'data/rpgmaker-project.json').is_file():
-        return _rpg_check(project, cfg, artifact, mode)
+        return _rpg_check(project, cfg, artifact, mode, output_root=output_root)
     rows = []
     final_errors = []
     result = dict(version=1, engine='renpy', mode=mode, scope='renpy_final_text' if mode=='static' else 'renpy_isolated_runtime',
@@ -1129,8 +1259,10 @@ def run(project, cfg, mode='render', auto_fix=True):
                             'quest_branches': 'not_run', 'save_states': 'isolated'})
     try:
         rows = _render_rows(project, cfg, final_errors)
+        from translation import cache
+        manual_ids = {uid for uid,item in cache(project,cfg).items() if item.get('status')=='manual_translation'}
         final_errors.extend(dict(id=row['id'], file=row['file'], line=row['line'], errors=errors)
-                            for row in rows if (errors := validate_final(row, row['text'], cfg)))
+                            for row in rows if row['id'] not in manual_ids and (errors := validate_final(row, row['text'], cfg)))
         result['coverage']['text_items'] = len(rows)
         if mode == 'static':
             result.update(status='failed' if final_errors else 'passed', attribution='unknown' if final_errors else 'none',
@@ -1173,7 +1305,7 @@ def run(project, cfg, mode='render', auto_fix=True):
             if operation == 'compile' and any(check['status'] == 'failed' for check in (baseline_checks[-1], patched_checks[-1])):
                 break
         _mark_known_causes(patched, cfg, patched_checks, rows)
-        attribution = classify(baseline_checks, patched_checks, evidence)
+        attribution = classify(baseline_checks, patched_checks, evidence, rows)
         result.update(attribution, baseline=baseline_checks, patched=patched_checks, evidence=evidence)
         failures = _blocking_failures(attribution['failures'])
         result['diagnostics'] = [item for item in attribution['failures'] if _nonblocking_lint(item)]
@@ -1188,7 +1320,7 @@ def run(project, cfg, mode='render', auto_fix=True):
             retry_checks = [_execute(patched, operation, min(1800, max(180, int(len(rows)*.03)+60)) if operation=='render' else 180) for operation in operations]
             result['repair_recheck'] = retry_checks
             _mark_known_causes(patched, cfg, retry_checks, rows)
-            retry_attribution = classify(baseline_checks, retry_checks, evidence)
+            retry_attribution = classify(baseline_checks, retry_checks, evidence, rows)
             retry_failures = _blocking_failures(retry_attribution['failures'])
             if (not retry_failures and not any(check['status'] == 'incomplete' for check in retry_checks)
                     and not final_errors and proof_ready):

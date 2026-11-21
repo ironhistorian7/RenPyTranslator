@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 import zipfile
 
-from release_archives import publish_archives, sha256, write_full, write_light
+from release_archives import audit_bundle, publish_archives, runtime_file_allowed, sha256, write_full, write_light
 
 
 class ReleaseArchiveTests(unittest.TestCase):
@@ -36,6 +36,18 @@ class ReleaseArchiveTests(unittest.TestCase):
             (models / 'sha256-example').write_bytes(b'model')
             with self.assertRaisesRegex(ValueError, 'unexpectedly contains'):
                 write_light(root / 'RenPyTranslator', root / 'light.zip')
+
+    def test_release_rejects_local_gfx906_files_even_inside_allowed_roots(self):
+        for relative in ('_internal/.rocm-gfx906/llama-server.exe',
+                         'runtimes/ollama-0.40.15/lib/ollama/rocm_gfx906/ggml-hip.dll',
+                         '_internal/hipblas57.dll'):
+            with self.subTest(relative=relative), tempfile.TemporaryDirectory() as temp:
+                root=Path(temp); item=root/relative; item.parent.mkdir(parents=True)
+                item.write_bytes(b'local runtime')
+                self.assertFalse(runtime_file_allowed(relative))
+                for edition in ('light','full'):
+                    with self.assertRaisesRegex(ValueError, 'Private'):
+                        audit_bundle(root,edition,write_manifest=False)
 
     def test_same_version_backups_keep_other_edition(self):
         with tempfile.TemporaryDirectory() as temp:

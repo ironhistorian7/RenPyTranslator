@@ -4,9 +4,11 @@ No game reads, inference probes, driver changes, or changes to model settings.
 The translation parent is the only cache writer and the only recovery owner.
 """
 from collections import deque
+import copy
 from datetime import datetime, timezone, timedelta
 import base64
 import ctypes
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -31,6 +33,8 @@ def cancelled():
 
 def recoverable(exc):
     if not getattr(exc,'_rpt_transport',False):return False
+    from request_diagnostics import is_token_repeat_limit
+    if is_token_repeat_limit(exc):return False
     return not isinstance(exc,urllib.error.HTTPError) or exc.code in (500,502,503,504)
 
 
@@ -279,6 +283,57 @@ class Evidence:
         print('Runtime incident: '+str(path),flush=True)
         return incident
 
+    def generation_failed(self,cfg,request_id,details=None):
+        """Save existing sampler evidence without probes, log reads or restart.
+
+        The full request/error trace already holds any server error body. This
+        record links it by request ID and hashes, without duplicating game text.
+        """
+        try:
+            details=details if isinstance(details,dict) else {}
+            metadata={key:details[key] for key in (
+                'request','response','failure','request_metadata','response_metadata',
+                'response_available','partial_response_available','http_status','error_code',
+                'protocol','input_count','model_metadata','request_trace','error_file') if key in details}
+            http=details.get('http')
+            if isinstance(http,dict):
+                body=http.get('body')
+                metadata['http']={key:http[key] for key in ('status','body_truncated') if key in http}
+                if isinstance(body,str):
+                    metadata['http'].update(body_characters=len(body),
+                        body_sha256=hashlib.sha256(body.encode('utf-8','replace')).hexdigest())
+            with self.lock:
+                snapshot=copy.deepcopy(dict(resource_history=list(self.history)[-30:],
+                    module_history=list(self.module_history)[-1:],recent_requests=list(self.requests)[-30:],
+                    inflight_requests=list(self.inflight.values())[-30:]))
+            record=dict(event='generation_failed',recorded_at=datetime.now(timezone.utc).isoformat(),
+                run_id=cfg.get('_recovery_run_id'),generation=cfg.get('_runtime_generation'),
+                request_id=request_id,request_trace=str(self.directory.parent/'translation-requests.jsonl'),
+                runtime_pid=cfg.get('_runtime_pid'),model=cfg.get('model'),
+                model_metadata=cfg.get('_runtime_model_metadata'),details=metadata,**snapshot)
+            log=cfg.get('_runtime_log')
+            if log:
+                record['server_log']=str(log)
+                try:record['server_log_offset_bytes']=Path(log).stat().st_size
+                except OSError as exc:record['server_log_stat_error']=type(exc).__name__
+            uid=request_id if isinstance(request_id,str) else ''
+            if not re.fullmatch(r'[A-Za-z0-9_-]{1,128}',uid):
+                uid=hashlib.sha256(str(request_id).encode('utf-8','replace')).hexdigest()[:32]
+            self.directory.mkdir(parents=True,exist_ok=True)
+            path=self.directory/('generation-'+uid+'.json')
+            try:
+                stream=path.open('x',encoding='utf-8')
+            except FileExistsError:
+                path=self.directory/('generation-'+uid+'-'+uuid.uuid4().hex[:10]+'.json')
+                stream=path.open('x',encoding='utf-8')
+            with stream:json.dump(record,stream,ensure_ascii=False,indent=2)
+            self.event('generation_failed',request_id=request_id,run_id=record['run_id'],
+                       generation=record['generation'],path=str(path))
+            return str(path)
+        except Exception as exc:
+            print('Generation diagnostics unavailable: '+type(exc).__name__,file=sys.stderr,flush=True)
+            return None
+
     def finalize(self,incident,cfg,exit_state):
         """Append post-exit evidence after the existing recovery backoff."""
         if incident not in self.records:return
@@ -316,6 +371,24 @@ class Evidence:
 
 
 def run(project,cfg,operation,saved_count):
+    if cfg.get('_gpu_device_plan'):
+        from gpu_policy import prepare_model
+        from gpu_runtime_pool import runtime_pool
+        from gpu_dispatcher import RuntimeDispatch
+        from model_runtime import process_owned_models
+        # Every request is leased to one server. The parent operation is still
+        # the only writer of translation records and progress.
+        explicit={d.get('overrides',{}).get('model') for d in cfg['_gpu_device_plan']} - {None,''}
+        if explicit:
+            from model_store import manifest_store
+            store=manifest_store(cfg.get('runtime_id') or '')
+            for model in sorted(explicit):
+                if not store.model(model)['ready']:
+                    raise ValueError('GPU에 지정한 모델을 설치해 주세요 · '+model)
+        prepared=prepare_model(cfg)
+        with process_owned_models(), runtime_pool(prepared,prepared['_gpu_device_plan']) as pool:
+            with RuntimeDispatch(pool,project,prepared,saved_count) as dispatch:
+                return operation(dict(prepared,_gpu_dispatch=dispatch))
     from hy_backend import runtime
     from job_events import emit,translation_tracker
     cfg=dict(cfg);tracker=translation_tracker(cfg)
@@ -325,24 +398,40 @@ def run(project,cfg,operation,saved_count):
         while True:
             cancelled()
             failure=None;active=None;exit_state={}
-            succeeded=threading.Event();success_lock=threading.Lock()
+            succeeded=threading.Event();http_reported=threading.Event();success_lock=threading.Lock()
             previous_incident=incident
             def event(name,_generation=generation,**details):
                 details.setdefault('run_id',run_id)
                 details.setdefault('generation',_generation)
                 evidence.event(name,**details)
-            def request_succeeded(*,request_id=None,metrics=None,_signal=succeeded,
-                                  _lock=success_lock,_event=event,_incident=previous_incident,**unused):
-                # This closure owns this generation's Event. Late responses from
-                # an old server cannot reset its replacement's failure streak.
+            def request_succeeded(*,request_id=None,metrics=None,
+                                  _event=event,_incident=previous_incident,
+                                  _reported=http_reported,_lock=success_lock,**unused):
+                # HTTP success is evidence only: malformed or untranslated output
+                # must not reset the server restart budget.
+                with _lock:
+                    if _reported.is_set():return
+                    _reported.set()
+                values=metrics if isinstance(metrics,dict) else {}
+                safe={k:values[k] for k in ('eval_count','prompt_eval_count','done_reason') if k in values}
+                try:_event('request_succeeded',request_id=request_id,incident_id=_incident,metrics=safe,
+                           recovery_progress=False)
+                except Exception as log_error:
+                    print('Runtime success log unavailable: '+str(log_error),file=sys.stderr,flush=True)
+            def progress_committed(*,item_ids=(),request_ids=(),_signal=succeeded,
+                                   _lock=success_lock,_event=event,_incident=previous_incident):
+                # The cache writer calls this only after saving validated, new
+                # translations. Each closure belongs to its own server generation.
+                ids=[uid for uid in item_ids if isinstance(uid,str) and uid]
+                if not ids:return
                 with _lock:
                     if _signal.is_set():return
                     _signal.set()
-                values=metrics if isinstance(metrics,dict) else {}
-                safe={k:values[k] for k in ('eval_count','prompt_eval_count','done_reason') if k in values}
-                try:_event('request_succeeded',request_id=request_id,incident_id=_incident,metrics=safe)
+                try:_event('translation_progress_committed',incident_id=_incident,
+                           committed_count=len(ids),item_ids=ids[:16],
+                           request_ids=[uid for uid in request_ids if isinstance(uid,str)][:16])
                 except Exception as log_error:
-                    print('Runtime success log unavailable: '+str(log_error),file=sys.stderr,flush=True)
+                    print('Runtime progress log unavailable: '+str(log_error),file=sys.stderr,flush=True)
             def finalize():
                 if not failure or not incident:return
                 try:evidence.finalize(incident,active or cfg,exit_state)
@@ -354,9 +443,13 @@ def run(project,cfg,operation,saved_count):
                 with runtime(launch_cfg) as launched:
                     active=dict(launched)
                     exit_state=active.setdefault('_runtime_exit',{})
+                    def generation_failed(*,request_id,details=None,_cfg=active):
+                        return evidence.generation_failed(_cfg,request_id,details)
                     active.update(_recovery_event=event,_recovery_incident=incident,
                                   _recovery_run_id=run_id,_runtime_generation=generation,
-                                  _recovery_request_succeeded=request_succeeded)
+                                  _recovery_request_succeeded=request_succeeded,
+                                  _recovery_progress_committed=progress_committed,
+                                  _recovery_generation_failed=generation_failed)
                     evidence.configure(active)
                     event('server_ready',incident_id=incident,restart=restarted,total_restarts=total_restarts,
                         pid=active.get('_runtime_pid'),endpoint=active.get('endpoint'),server_log=active.get('_runtime_log'),native_launch=active.get('_runtime_launch'))
@@ -369,7 +462,7 @@ def run(project,cfg,operation,saved_count):
                         if not recoverable(exc):raise
                         failure=exc
                         if succeeded.is_set() and restarted:
-                            event('restart_streak_reset',previous_restarts=restarted,reason='http_success_in_current_generation')
+                            event('restart_streak_reset',previous_restarts=restarted,reason='saved_translation_progress_in_current_generation')
                             restarted=0
                         incident=None
                         try:incident=evidence.capture(exc,active,restarted,saved_count())
@@ -408,12 +501,12 @@ def run(project,cfg,operation,saved_count):
                 # A sibling may deliver its successful response while teardown
                 # is waiting. It still belongs to this same generation only.
                 if succeeded.is_set() and restarted:
-                    event('restart_streak_reset',previous_restarts=restarted,reason='http_success_in_current_generation')
+                    event('restart_streak_reset',previous_restarts=restarted,reason='saved_translation_progress_in_current_generation')
                     restarted=0
                 if restarted>=MAX_RESTARTS:
                     pause(2);finalize()
                     event('restart_limit',incident_id=incident,restarts=restarted,total_restarts=total_restarts)
-                    print(f'Automatic recovery stopped after {MAX_RESTARTS} restarts without a successful response. Saved translations are retained.',flush=True)
+                    print(f'Automatic recovery stopped after {MAX_RESTARTS} restarts without saved translation progress. Saved translations are retained.',flush=True)
                     raise
                 delay=RESTART_DELAYS[restarted]
                 restarted+=1
@@ -422,9 +515,11 @@ def run(project,cfg,operation,saved_count):
                       delay_seconds=delay,saved_entries=saved_count())
                 tracker.pause()
                 emit('recovery',state='waiting',delay_seconds=delay,
-                     next_retry_at=(datetime.now(timezone.utc)+timedelta(seconds=delay)).isoformat(),attempt=restarted)
+                     next_retry_at=(datetime.now(timezone.utc)+timedelta(seconds=delay)).isoformat(),
+                     attempt=restarted,total_attempts=total_restarts,max_attempts=MAX_RESTARTS)
                 print(f'Model server failed. Restarting ({restarted}/{MAX_RESTARTS}) in {delay} seconds; saved translations will be skipped.',flush=True)
                 try:pause(delay)
                 finally:finalize()
-                emit('recovery',state='resuming',delay_seconds=0,next_retry_at=None,attempt=restarted)
+                emit('recovery',state='resuming',delay_seconds=0,next_retry_at=None,
+                     attempt=restarted,total_attempts=total_restarts,max_attempts=MAX_RESTARTS)
                 generation+=1

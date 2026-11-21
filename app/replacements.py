@@ -43,10 +43,11 @@ def effective_cache(project,cfg,report=False,apply_ui=True):
     from translation import cache, read_catalog, validate_entry
     rules=load_rules(project/'replacements.json')
     known=cache(project,cfg);counts=Counter();changes=[]
+    manual={uid:dict(item) for uid,item in known.items() if item.get('status')=='manual_translation'}
     rows=read_catalog(project)
     if cfg.get('_render_ids') is not None:rows=[r for r in rows if r['id'] in cfg['_render_ids']]
     for row in rows:
-        if row['id'] not in known:continue
+        if row['id'] not in known or row['id'] in manual:continue
         before=known[row['id']]['text'];after,hits=replace_visible(before,rules)
         if after==before:continue
         errors=validate_entry(row['source'],dict(known[row['id']],text=after),cfg)
@@ -62,4 +63,5 @@ def effective_cache(project,cfg,report=False,apply_ui=True):
     if apply_ui and cfg.get('_fix')!='names':
         from ui_policy import apply_policy
         known=apply_policy(project,rows,known,cached_only=cfg.get('_fix') in ('failed','display','layout'))
+    known.update(manual)
     return known

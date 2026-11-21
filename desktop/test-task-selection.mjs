@@ -129,8 +129,9 @@ try{
     await page.locator('[data-task=retranslate]').check();
     await page.locator('[data-task='+task+']').check();
     assert.equal(await checked('run'),false);
-    assert.equal(await checked('retranslate'),false);
-    assert.equal(await page.locator('#language-default-note').isVisible(),false);
+    assert.equal(await checked('retranslate'),true);
+    assert.equal(await page.locator('#language-default-note').isVisible(),true);
+    await page.locator('[data-task=retranslate]').uncheck();
     // Changing to another original folder must not discard its chosen repair.
     await choose('X:/InventedRenPy-'+task+'-second-source');
     assert.equal(await checked(task),true);
@@ -143,6 +144,7 @@ try{
 
   await fresh();await choose('X:/InventedRenPy-switch-source');
   await openRepairs();
+  await page.locator('[data-task=run]').uncheck();
   for(const task of [...fixes,'answers','routes'])await page.locator('[data-task='+task+']').check();
   await choose('X:/InventedRPG-source');
   for(const task of ['answers','routes']){
@@ -162,6 +164,12 @@ try{
   assert.deepEqual(rpg.tasks,sharedFixes);
   assert.equal(rpg.tasks.some(task=>['run','retranslate','answers','routes','language'].includes(task)),false);
   completed.push('Switching to RPG Maker removes unsupported hints and retains five supported source-folder fixes including name spelling');
+
+  await fresh();await choose('X:/InventedRenPy-combined-source');await openRepairs();
+  await page.locator('[data-task=failed]').check();await page.locator('[data-task=check]').check();
+  assert.equal(await checked('run'),true);
+  assert.deepEqual((await capture()).tasks,['run','failed','check']);
+  completed.push('Translation, failed-item repair and patch check can be selected together');
 
   await fresh();await choose('X:/InventedRPG-default-source');
   assert.equal(await checked('run'),true);

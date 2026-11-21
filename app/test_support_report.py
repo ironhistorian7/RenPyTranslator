@@ -15,6 +15,12 @@ from support_report import build_report,classify_issue,export_report,format_repo
 
 
 class SupportReportTests(unittest.TestCase):
+    def test_partial_translation_count_is_in_copyable_report(self):
+        path=self.diagnostic(metrics={'partial':37})
+        report=build_report(self.root,path)
+        self.assertEqual(report['counts']['partial'],37)
+        self.assertIn('부분 번역 37',format_report(report))
+
     def setUp(self):
         temporary=tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
@@ -32,11 +38,11 @@ class SupportReportTests(unittest.TestCase):
                'traceback':'Traceback (most recent call last):\n  File "C:\\Users\\PrivateName\\tool\\app\\translation.py", line 642, in translate_batch\n    SECRET ORIGINAL TEXT\n  File "E:\\PrivateGame\\story.py", line 4, in scene\nValueError: PRIVATE TRANSLATION',
                'project':'E:/PrivateGame','stage':'translation request','recorded_at':'2026-11-11T00:00:00Z',
                'items':[{'id':'private-id','source_file':'private-story.rpy','source':'PRIVATE SOURCE'}],
-               'settings':{'engine':'rpgmaker','model':'synthetic-hy:q6','source_language':'japanese',
+               'settings':{'engine':'rpgmaker','model':'qwen3:14b','source_language':'japanese',
                            'num_ctx':16384,'parallel':2,'endpoint':'http://user:secret@localhost:1',
                            'username':'PrivateName','pcname':'PrivatePC','api_key':'secret-value',
                            '_runtime_env':{'PRIVATE_TOKEN':'secret-value'},
-                           '_hardware_policy':{'devices':[{'id':'GPU-private-uuid','name':'NVIDIA Example GPU','total_mib':12288,'serial':'private-serial'}]}},
+                           '_hardware_policy':{'devices':[{'id':'GPU-private-uuid','name':'NVIDIA GeForce RTX 4070 SUPER','total_mib':12288,'serial':'private-serial'}]}},
                'context_budget':{'prompt_content_tokens':9000,'output_reserved':4000,
                                  'tokenizer':'owned_model_tokenizer','files':{'private.txt':'PRIVATE SOURCE'}},
                'validation_failures':[{'error_code':'missing_response_item','error':'RAW OUTPUT',
@@ -51,7 +57,7 @@ class SupportReportTests(unittest.TestCase):
         path=self.diagnostic()
         original=path.read_bytes()
         report=build_report(self.root,path,{'state':'warning','counts':{'completed':1,'total':2,'username':'PrivateName'},
-                                           'gpus':[{'id':'GPU-private-uuid','name':'NVIDIA Example GPU','total':12288,'pcname':'PrivatePC'}]})
+                                           'gpus':[{'id':'GPU-private-uuid','name':'NVIDIA GeForce RTX 4070 SUPER','total':12288,'pcname':'PrivatePC'}]})
         text=format_report(report)
         self.assertEqual(report['app_version'],'0.3.0')
         self.assertEqual(report['issue']['code'],'missing_response_item')
@@ -59,11 +65,11 @@ class SupportReportTests(unittest.TestCase):
         self.assertEqual(report['counts']['affected'],1)
         self.assertEqual(report['counts']['accepted'],1)
         self.assertEqual(report['settings']['parallel'],2)
-        self.assertEqual(report['gpus'],[{'name':'NVIDIA Example GPU','total_mib':12288}])
-        self.assertEqual(report['tool_frames'],[{'module':'translation.py','line':642,'function':'translate_batch'}])
+        self.assertEqual(report['gpus'],[{'name':'NVIDIA GeForce RTX 4070 SUPER','total_mib':12288}])
+        self.assertEqual(report['tool_frames'],[{'module':'translation.py','line':642}])
         self.assertTrue(text.startswith('### RenPyTranslator 오류 제보\n'))
         self.assertIn('- 프로그램: RenPyTranslator 0.3.0',text)
-        self.assertIn('- 모델: synthetic-hy:q6',text)
+        self.assertIn('- 모델: qwen3:14b',text)
         self.assertIn('- 작업 수치:',text)
         for private in ('PrivateName','PrivateGame','PRIVATE','GPU-private','private-serial','PrivatePC','secret-value','RAW OUTPUT','private-story','http:','C:\\Users','E:/'):
             self.assertNotIn(private,text)
@@ -145,15 +151,54 @@ class SupportReportTests(unittest.TestCase):
 
     def test_extraction_notices_export_only_codes_counts_and_basename(self):
         path=self.write('data/projects/synthetic/data/rpg-extraction-notices.json',
-                        {'kind':'rpg_extraction','issues':[{'code':'rpg_read_failure','file':'data/CustomTable.json',
+                        {'kind':'rpg_extraction','issues':[{'code':'rpg_read_failure','file':'data/Actors.json',
                                                           'error_type':'JSONDecodeError','count':3,'error':'PRIVATE SOURCE'}],
                          'details':['PRIVATE ORIGINAL AND TRANSLATION']})
         report=build_report(self.root,path)
         self.assertEqual(report['issue']['code'],'rpg_read_failure')
-        self.assertEqual(report['read_notices'],[{'code':'rpg_read_failure','error_type':'JSONDecodeError','file':'CustomTable.json','count':3}])
+        self.assertEqual(report['read_notices'],[{'code':'rpg_read_failure','error_type':'JSONDecodeError','file':'Actors.json','count':3}])
         self.assertNotIn('PRIVATE',format_report(report))
         self.write('data/projects/synthetic/data/rpg-extraction-notices.json',{'kind':'other','issues':[]})
         with self.assertRaises(ValueError):build_report(self.root,path)
+
+    def test_private_values_are_omitted_from_copy_and_export(self):
+        private_values = ('alice@example.com', 'Alice Kim', 'alice-private:latest',
+                          'C:/Users/Alice/model.gguf', '/home/alice/model.gguf',
+                          r'\\server\alice\model.gguf', 'file:///home/alice/model.gguf',
+                          'alice@example.com.gguf')
+        for index,value in enumerate(private_values):
+            with self.subTest(value=value):
+                context={'settings':{'model':value,'model_display_name':value,'engine':value,
+                                     'source_language':value,'runtime_id':value},
+                         'gpus':[{'name':value,'total_mib':8192}]}
+                path=self.diagnostic(error_type='AlicePrivate', traceback='  File "C:/alice/translation.py", line 5, in AlicePrivate\n',
+                                     native_launch={'runtime_id':value,'api_version':value})
+                report=build_report(self.root,path,context)
+                target=self.root/('private-%d.json' % index)
+                export_report(self.root,path,target,context)
+                outputs=(format_report(report),target.read_text(encoding='utf-8'))
+                for output in outputs:
+                    self.assertNotIn(value,output)
+                    self.assertNotIn('AlicePrivate',output)
+                    self.assertNotIn('PRIVATE SOURCE',output)
+                self.assertNotIn('model',report.get('settings',{}))
+                self.assertNotIn('model_display_name',report.get('settings',{}))
+                self.assertEqual(report['gpus'],[{'total_mib':8192}])
+
+    def test_public_models_and_filenames_remain_useful(self):
+        for value in ('qwen3.5:9b','llama3.1:8b','HY-MT2-7B-Q6_K.gguf'):
+            with self.subTest(value=value):
+                report=build_report(self.root,None,{'settings':{'model':value,'model_display_name':value}})
+                self.assertEqual(report['settings']['model'],value)
+                self.assertIn(value,format_report(report))
+        path=self.write('data/projects/synthetic/data/rpg-extraction-notices.json',
+                        {'kind':'rpg_extraction','issues':[
+                            {'file':'/home/alice/Map001.json','code':'rpg_read_failure'},
+                            {'file':'alice@example.com.json','code':'AlicePrivate'},
+                            {'file':'Alice Kim.json','error_type':'AlicePrivate'}]})
+        serialized=json.dumps(build_report(self.root,path),ensure_ascii=False)
+        self.assertIn('Map001.json',serialized)
+        for private in ('alice','Alice','home'):self.assertNotIn(private,serialized)
 
     def test_unknown_cuda_is_not_reported_as_memory_shortage(self):
         self.assertEqual(classify_issue({'error_type':'RuntimeError','error':'CUDA error: unspecified launch failure'})['code'],'model_runtime')
@@ -180,9 +225,9 @@ class DiagnosticIssueTests(unittest.TestCase):
             self.assertEqual(diagnostics.report(error,handled=False),first)
             diagnostics.report(error,handled=False)
         self.assertEqual(emit.call_count,2)
-        self.assertEqual(emit.call_args_list[0].kwargs['state'],'warning')
+        self.assertEqual(emit.call_args_list[0].args,('warning',))
         self.assertEqual(emit.call_args_list[1].kwargs['state'],'failed')
-        self.assertEqual(emit.call_args_list[0].kwargs['error_id'],emit.call_args_list[1].kwargs['error_id'])
+        self.assertIn(emit.call_args_list[1].kwargs['error_id'],emit.call_args_list[0].kwargs['error_ids'])
         self.assertEqual(list((self.root/'data/errors').glob('*.json')),[Path(first)])
         self.assertIn('PRIVATE SOURCE',json.loads(Path(first).read_text(encoding='utf-8'))['traceback'])
         self.assertEqual(stdout.getvalue()+stderr.getvalue(),'')

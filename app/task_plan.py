@@ -13,7 +13,9 @@ def plan(selected):
     if not selected: raise ValueError('실행할 작업을 하나 이상 선택하세요.')
     if selected - TASKS.keys(): raise ValueError('알 수 없는 작업입니다.')
     if len(selected & {'run','retranslate','update'})>1: raise ValueError('번역·재번역·게임 업데이트 중 하나만 선택하세요.')
-    if selected & {'run','retranslate','update'}: selected -= FIXES | {'language'}
+    # Display/name support is already part of ordinary translation. An explicit
+    # failed-item repair is a separate requested pass after that translation.
+    if selected & {'run','retranslate','update'}: selected -= (FIXES-{'failed'}) | {'language'}
     if 'font' in selected: selected -= {'display', 'layout'}
     if 'display' in selected: selected.discard('layout')
     # Correct cached text first, then install the selected display support.

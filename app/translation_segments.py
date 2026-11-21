@@ -111,7 +111,9 @@ def execute(inputs, cfg, send, *, parents=None, event=None):
         values=dict(reply['values'])
         if not reply['truncated']:
             for node in nodes:
-                if node.item['id'] in values:
+                if node.item['id'] in reply.get('errors',{}):
+                    node.error=dict(reply['errors'][node.item['id']])
+                elif node.item['id'] in values:
                     if isinstance(values[node.item['id']],str):node.value=values[node.item['id']]
                     else:node.error=dict(error_code='response_format',error='Translation item must be a string')
                 else:node.error=(dict(error_code='response_format',error=reply['parse_error']) if reply.get('parse_error') else
@@ -121,15 +123,17 @@ def execute(inputs, cfg, send, *, parents=None, event=None):
             continue
         # A length stop cannot establish that its final record is complete.
         # Earlier HY records with a following explicit header remain usable.
-        if reply.get('hy') and values:values.pop(next(reversed(values)),None)
+        if reply.get('truncation_checked'):pass
+        elif reply.get('hy') and values:values.pop(next(reversed(values)),None)
         else:values={}
         incomplete=[]
         for node in nodes:
             if node.item['id'] in values and isinstance(values[node.item['id']],str):node.value=values[node.item['id']]
             else:incomplete.append(node)
-        if multiple_parents:
-            # Return completed original entries now, rather than holding their
-            # translations across a later transport failure in a tail request.
+        if multiple_parents or cfg.get('_outer_output_retries'):
+            # Return completed entries now. The shared numbered protocol changes
+            # the request shape in the outer item retry, rather than consuming
+            # its budget here with repeated output-limit growth.
             for node in incomplete:
                 node.error=dict(error_code='output_limit',error='Translation response reached its output limit',retry_attempt=base_attempt)
             note('output_limit',request_id=reply['request_id'],num_predict=reply['limit'],
@@ -147,8 +151,13 @@ def execute(inputs, cfg, send, *, parents=None, event=None):
                 # Isolate only the unfinished tail, preserving completed entries.
                 pending.appendleft([node])
             elif not divide(node,'output_limit'):
-                node.minimum=max(node.minimum+1,math.ceil(reply['limit']*1.5))
-                pending.appendleft([node])
+                if node.minimum:
+                    node.error=dict(error_code='output_limit',error='Single-item translation remained incomplete after replanning',
+                                    retry_attempt=attempts[node.parent_id])
+                    terminal_parents.add(node.parent_id)
+                else:
+                    node.minimum=math.ceil(reply['limit']*1.5)
+                    pending.appendleft([node])
     parsed={};errors={}
     for node in roots:
         value,error=node.result()

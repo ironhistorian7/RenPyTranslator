@@ -47,19 +47,20 @@ class SourceContextTests(unittest.TestCase):
 
     def test_budget_and_oversized_neighbor_keep_whole_sentences(self):
         items=rows(40)
-        for row in items:row['source']='A longer source sentence. '*8
+        for row in items:row['source']=f"{row['id']}: "+'A longer source sentence. '*30
         ctx=SourceContext(items).context([items[20]],CFG)
         passages=[r for r in ctx['source_passage'] if 'text' in r]
-        self.assertGreater(sum(token_estimate(json.dumps(r,ensure_ascii=False)) for r in passages),1200)
-        self.assertGreater(len(passages),24)
+        self.assertLessEqual(sum(token_estimate(json.dumps(r,ensure_ascii=False)) for r in passages),2000)
+        self.assertLess(len(passages),12)
+        self.assertIn('estimated_tokens',[d.get('limit') for d in ctx['_context_audit']['preselection_dropped']])
         small=SourceContext(items).context([items[20]],dict(CFG,num_ctx=2048))
         self.assertEqual([p['text'] for p in small['source_passage'] if 'text' in p],
                          [items[19]['source'],items[21]['source']])
         items[19]['source']='long '*10000
         ctx=SourceContext(items).context([items[20]],CFG)
-        self.assertEqual(ctx['source_passage'],[{'speaker':'n','text':items[19]['source']},
-                         {'target_id':'0'},{'speaker':'n','text':items[21]['source']}])
-        self.assertTrue(ctx['_context_audit']['preselection_dropped'])
+        self.assertEqual(ctx['source_passage'],[{'target_id':'0'},
+                         *[{'speaker':'n','text':row['source']} for row in items[21:25]]])
+        self.assertEqual(ctx['_context_audit']['surrounding_selection']['stop_before'],'estimated_tokens')
 
     def test_long_intervening_entry_blocks_farther_neighbors_only_on_that_side(self):
         items=rows(8);items[2]['source']='Long complete sentence. '*10000

@@ -205,14 +205,26 @@ class RPGPatchCheckTests(unittest.TestCase):
                 self.assertEqual(result['status'],'passed')
                 self.assertTrue(result['diagnostics'])
 
-    def test_existing_identifier_guard_is_preserved_and_reported(self):
-        final=self.documents_for([{'code':102,'indent':0,'parameters':[['Keep this name'],0,0,2,0]}])
-        final[0]['_rpt_choice_translations']=['Keep this name']
-        self.row('a','Keep this name','이름 유지','[0].parameters[0][0]',usage='choice')
+    def test_existing_functional_identifier_guard_is_preserved(self):
+        self.documents_for({'internal':'Keep this name'},file='data/Extra.json')
+        self.row('a','Keep this name','이름 유지','internal',file='data/Extra.json')
         self.identifiers=['Keep this name']
         result=self.run_check()
         self.assertEqual(result['status'],'passed')
-        self.assertEqual(result['diagnostics'][0]['reason'],'identifier_preserved')
+        self.assertEqual(self.documents['data/Extra.json'][1]['internal'],'Keep this name')
+
+    def test_same_reserved_text_at_a_proven_choice_is_translated(self):
+        final=self.documents_for({'events':[{'pages':[{'list':[
+            {'code':102,'indent':0,'parameters':[['Keep this name'],0,0,2,0]}]}]}]})
+        command=final['events'][0]['pages'][0]['list'][0]
+        command['parameters'][0]=['이름 유지']
+        command['_rpt_choice_translations']=['이름 유지']
+        command['_rpt_choice_originals']=['Keep this name']
+        self.row('a','Keep this name','이름 유지','events[0].pages[0].list[0].parameters[0][0]',usage='choice')
+        self.identifiers=['Keep this name']
+        result=self.run_check()
+        self.assertEqual(result['status'],'passed',result.get('failures'))
+        self.assertFalse(any(item.get('reason')=='identifier_preserved' for item in result['diagnostics']))
 
     def test_unlisted_unchanged_choice_is_reported_without_requiring_translation(self):
         original=[{'code':102,'indent':0,'parameters':[['Original option'],0,0,2,0]}]

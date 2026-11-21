@@ -7,6 +7,7 @@ POSITION_PREFIX=re.compile(r'^(?:\\(?:PX|PY)\[-?\d+\])+',re.I)
 READING_CONTROLS=re.compile(r'\\(?:PX|PY|FS|C)\[-?\d+\]|\\[.!|^><{}]',re.I)
 MARKER_FRAGMENT=re.compile(r'(?:[<\[]\s*rpt\s*[_-]?\s*\d+|\brpt\s*[_-]?\s*\d+\s*/[>\]])',re.I)
 KANA=re.compile(r'[\u3041-\u3096\u30a1-\u30fa\uff66-\uff9d]')
+RESIDUE=re.compile(r'[\u3041-\u3096\u30a1-\u30fa\uff66-\uff9d\u3400-\u9fff\uf900-\ufaff]')
 
 
 def split_outer_controls(source):
@@ -40,6 +41,24 @@ def protect(source):
     return pattern.sub(substitute,source),tokens
 
 
+def language_errors(source,target,cfg):
+    if not cfg or cfg.get('source_language') not in ('japanese','ja'):return []
+    from japanese_output_policy import enabled as shared_enabled, language_errors as shared_errors
+    if shared_enabled(cfg):
+        return shared_errors(source,target,cfg)
+    from rpgmaker_names import mask_names
+    original=mask_names(source,source,cfg)
+    translated=mask_names(source,target,cfg)
+    errors=[]
+    if RESIDUE.search(translated):errors.append('untranslated Japanese text')
+    from rpgmaker_output_policy import enabled
+    requires_korean=bool(KANA.search(original) or enabled(cfg) and RESIDUE.search(original))
+    # validate() passes the control-protected target here. Confirmed names
+    # remain excluded from residue, but still count as Korean translation.
+    if requires_korean and not re.search(r'[가-힣]',target):errors.append('no Korean translation')
+    return errors
+
+
 def validate(source, target, cfg=None):
     from translation import PLACEHOLDER, token_signature
     load()
@@ -51,8 +70,10 @@ def validate(source, target, cfg=None):
             pieces=atom.findall(token)
             result.extend(pieces if ''.join(pieces)==token else [token])
         return result
-    a, original = protect(source)
-    b, translated = protect(target)
+    from rpgmaker_preprocessing import canonicalize_validation
+    canonical_source, canonical_target = canonicalize_validation(source, target)
+    a, original = protect(canonical_source)
+    b, translated = protect(canonical_target)
     errors = []
     if token_signature(atomic(original)) != token_signature(atomic(translated)):
         errors.append('RPG Maker control code mismatch')
@@ -64,10 +85,10 @@ def validate(source, target, cfg=None):
     visible_a=PLACEHOLDER.sub('',a); visible_b=PLACEHOLDER.sub('',b)
     if MARKER_FRAGMENT.search(visible_b) and not MARKER_FRAGMENT.search(visible_a):
         errors.append('unrestored placeholder')
-    if cfg and cfg.get('source_language') in ('japanese','ja'):
-        if KANA.search(visible_b):errors.append('untranslated Japanese text')
-        if KANA.search(visible_a) and not re.search(r'[가-힣]',visible_b):
-            errors.append('no Korean translation')
-    if any(c.isalpha() for c in visible_a) and not any(c.isalnum() for c in visible_b):
+    from rpgmaker_output_policy import small_tsu_punctuation_result
+    allowed_punctuation = small_tsu_punctuation_result(source, target, cfg)
+    if not allowed_punctuation:
+        errors.extend(language_errors(visible_a,visible_b,cfg))
+    if not allowed_punctuation and any(c.isalpha() for c in visible_a) and not any(c.isalnum() for c in visible_b):
         errors.append('punctuation-only translation')
     return errors

@@ -5,7 +5,7 @@ from pathlib import Path
 import re
 
 from engine import save_json
-from rpgmaker_language import discover_tables, prepare_sources
+from rpgmaker_language import _locale, discover_tables, prepare_sources
 
 
 def text_usage(row):
@@ -81,6 +81,45 @@ def copy_declared_tables(source, snapshot, base, manifest):
     return copied
 
 
+def _binding_status(mapping, base, selected):
+    if selected:return 'selected'
+    values=getattr(mapping,'_values',{})
+    language=getattr(mapping,'language',None)
+    # Mirror the exact and line-wise lookup only to describe an unresolved bind.
+    parts=[base]+(base.split('\n') if '\n' in base else [])
+    if any(len(values.get(part,{}).get(language,{}))>1 for part in parts):
+        return 'ambiguous'
+    if any(values.get(part) for part in parts):return 'selected_locale_missing'
+    if getattr(mapping,'issues',[]):return 'table_issue_unresolved'
+    if getattr(mapping,'tables',[]):return 'unmatched'
+    return 'native_base'
+
+
+def source_provenance(row, cfg):
+    """Describe the actual input binding without including source text or table keys."""
+    language=_locale(cfg.get('source_language','') if isinstance(cfg,dict) else cfg)
+    mapping=row.get('source_mapping') or {}
+    mapped_language=_locale(mapping.get('language',''))
+    bound=bool(mapping)
+    binding=row.get('source_binding') or {}
+    status=binding.get('status', 'selected' if bound else 'base_unknown')
+    if bound and mapped_language!=language:status='language_mismatch'
+    provenance=[]
+    for item in mapping.get('provenance',[]):
+        if isinstance(item,dict):
+            provenance.append({key:item[key] for key in ('file','format','row','locale') if key in item})
+    return dict(selected_language=language,binding_mode='declared_table' if bound else 'base',
+                status=status,table_provenance=provenance,
+                input_is_base=row.get('source')==row.get('base_source',row.get('source')),
+                input_is_selected_table=bound and mapped_language==language,
+                input_origin='declared_table' if bound else 'base')
+
+
+def source_binding_trace(rows, cfg):
+    """Return one text-free binding description for each supplied catalog row."""
+    return [dict(id=row.get('id'),**source_provenance(row,cfg)) for row in rows]
+
+
 def bind_rows(rows, mapping):
     changed=0;bound=0
     for row in rows:
@@ -93,6 +132,7 @@ def bind_rows(rows, mapping):
             bound+=1
         elif 'base_source' in row:
             row['source']=base;row.pop('source_mapping',None)
+        row['source_binding']={'status':_binding_status(mapping,base,selected)}
         changed+=row!=before
     return {'changed':changed,'bound_entries':bound,'total_entries':len(rows)}
 

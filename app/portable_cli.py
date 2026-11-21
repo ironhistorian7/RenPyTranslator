@@ -31,10 +31,26 @@ def main():
     if (getattr(sys,'frozen',False) and Path(sys.executable).name=='RenPyTranslator.exe' and len(sys.argv)==1) or sys.argv[1:]==['--gui']:
         from desktop_launcher import main as gui_main
         gui_main();return
+    if sys.argv[1:] == ['--vulkan-inventory']:
+        import json
+        from vulkan_inventory import vulkan_devices
+        print(json.dumps(vulkan_devices(),ensure_ascii=True),flush=True);return
+    if len(sys.argv)==3 and sys.argv[1]=='--rocm-inventory':
+        import json
+        from amd_rocm import hip_inventory,OFFICIAL_VARIANT
+        from app_paths import ROOT
+        runtime=Path(sys.argv[2]).resolve(strict=True)
+        if not runtime.is_relative_to((ROOT/'runtimes').resolve()) or runtime.parent.name!=OFFICIAL_VARIANT:
+            raise ValueError('Invalid ROCm probe path')
+        print(json.dumps(hip_inventory(runtime),ensure_ascii=True),flush=True);return
     if sys.argv[1:] == ['--desktop-info']:
         import json
         from desktop_bridge import snapshot
         print(json.dumps(snapshot(),ensure_ascii=False));return
+    if sys.argv[1:] == ['--desktop-inference-preview']:
+        import json
+        from desktop_bridge import read_request,preview_inference_settings
+        print(json.dumps(preview_inference_settings(read_request()),ensure_ascii=False));return
     if sys.argv[1:] == ['--desktop-settings']:
         import json
         from desktop_bridge import read_request,save_settings
@@ -93,7 +109,12 @@ def main():
         from fontTools.ttLib import TTFont
         import translation,packaging,failed_repair,failure_candidates,desktop_bridge,desktop_launcher,runtime_recovery,native_process
         import gpu_policy
-        import game_engine, rpgmaker_project
+        import gpu_inventory,vulkan_inventory,gpu_execution_plan,gpu_runtime_pool,gpu_dispatcher
+        import game_engine, rpgmaker_project, kirikiri_project, kirikiri_translation
+        import kirikiri_reviewed_terms, kirikiri_route_display
+        import UnityPy, unity_assets, unity_project, unity_text_formats
+        from UnityPy.helpers.Tpk import get_common_strings
+        assert get_common_strings(), 'Unity class data is missing'
         from gameloc_vendor import load
         load()
         from gameloc.engines import rpgmaker
@@ -105,7 +126,7 @@ def main():
             native_process.native_runtime_directory(ollama)),ensure_ascii=False))
         print('Python: bundled' if getattr(sys,'frozen',False) else 'Python: tool venv')
         print('Python libraries, desktop bridge and CLI imports OK')
-        print('RPG Maker MV/MZ adapter imports OK; other engine routes disabled')
+        print('RPG Maker MV/MZ, KiriKiri KAG/PSB and Unity TextAsset adapters import OK')
         print('GPU policy data: version '+str(gpu_policy.rules()['version'])+'; 12GB preserved, larger GPU workers estimated; editable presets available')
         print('Root: '+str(ROOT))
         print('Ollama executable present: '+str(ollama.is_file()))
@@ -156,6 +177,9 @@ def entrypoint():
               reset=True,helper=command)
         report(exc)
         raise SystemExit(1)
+    finally:
+        from job_events import finish_warnings
+        finish_warnings()
 
 
 if __name__=='__main__':

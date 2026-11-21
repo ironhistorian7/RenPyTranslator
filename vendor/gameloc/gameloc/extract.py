@@ -101,38 +101,30 @@ def extract(
             stats["rm_js_literals"] = len(js)
             progress(f"플러그인 js 파일에서 문자열 {len(js)}개")
         else:
-            # 안 켰더라도 **거기 대사가 있는지는 보고** 알려 줍니다.
-            # 어떤 게임은 줄거리를 플러그인 코드 안에 통째로 박아 둡니다.
-            # 아무 말 없이 빠지면 "2,953개 적용" 이라는 그럴듯한 숫자만 뜨고,
-            # 사용자는 무엇이 빠졌는지 알 방법이 없습니다.
+            # Candidate literals also include editor help and diagnostics. This
+            # count is extraction coverage, never a failed-dialogue count.
             lurking = rpgmaker.count_js_dialogue(info.rm_base)
             stats["rm_js_lurking"] = lurking
             if lurking:
                 if on_notice:on_notice('rpg_js_candidates',count=lurking)
                 else:
                     progress("")
-                    progress(f"※ 플러그인 js 안에 **대사로 보이는 문장 {lurking}개** 가 "
-                             "있습니다. 지금 설정으로는 안 가져옵니다.")
-                    progress("   화면에 원문이 그대로 남는다면 [고급 설정]에서 "
-                             "**플러그인 js 파일까지** 를 켜고 다시 뽑으세요.")
+                    progress(f"플러그인 문자열 후보 {lurking}개가 현재 추출 범위 밖에 있습니다.")
 
         # 게임이 이름으로 찾는 것들은 빼냅니다 (애니메이션·모델·이벤트 이름 등).
         # 번역하면 게임이 대상을 못 찾아 죽습니다.
         #
-        # '추정' 식별자(플러그인 값)는 **모양이 같을 뿐**인 충돌을 냅니다 —
-        # 실제 사례: 메뉴 플러그인이 내부 키 값으로 쓴 "ステータス" 가
-        # System.json 의 메뉴 명령 "ステータス" 와 글자가 같아, 그 메뉴 명령이
-        # 통째로 번역 목록에서 사라졌습니다(플러그인·이름 둘 다 없앤 게 아니라
-        # 텍스트만 보고 지우다 보니 생긴 사고). 확실한 화면 문구
-        # (System.json·데이터베이스 필드)는 추정 식별자로 가리지 않습니다.
+        # Display and identifier evidence belongs to each location. Removing a
+        # value globally would also unprotect unrelated plugin/custom-data keys.
         certain_ids = rpgmaker.collect_identifiers_certain(info.rm_base)
         guess_ids = rpgmaker.collect_identifiers_guess(
             info.rm_base, include_plugin_values=not all_plugin_params,
             include_js_literals=not include_js)
-        guess_ids -= rpgmaker.known_display_texts(info.rm_base)
         ids = certain_ids | guess_ids
         before = len(raw)
-        raw = [(t, l) for t, l in raw if t not in ids]
+        display_documents = {}
+        raw = [(t, l) for t, l in raw
+               if t not in ids or l.kind=='jsliteral' or rpgmaker.is_display_location(info.root, l, display_documents)]
         dropped = before - len(raw)
         stats["identifiers_indexed"] = len(ids)
         stats["dropped_as_identifier"] = dropped

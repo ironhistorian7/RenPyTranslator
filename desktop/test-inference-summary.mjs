@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import {build} from 'esbuild';
+import vm from 'node:vm';
+const result=await build({entryPoints:['src/inference-summary.ts'],bundle:true,write:false,platform:'node',format:'cjs'});
+const module={exports:{}};vm.runInNewContext(result.outputFiles[0].text,{module,exports:module.exports});
+const summarize=module.exports.inferenceSummary;
+const a={num_ctx:4096,parallel:1,kv_cache_type:'q8_0',context_txt_enabled:false};
+const b={...a,num_ctx:16384,parallel:4,kv_cache_type:'f16',context_txt_enabled:true};
+const preview={effective:a,warnings:['aggregate warning'],devices:[{id:'GPU-A',name:'Same GPU',effective:a,warnings:['shared warning','shared warning']},{id:'GPU-B',name:'Same GPU',effective:b,warnings:['shared warning','other warning']}]};
+const result1=summarize(preview);
+assert.match(result1.summary,/GPU-A.*4,096.*처리 1.*q8_0/);
+assert.match(result1.summary,/GPU-B.*16,384.*처리 4.*f16/);
+assert.equal(result1.warning,'GPU-A, GPU-B: shared warning GPU-B: other warning');
+assert.equal((result1.warning.match(/shared warning/g)||[]).length,1);
+const single=summarize({...preview,devices:[preview.devices[1]]});assert.match(single.summary,/처리 4.*f16/);assert.doesNotMatch(single.summary,/GPU-B/);assert.equal(single.warning,'shared warning other warning');
+assert.equal(summarize({...preview,devices:[]}).summary,'사용 가능한 GPU 없음');
+console.log('Per-device review summary, differing context and cache, single-device format and deduplicated warnings passed.');

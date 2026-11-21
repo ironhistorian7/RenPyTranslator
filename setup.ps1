@@ -1,4 +1,4 @@
-param([string]$PythonExe)
+param([string]$PythonExe, [switch]$Rocm)
 $ErrorActionPreference = 'Stop'
 $toolRoot = $PSScriptRoot
 $venvPython = Join-Path $toolRoot '.venv\Scripts\python.exe'
@@ -34,5 +34,7 @@ if (Test-Path -LiteralPath $venvPython) {
     if ($LASTEXITCODE -ne 0) { throw 'Could not create the repository-local .venv.' }
 }
 $ErrorActionPreference = 'Continue'
-& $venvPython -B -X utf8 (Join-Path $toolRoot 'app\development_setup.py') 2>&1 | ForEach-Object { $_.ToString() }
+$setupArguments = @('-B', '-X', 'utf8', (Join-Path $toolRoot 'app\development_setup.py'))
+if ($Rocm) { $setupArguments += '--rocm' }
+& $venvPython @setupArguments 2>&1 | ForEach-Object { $_.ToString() }
 exit $LASTEXITCODE

@@ -4,6 +4,29 @@
 
 ## 한국어
 
+### v0.4.0 — 2026-11-22
+
+#### 지원 엔진 확대
+
+- KiriKiri의 KAG `.ks`와 지원되는 비암호화 KAGEX PSB v2 `.scn`을 번역하고 XP3 패치를 생성합니다. 대사·이름표·선택지와 일부 메뉴 및 저장 화면을 한국어로 표시합니다.
+- Unity Windows 빌드의 `resources.assets`에 있는 일부 TextAsset 번역을 지원합니다. 패치 적용 후 게임에서 번역에 사용한 원문 언어를 선택하면 한국어가 표시됩니다.
+
+#### 번역 확인과 복구
+
+- Ren’Py·RPG Maker·KiriKiri에서 번역 전에 인명 표기를 확인하고, 패치 생성 전에 미번역·부분 번역을 직접 수정할 수 있습니다. 확정한 값은 작업을 재개할 때도 재사용합니다.
+- 일본어 번역을 재개할 때 가나·한자가 남은 자동 번역만 다시 처리합니다. 복구 후에도 일부 원문이 남은 한국어 초안은 마지막 확인창에서 수정할 수 있습니다.
+- RPG Maker MV/MZ의 다국어 문구·선택지·인명 처리를 보완했습니다. 결과 폴더를 선택해 패치를 검사하면 실제 내보낸 파일을 검사합니다.
+
+#### GPU와 모델
+
+- LIGHT·FULL에 Ollama 0.40.15의 공식 ROCm 백엔드를 포함합니다. 호환 Windows AMD 드라이버에서 장치가 인식되면 ROCm을 사용합니다. ROCm을 사용할 수 없으면 확인된 Vulkan 경로로 전환합니다. NVIDIA는 CUDA를 사용합니다.
+- 여러 GPU를 쓰면 장치별 모델, 동시 처리 수, 컨텍스트 창, KV 캐시, TXT 문맥을 설정할 수 있습니다. Ollama 구형·신형 모델 등록 형식과 Gemma 4·Qwen3.5 계열 GGUF 등록 호환성을 개선했습니다.
+
+#### 오류 제보와 다운로드
+
+- 작업 중단 시 **오류 내용 복사하고 닫기**가 있는 별도 팝업을 표시합니다. **오류를 제보할 때는 복사한 내용을 반드시 함께 붙여넣어 주세요.** 제보문에는 오류 ID와 기술 정보가 담기며 개인 경로, 이메일, 게임 대사와 번역문은 제외됩니다.
+- LIGHT는 프로그램과 실행 환경을 포함합니다. FULL은 HY-MT2-7B Q6_K 모델을 함께 제공합니다. 선택한 배포본의 `.zip`과 모든 분할 파일을 같은 폴더에 받고 반디집으로 `.zip`을 열어 압축을 풉니다.
+
 ### v0.3.1 — 2026-11-11
 
 #### 진행 상황과 오류 제보
@@ -48,6 +71,29 @@
 ## English
 
 Download release files from [GitHub Releases](https://github.com/ironhistorian7/RenPyTranslator/releases).
+
+### v0.4.0 — 2026-11-22
+
+#### Engine support
+
+- KiriKiri supports KAG `.ks` and selected unencrypted KAGEX PSB v2 `.scn` scenarios and generates XP3 patches. Supported text includes dialogue, speaker names, choices and selected menus and save screens.
+- Unity support covers selected TextAssets in `resources.assets` from Windows builds. Apply the patch, then select the source language used for translation in the game to display Korean.
+
+#### Review and recovery
+
+- Ren’Py, RPG Maker and KiriKiri let you review character names before translation and edit untranslated or partial entries before patch export. Confirmed entries are reused when resuming.
+- When resuming Japanese translation, automatic translations with remaining kana or kanji are retried. Korean drafts that still contain source text can be edited in the final review.
+- Improved multilingual text, choices and names in RPG Maker MV/MZ. When you select an output folder for a patch check, the app checks the exported files there.
+
+#### GPUs and models
+
+- LIGHT and FULL include the official ROCm backend for Ollama 0.40.15. AMD devices recognized by ROCm on a compatible Windows driver use ROCm. The app falls back to a verified Vulkan device when ROCm is unavailable. NVIDIA uses CUDA.
+- Select a model, worker count, context window, KV cache and TXT context setting for each GPU in multi-GPU jobs. Improved support for legacy and newer Ollama model registration formats, and for registering Gemma 4 and Qwen3.5 GGUF models.
+
+#### Bug reports and downloads
+
+- A stopping error opens a dialog with a button to copy the report and close the dialog. **Always paste the copied report when filing a bug.** The report contains the error ID and technical details. It omits personal paths, email addresses, dialogue and translations.
+- LIGHT includes the app and its runtimes. FULL also includes HY-MT2-7B Q6_K. Download the chosen `.zip` and every matching split volume to one folder, then open the `.zip` with Bandizip.
 
 ### v0.3.1 — 2026-11-11
 

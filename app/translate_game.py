@@ -110,6 +110,8 @@ def project_lock(project):
         finally:f.seek(0);msvcrt.locking(f.fileno(),msvcrt.LK_UNLCK,1)
 
 def rebuild(project,cfg):
+    from translation_review import run as review_translations
+    review_translations(project,cfg)
     from diagnostics import stage
     stage('presentation',project,cfg)
     # Entirely offline: no model, analysis, translation or source extraction.
@@ -160,9 +162,10 @@ def selected_tasks(args,parser):
         from game_engine import require
         from project_update import update_project
         original,base=project_config(args.project)
+        require(original,False,args.tasks)
         require(args.source,True,args.tasks)
-        from model_store import require_selected
-        args.model=require_selected(args.model)
+        from model_store import require_job_model
+        args.model=require_job_model(jobs,args.model,runtime_id=args.runtime_id)
         base['model']=args.model
         if args.runtime_id is not None:base['runtime_id']=args.runtime_id
         if args.source_language is not None:base['source_language']=args.source_language
@@ -182,13 +185,14 @@ def selected_tasks(args,parser):
     else:
         project,base=resolve_project(args.source,None,args.model)
     fixes_selected=any(job in FIXES for job in jobs)
-    if args.source and (fixes_selected or 'language' in jobs):
+    primary_selected=bool(set(jobs)&{'run','retranslate','update'})
+    if args.source and not primary_selected and (fixes_selected or 'language' in jobs):
         prepared=((project/'data/catalog.json').is_file() and
                   (project/'data/templates').is_dir() and
                   (project/'staging/game').is_dir())
         if not prepared:
             parser.error('기존 번역 작업을 찾지 못했습니다. 먼저 번역을 진행하거나 기존 프로젝트·결과 폴더를 선택해 주세요.')
-    if fixes_selected and not (project/'data/translations.jsonl').is_file():
+    if fixes_selected and not primary_selected and not (project/'data/translations.jsonl').is_file():
         parser.error('기존 번역 기록을 찾지 못했습니다. 먼저 번역을 진행하거나 번역이 저장된 프로젝트·결과 폴더를 선택해 주세요.')
     from source_language import apply as apply_language
     base=apply_language(project,base,args.source_language)
@@ -210,7 +214,8 @@ def selected_tasks(args,parser):
         cfg=apply_options(project,base,args.output,args.suffix,args.textbox_scale,args.show_reference)
         from language_panel import options as panel_options,export as export_panel
         cfg=panel_options(project,cfg,args.language_corner,args.language_margin)
-        fixes=[j for j in jobs if j in FIXES]
+        # Ren'Py's normal run already performs failed-item recovery once.
+        fixes=[j for j in jobs if j in FIXES and not (primary_selected and j=='failed')]
         if fixes:
             stage('repair',project,cfg);repair(project,cfg,fixes)
         kinds=[j for j in jobs if j in ('answers','routes')]
@@ -241,7 +246,7 @@ def main(argv=None):
 
 
 def _main(argv=None):
-    parser=argparse.ArgumentParser(description='Local Korean patches for RenPy and RPG Maker MV/MZ',
+    parser=argparse.ArgumentParser(description='Local Korean game patches for RenPy, RPG Maker MV/MZ, KiriKiri and supported Unity formats',
         formatter_class=argparse.RawDescriptionHelpFormatter,epilog='''Commands:
   run       Prepare, translate, and package an explicitly selected game
   retranslate Translate a prepared project afresh into a separate comparison result
@@ -304,11 +309,11 @@ Omit the command, or repair --fix, to display help.''')
     if args.command=='update':args.command='tasks';args.tasks=['update']
     if args.command=='tasks' and args.tasks and 'update' in args.tasks:
         selected_tasks(args,parser);return
-    from model_store import needs_model,require_selected
+    from model_store import needs_model,require_job_model
     jobs=args.tasks if args.command=='tasks' else (['names','failed'] if args.command=='repair' and args.fix=='all' else [args.fix] if args.command=='repair' else [args.command])
     from game_engine import dispatch
     if dispatch(args,parser):return
-    if needs_model(jobs):args.model=require_selected(args.model)
+    if needs_model(jobs):args.model=require_job_model(jobs,args.model,runtime_id=args.runtime_id)
     if args.project and args.project.is_dir():
         link=args.project/'project-link.json'
         if link.exists():args.project=(args.project/json.loads(link.read_text(encoding='utf-8'))['project']).resolve()
@@ -379,12 +384,15 @@ Omit the command, or repair --fix, to display help.''')
         if args.command in ('run','translate','sample','analyze'):
             from gpu_policy import configure
             cfg=configure(cfg)
-        if args.command=='run':
-            print('Translation: direct',flush=True)
+        if args.command in ('run','translate'):
             from name_translation import run as fix_names
-            from failed_repair import run as fix_failed
             # Establish person spellings before new translation; correct existing candidates.
             stage('name preparation',project,cfg);fix_names(project,dict(cfg,_names_only=True))
+            from name_review_control import run as review_names
+            stage('name confirmation',project,cfg);review_names(project,cfg)
+        if args.command=='run':
+            print('Translation: direct',flush=True)
+            from failed_repair import run as fix_failed
             stage('translation',project,cfg);translate(project,cfg)
             stage('failed item repair',project,cfg);fix_failed(project,cfg)
             stage('name correction',project,cfg);fix_names(project,cfg)
@@ -393,12 +401,17 @@ Omit the command, or repair --fix, to display help.''')
         elif args.command=='review':review(project,cfg)
         elif args.command=='catalog':catalog(project,cfg)
         elif args.command in ('sample','translate'):translate(project,cfg,args.command=='sample')
-        elif args.command=='render':render(project,cfg)
+        elif args.command=='render':
+            from translation_review import run as review_translations
+            review_translations(project,cfg);render(project,cfg)
         elif args.command=='preview':render(project,cfg,True)
         elif args.command=='support':install_support(project,cfg)
         elif args.command=='seal-stage':seal_stage(project)
         elif args.command=='validate':validate(project,cfg)
-        elif args.command=='package':package(project,cfg)
+        elif args.command=='package':
+            from translation_review import run as review_translations
+            if review_translations(project,cfg):render(project,cfg)
+            package(project,cfg)
         elif args.command=='status':
             rows=read_catalog(project);known=cache(project,cfg)
             failed=sum(known.get(r['id'],{}).get('status')=='source_fallback' for r in rows)
@@ -415,3 +428,6 @@ if __name__=='__main__':
     except Exception as exc:
         from diagnostics import report
         report(exc);sys.exit(1)
+    finally:
+        from job_events import finish_warnings
+        finish_warnings()

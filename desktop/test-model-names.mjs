@@ -20,11 +20,12 @@ try{
   await page.locator('[data-page=models]').click();
   await page.waitForFunction(()=>Array.from(document.querySelector('#installed-model').options).some(o=>o.textContent.includes('HY-MT2-7B-Q6_K.gguf')));
   const option=page.locator('#installed-model option[value="rpt-hymt2-7b:q6_k"]');
-  assert.match(await option.textContent(),/HY-MT2-7B-Q6_K\.gguf.*rpt-hymt2-7b:q6_k/);
+  assert.match(await option.textContent(),/HY-MT2-7B-Q6_K\.gguf/);
+  assert.doesNotMatch(await option.textContent(),/rpt-hymt2-7b:q6_k/);
   assert.doesNotMatch(await page.locator('#installed-model').textContent(),/Global_Step_560/);
   await page.locator('#installed-model').selectOption(hy.id);
   assert.equal(await page.locator('#apply-model').isEnabled(),true);
   assert.deepEqual(errors,[]);
   await writeFile(path.join(root,'build/model-name-ui-verification.json'),JSON.stringify({passed:true,label:await option.textContent(),modelSelectedOrChanged:false,gameAccess:false,modelExecution:false},null,2));
-  console.log('Actual local HY inventory is rendered with filename + model ID; no registration or selection changes.');
+  console.log('Actual local HY inventory is rendered with filename; internal model IDs stay in option values.');
 }finally{await app.close();}

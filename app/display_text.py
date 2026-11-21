@@ -127,3 +127,10 @@ def compose(row, entry, metadata):
     if metadata.get('reference_guard'):
         return target + '\n{rpt_ref=0.55}{cps=0}' + reference + '{/cps}{/rpt_ref}' + ''.join(terminal)
     return target + '\n{size=*0.55}{cps=0}' + reference + '{/cps}{/size}' + ''.join(terminal)
+
+
+def rendered_value(row, entry, metadata):
+    """Return the literal shared by script rendering and package verification."""
+    if entry.get('status') == 'manual_translation':
+        return entry['text']
+    return compose(row, entry, metadata)

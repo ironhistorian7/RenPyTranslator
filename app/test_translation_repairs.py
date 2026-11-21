@@ -41,8 +41,10 @@ class TranslationRepairTests(unittest.TestCase):
         answer={'message':{'content':json.dumps({'0':'안녕 <rpt000/>.'})}}
         with patch('translation.request',return_value=answer) as request:
             result,_=translate_batch([row],{},CFG)
-        payload=json.loads(request.call_args.args[2]['messages'][1]['content'])
-        self.assertEqual(payload['items'][0]['text'],'Hello <rpt000/>.')
+        prompt=request.call_args.args[2]['messages'][1]['content']
+        self.assertEqual(json.loads(prompt)['items'][0]['text'],'Hello <rpt000/>.')
+        self.assertEqual(request.call_args.args[2]['format']['required'],['0'])
+        self.assertNotIn('{color=',prompt);self.assertNotIn('{i}',prompt)
         self.assertEqual(result[0]['text'],'{color=#ffff00}{i}안녕 [person].{/i}{/color}')
         source='{i}First{/i} and {i}second{/i}'
         self.assertEqual(split_outer_styles(source),('',source,''))

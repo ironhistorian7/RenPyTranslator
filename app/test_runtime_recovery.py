@@ -28,6 +28,7 @@ class EvidenceStub:
     def event(self,name,**kw):self.events.append(name)
     def configure(self,cfg):pass
     def capture(self,*args):self.events.append('capture');return 'incident-test'
+    def generation_failed(self,*args):self.events.append('generation_failed');return None
     def finalize(self,incident,cfg,exit_state):
         self.events.append('finalize');self.finalizations.append(dict(exit_state))
 
@@ -74,13 +75,13 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(self.pauses,[10,30,180,2])
         self.assertIn('restart_limit',EvidenceStub.events)
 
-    def test_http_success_resets_streak_instead_of_limiting_the_entire_job(self):
+    def test_saved_translation_progress_resets_streak_instead_of_limiting_entire_job(self):
         order=[];calls=[];run_ids=[];generations=[]
         def work(cfg):
             run_ids.append(cfg['_recovery_run_id']);generations.append(cfg['_runtime_generation'])
             calls.append(1)
-            cfg['_recovery_request_succeeded'](request_id='invented-'+str(len(calls)),
-                metrics={'eval_count':3,'prompt_eval_count':10,'done_reason':'stop'})
+            cfg['_recovery_progress_committed'](item_ids=['saved-'+str(len(calls))],
+                request_ids=['invented-'+str(len(calls))])
             if len(calls)<5:raise failure()
             return 'completed'
         with patch('hy_backend.runtime',self.runtime(order)):
@@ -94,9 +95,9 @@ class RecoveryTests(unittest.TestCase):
     def test_success_from_an_old_generation_cannot_reset_its_replacement(self):
         callbacks=[];order=[]
         def work(cfg):
-            callbacks.append(cfg['_recovery_request_succeeded'])
+            callbacks.append(cfg['_recovery_progress_committed'])
             if len(callbacks)==3:
-                callbacks[0](request_id='late-old-response',metrics={'done_reason':'stop'})
+                callbacks[0](item_ids=['late-old-save'],request_ids=['late-old-response'])
             raise failure()
         with patch('hy_backend.runtime',self.runtime(order)),self.assertRaises(urllib.error.HTTPError):
             recovery.run(Path('.'),{},work,lambda:0)
@@ -128,16 +129,40 @@ class RecoveryTests(unittest.TestCase):
         order=[];calls=[]
         original=EvidenceStub.event
         def event(collector,name,**details):
-            if name=='request_succeeded':raise OSError('invented log failure')
+            if name=='translation_progress_committed':raise OSError('invented log failure')
             original(collector,name,**details)
         def work(cfg):
             calls.append(1)
-            if len(calls)==2:cfg['_recovery_request_succeeded'](request_id='ok',metrics={})
+            if len(calls)==2:cfg['_recovery_progress_committed'](item_ids=['saved'],request_ids=['ok'])
             if len(calls)<3:raise failure()
             return 'done'
         with patch('hy_backend.runtime',self.runtime(order)),patch.object(EvidenceStub,'event',event):
             self.assertEqual(recovery.run(Path('.'),{},work,lambda:0),'done')
         self.assertEqual(self.pauses,[10,10])
+
+    def test_http_success_without_validated_save_does_not_reset_and_exposes_both_counts(self):
+        order=[];events=[]
+        def work(cfg):
+            cfg['_recovery_request_succeeded'](request_id='http-only',metrics={'done_reason':'stop'})
+            cfg['_recovery_progress_committed'](item_ids=[],request_ids=['http-only'])
+            raise failure()
+        with patch('hy_backend.runtime',self.runtime(order)),patch('job_events.emit',side_effect=lambda name,**data:events.append((name,data))),self.assertRaises(urllib.error.HTTPError):
+            recovery.run(Path('.'),{},work,lambda:0)
+        waits=[data for name,data in events if name=='recovery' and data['state']=='waiting']
+        self.assertEqual([data['attempt'] for data in waits],[1,2,3])
+        self.assertEqual([data['total_attempts'] for data in waits],[1,2,3])
+        self.assertTrue(all(data['max_attempts']==3 for data in waits))
+        self.assertEqual(self.pauses,[10,30,180,2])
+        self.assertNotIn('restart_streak_reset',EvidenceStub.events)
+
+    def test_prediction_repeat_limit_is_not_a_runtime_restart(self):
+        order=[];error=failure()
+        error.http_details={'status':500,'body':'{"error":"prediction aborted: token repeat limit reached"}'}
+        def work(cfg):raise error
+        with patch('hy_backend.runtime',self.runtime(order)),self.assertRaises(urllib.error.HTTPError):
+            recovery.run(Path('.'),{},work,lambda:0)
+        self.assertEqual(order,['start','stop'])
+        self.assertEqual(self.pauses,[])
 
     def test_cancel_and_validation_and_bad_request_do_not_restart(self):
         for err in (KeyboardInterrupt(),ValueError('bad tokens'),failure(400)):
@@ -182,6 +207,46 @@ class RecoveryTests(unittest.TestCase):
 
 
 class CacheRecoveryTests(unittest.TestCase):
+    def test_generation_failure_uses_bounded_existing_snapshots_and_only_log_offset(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);log=root/'server.log';log.write_text('server text must not be copied',encoding='utf8')
+            collector=recovery.Evidence(root)
+            cfg={'model':'invented','_runtime_pid':12,'_runtime_log':str(log),
+                 '_recovery_run_id':'run-one','_runtime_generation':4,
+                 '_runtime_model_metadata':{'architecture':'invented'}}
+            collector.configure(cfg)
+            collector.history.extend({'sample':i} for i in range(35))
+            collector.module_history.extend({'sample':i} for i in range(3))
+            collector.requests.extend({'request_id':str(i)} for i in range(35))
+            collector.inflight['other']={'request_id':'other'}
+            details={'request':{'prompt_sha256':'invented-hash','options':{'num_ctx':16384}},
+                     'failure':{'code':'token_repeat_limit'},'source':'private prompt must not be copied',
+                     'http':{'status':500,'body':'private server body','body_truncated':False}}
+            with patch('runtime_recovery.resources',side_effect=AssertionError('no new probes')):
+                path=collector.generation_failed(cfg,'invented-request',details)
+                second=collector.generation_failed(cfg,'invented-request',details)
+            self.assertNotEqual(path,second)
+            record=json.loads(Path(path).read_text(encoding='utf8'))
+            self.assertEqual(record['generation'],4);self.assertEqual(record['run_id'],'run-one')
+            self.assertEqual(len(record['resource_history']),30)
+            self.assertEqual(record['resource_history'][0],{'sample':5})
+            self.assertEqual(record['module_history'],[{'sample':2}])
+            self.assertEqual(len(record['recent_requests']),30)
+            self.assertEqual(record['inflight_requests'],[{'request_id':'other'}])
+            self.assertEqual(record['server_log_offset_bytes'],log.stat().st_size)
+            self.assertEqual(record['details']['request']['options']['num_ctx'],16384)
+            self.assertEqual(record['details']['http']['body_characters'],len('private server body'))
+            dumped=json.dumps(record)
+            self.assertNotIn('private prompt',dumped);self.assertNotIn('private server body',dumped)
+            self.assertNotIn('server text must not be copied',dumped)
+            self.assertEqual(collector.runtime_pid,12)
+
+    def test_generation_evidence_write_failure_is_nonfatal(self):
+        with tempfile.TemporaryDirectory() as directory:
+            collector=recovery.Evidence(Path(directory))
+            with patch.object(Path,'open',side_effect=PermissionError('invented denied')),patch('sys.stderr',new=io.StringIO()):
+                self.assertIsNone(collector.generation_failed({},'invented',{}))
+
     def test_runner_failure_markers_do_not_infer_parent_exit_or_print_prose(self):
         tail=('An invented ordinary line.\n'
               'CUDA error: an illegal memory access was encountered in fattn-common.cuh:1127\n'

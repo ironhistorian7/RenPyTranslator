@@ -114,6 +114,8 @@ def ensure_runtime(name, root=ROOT, cache=None, *, asset=None):
         for member in contents.infolist():
             if member.is_dir():
                 continue
+            if member.filename in asset.get('ignored_members', []):
+                continue
             if not member.filename.startswith(asset['prefix']):
                 raise ValueError('Unexpected runtime ZIP prefix: ' + member.filename)
             relative = member.filename[len(asset['prefix']):]
@@ -184,6 +186,7 @@ def prepare_frontend(root=ROOT, cache=None):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--cache', type=Path, help='Reuse verified download cache during isolated development checks')
+    parser.add_argument('--rocm', action='store_true', help='Install the pinned optional AMD ROCm addon')
     parser.add_argument('--assets-only', action='store_true', help='Verify/install runtimes and vendored files only')
     args = parser.parse_args()
     if sys.version_info[:2] != (3, 12) or struct.calcsize('P') != 8 or sys.prefix == sys.base_prefix:
@@ -194,6 +197,8 @@ def main():
     ensure_runtime('node', cache=args.cache)
     for asset in ollama_assets(load_lock(ROOT)):
         ensure_runtime('ollama', cache=args.cache, asset=asset)
+    if args.rocm:
+        ensure_runtime('ollama_rocm', cache=args.cache)
     if not args.assets_only:
         prepare_frontend(cache=args.cache)
     print('Ready. GUI: .\\gui.ps1 -SourceMode; default build: .\\build.ps1 (LIGHT). Models/settings/caches were not changed.', flush=True)

@@ -7,9 +7,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from development_setup import prepare_full_model, verify_vendor, ollama_assets
+from development_setup import prepare_full_model, verify_vendor, ollama_assets, check_file, ensure_runtime
 from runtime_assets import inside, load_lock, runtime_executable
-from release_archives import package_editions, vendor_file_allowed, runtime_file_allowed, DOCUMENTATION_FILES
+from release_archives import (package_editions, vendor_file_allowed, runtime_file_allowed, verified_rocm_files,
+                              DOCUMENTATION_FILES, PYTHON_NOTICE_PACKAGES)
 
 ROOT=Path(__file__).resolve().parents[1]
 LOCAL_COMPONENTS=('_internal', '_desktop', 'RenPyTranslator-cli.exe', 'RenPyTranslator.exe')
@@ -214,16 +215,54 @@ def export_model(bundle):
     manifest.write_text(json.dumps(model),encoding='utf-8')
 
 
+def runtime_asset_selected(root, source, rocm_asset, include_rocm):
+    if not runtime_file_allowed(source.relative_to(root)):
+        return False
+    if rocm_asset and source.is_relative_to(inside(root, rocm_asset['directory'])):
+        return include_rocm
+    return True
+
+
+def verify_rocm_addon(root, asset, *, verify_hashes=True):
+    """Check the installed addon before collection; release audit hashes the copies."""
+    root = Path(root).resolve()
+    files = verified_rocm_files(root, asset)
+    directory = inside(root, asset['directory'])
+    receipt = directory / 'asset-verification.json'
+    observed = {p.relative_to(root).as_posix() for p in directory.rglob('*') if p.is_file() and p != receipt}
+    if observed != files.keys():
+        raise ValueError('ROCm addon file inventory differs from its verification receipt')
+    for relative, digest in files.items():
+        path = root / relative
+        if path.is_symlink() or path.is_junction():
+            raise ValueError('Unlisted ROCm addon file: '+relative)
+        if verify_hashes:
+            check_file(path, digest)
+
+
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--edition',choices=('light','full','both'),type=str.lower,default='light')
+    parser.add_argument('--include-rocm',action='store_true',help='Also include the pinned AMD ROCm addon in stage or local builds')
     parser.add_argument('--local-only',action='store_true',help='Update local EXE/runtime only; do not create release ZIPs')
+    parser.add_argument('--stage-only',action='store_true',help='Build into dist without replacing an open application or creating ZIPs')
     args=parser.parse_args(argv)
     verify_vendor(ROOT)
+    lock = load_lock(ROOT)
+    rocm_asset = lock.get('ollama_rocm')
+    release = not (args.stage_only or args.local_only)
+    include_rocm = args.include_rocm or (release and bool(rocm_asset))
+    if include_rocm:
+        if not rocm_asset: raise ValueError('ROCm addon is not pinned')
+        if not (inside(ROOT, rocm_asset['directory']) / 'asset-verification.json').is_file():
+            ensure_runtime('ollama_rocm', ROOT, asset=rocm_asset)
+        verify_rocm_addon(ROOT, rocm_asset, verify_hashes=not release)
     node=runtime_executable('node',ROOT)
     desktop=ROOT/'desktop'
     subprocess.run([str(node),str(desktop/'node_modules/typescript/bin/tsc'),'--noEmit'],cwd=desktop,check=True)
     subprocess.run([str(node),str(desktop/'build.mjs')],cwd=desktop,check=True)
+    from prepare_locale_runtime import ensure_runtime as ensure_locale_runtime
+    ensure_locale_runtime(ROOT)
     subprocess.run([sys.executable,'-m','PyInstaller','--noconfirm','--distpath',str(ROOT/'dist'),
                     '--workpath',str(ROOT/'build/work'),str(ROOT/'build/portable.spec')],cwd=ROOT,check=True)
     bundle=ROOT/'dist/RenPyTranslator'
@@ -232,7 +271,7 @@ def main(argv=None):
     _move_local(ROOT, ui/'electron.exe', ui/'RenPyTranslator-UI.exe')
     ui_app=ui/'resources/app'
     shutil.copytree(desktop/'dist',ui_app,dirs_exist_ok=True)
-    (ui_app/'package.json').write_text(json.dumps({'name':'renpy-translator-desktop','version':load_lock(ROOT)['release']['version'],'main':'main.js'}),encoding='utf-8')
+    (ui_app/'package.json').write_text(json.dumps({'name':'renpy-translator-desktop','version':lock['release']['version'],'main':'main.js'}),encoding='utf-8')
     def copy(source,relative):
         if source.is_symlink() or source.is_junction():raise ValueError('Linked build asset is forbidden: '+str(relative))
         target=bundle/relative;target.parent.mkdir(parents=True,exist_ok=True)
@@ -243,9 +282,9 @@ def main(argv=None):
         if source.is_file() and source.name in DOCUMENTATION_FILES:
             copy(source,source.relative_to(ROOT))
     copy_vendor_assets(ROOT,bundle,copy)
-    for asset in ollama_assets(load_lock(ROOT)):
+    for asset in ollama_assets(lock):
         for source in inside(ROOT,asset['directory']).rglob('*'):
-            if source.is_file() and runtime_file_allowed(source.relative_to(ROOT)):
+            if source.is_file() and runtime_asset_selected(ROOT, source, rocm_asset, include_rocm):
                 copy(source,source.relative_to(ROOT))
     (bundle/'models').mkdir(exist_ok=True)
     (bundle/'project').mkdir(exist_ok=True)
@@ -255,7 +294,7 @@ def main(argv=None):
     # Include third-party distribution notices from this isolated build environment.
     import importlib.metadata
     notices=bundle/'licenses';notices.mkdir(exist_ok=True)
-    for package in ('fonttools','pyinstaller','packaging','altgraph','pefile','pywin32-ctypes'):
+    for package in PYTHON_NOTICE_PACKAGES:
         dist=importlib.metadata.distribution(package)
         for item in dist.files or []:
             if any(word in item.name.lower() for word in ('license','copying','notice')):
@@ -266,7 +305,10 @@ def main(argv=None):
         if path.exists():copy(path,Path('licenses/Python-'+name))
     # A fresh PyInstaller collection contains no models. LIGHT never reads models.
     editions=['light','full'] if args.edition=='both' else [args.edition]
-    publish_build_output(bundle, editions, local_only=args.local_only)
+    if args.stage_only:
+        print('Build ready: '+str(bundle)+'; local application and ZIPs unchanged.')
+    else:
+        publish_build_output(bundle, editions, local_only=args.local_only)
 
 
 if __name__=='__main__':main()

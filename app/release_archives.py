@@ -2,7 +2,7 @@
 import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import shutil
 import struct
@@ -23,7 +23,9 @@ FULL_VOLUME_BYTES = 1_900_000_000
 LIGHT_TARGET_BYTES = 2_000_000_000
 MANIFEST_NAME = 'bundle-manifest.json'
 _PRIVATE_DIRS = frozenset(('.git', '.github', '.venv', '__pycache__', 'testcases',
-                         'tests', 'fixtures', 'samples', 'examples', 'saves', 'logs'))
+                         'tests', 'fixtures', 'samples', 'examples', 'saves', 'logs',
+                         '.rocm-gfx906', 'rocm-gfx906', 'rocm_gfx906'))
+_PRIVATE_RUNTIME_FILES = frozenset(('hipblas57.dll',))
 _GAME_SUFFIXES = frozenset(('.rpa', '.rpyc', '.rpym', '.rpymc', '.save', '.evtx', '.dmp', '.log', '.jsonl', '.sqlite', '.sqlite3',
                           '.rpgmvp', '.rpgmvo', '.rpgmvm', '.rgssad', '.rgss2a', '.rgss3a',
                           '.rxdata', '.rvdata', '.rvdata2', '.ldb', '.lmu', '.lmt'))
@@ -32,7 +34,13 @@ _ROOT_FILES = frozenset(('RenPyTranslator.exe', 'RenPyTranslator-cli.exe', 'tran
                         'gui.ps1', 'README.md', 'LICENSE', 'runtime-lock.json',
                         'THIRD_PARTY_NOTICES.md', 'PORTABLE.txt', MANIFEST_NAME))
 _RUNTIME_RPY = frozenset(('_internal/hints_screen.rpy', '_internal/language_panel.rpy'))
-DOCUMENTATION_FILES = frozenset(('usage.md', 'models.md', 'cli.md', 'diagnostics.md',
+PYTHON_NOTICE_PACKAGES = (
+    'fonttools', 'pyinstaller', 'packaging', 'altgraph', 'pefile', 'pywin32-ctypes',
+    'UnityPy', 'lz4', 'Brotli', 'Pillow', 'texture2ddecoder', 'etcpak', 'astc-encoder-py',
+    'fmod_toolkit', 'fsspec', 'attrs', 'tpk_ar', 'archspec', 'pyfmodex',
+)
+_LICENSE_PREFIXES = tuple(package+'-' for package in (*PYTHON_NOTICE_PACKAGES, 'Python'))
+DOCUMENTATION_FILES = frozenset(('usage.md', 'models.md', 'cli.md', 'diagnostics.md', 'kirikiri.md',
                                 'development.md', 'context-runtime.md', 'updates-and-checks.md',
                                 'grok-context-preparation.txt', '01_default.png', '02_advanced.png',
                                 '03_ai_model.png', '04_setting.png'))
@@ -60,6 +68,16 @@ def runtime_file_allowed(relative):
     parts = Path(relative).as_posix().split('/')
     if any(p.casefold() in _PRIVATE_DIRS for p in parts): return False
     name = parts[-1].casefold()
+    if name in _PRIVATE_RUNTIME_FILES: return False
+    # ROCm data files are limited to the versioned addon's known library tree.
+    lower = [part.casefold() for part in parts]
+    if any(part.startswith('rocm_') for part in lower):
+        if lower[:5] != ['runtimes', 'ollama-0.40.15', 'lib', 'ollama', 'rocm_v7_1']:
+            return False
+        tail = lower[5:]
+        return ((len(tail) == 1 and Path(name).suffix == '.dll') or
+                (len(tail) == 3 and tail[:2] == ['rocblas', 'library'] and
+                 (Path(name).suffix in ('.co', '.dat', '.hsaco') or name == 'tensilemanifest.txt')))
     return (Path(name).suffix in ('.exe', '.dll', '.bin', '.ptx', '.cubin', '.manifest') or
             name.startswith(('license', 'copying', 'notice')))
 
@@ -81,6 +99,29 @@ def _files(bundle):
 
 def _json(path, default):
     return json.loads(path.read_text(encoding='utf-8')) if path.is_file() else default
+
+
+def verified_rocm_files(root, asset):
+    """Return release-relative hashes from the pinned ROCm installation receipt."""
+    directory = asset['directory']
+    receipt = Path(root) / directory / 'asset-verification.json'
+    if receipt.is_symlink() or receipt.parent.is_symlink() or receipt.parent.is_junction():
+        raise ValueError('Linked ROCm addon receipts are forbidden')
+    state = _json(inside(root, receipt), {})
+    files = state.get('files') if isinstance(state, dict) else None
+    if (not isinstance(files, dict) or state.get('archive_sha256') != asset['sha256']
+            or not {asset['executable'], 'amdhip64_7.dll'} <= files.keys()):
+        raise ValueError('Missing or invalid pinned ROCm addon verification receipt')
+    hashes = {}
+    for name, digest in files.items():
+        path = PurePosixPath(name)
+        relative = (PurePosixPath(directory) / path).as_posix()
+        if (path.is_absolute() or path.as_posix() != name or '..' in path.parts
+                or '\\' in name or ':' in name or not runtime_file_allowed(relative)
+                or not isinstance(digest, str) or not re.fullmatch(r'[0-9a-f]{64}', digest)):
+            raise ValueError('Unlisted or invalid ROCm addon receipt file: ' + name)
+        hashes[relative] = digest
+    return hashes
 
 
 def _vendor_expected(root):
@@ -123,11 +164,15 @@ def audit_bundle(bundle, edition, *, root=None, strict=False, write_manifest=Tru
     expected_vendor = _vendor_expected(trusted) if strict else {}
     runtimes = ollama_assets(lock)
     runtime_dirs = [str(asset['directory']).replace('\\', '/') for asset in runtimes]
+    rocm_asset = lock.get('ollama_rocm') if strict else None
+    expected_rocm = verified_rocm_files(trusted, rocm_asset) if rocm_asset else {}
+    rocm_prefix = rocm_asset['directory'] + '/' if rocm_asset else ''
     rows = []; seen = set()
     for path in _files(bundle):
         relative = path.relative_to(bundle).as_posix(); parts = relative.split('/'); lower = [p.casefold() for p in parts]
         suffix = path.suffix.lower(); name = lower[-1]
         if any(p in _PRIVATE_DIRS for p in lower): raise ValueError('Private/test release path is forbidden: '+relative)
+        if name in _PRIVATE_RUNTIME_FILES: raise ValueError('Private runtime file is forbidden: '+relative)
         if lower[0] in ('data', 'project', 'projects', 'logs', 'config', 'settings', '.downloads'):
             raise ValueError('User/project release data is forbidden: '+relative)
         if (suffix in _GAME_SUFFIXES or suffix in _MODEL_SUFFIXES or
@@ -147,15 +192,19 @@ def audit_bundle(bundle, edition, *, root=None, strict=False, write_manifest=Tru
                     raise ValueError('Unlisted vendor release asset: '+relative)
             if parts[0] == 'runtimes' and (not any(relative.startswith(directory+'/') for directory in runtime_dirs) or not runtime_file_allowed(relative)):
                 raise ValueError('Unlisted runtime release asset: '+relative)
+            if rocm_prefix and relative.startswith(rocm_prefix) and relative not in expected_rocm:
+                raise ValueError('Unlisted official ROCm release asset: '+relative)
             if parts[0] == 'docs' and (len(parts) != 2 or parts[-1] not in DOCUMENTATION_FILES):
                 raise ValueError('Unlisted documentation release asset: '+relative)
             if parts[0] == 'licenses' and (len(parts) != 2 or not
-                    (parts[-1] == 'Hy-MT2-LICENSE.txt' or parts[-1].startswith(('fonttools-', 'pyinstaller-', 'packaging-', 'altgraph-', 'pefile-', 'pywin32-ctypes-', 'Python-')))):
+                    (parts[-1] == 'Hy-MT2-LICENSE.txt' or parts[-1].startswith(_LICENSE_PREFIXES))):
                 raise ValueError('Unlisted license release asset: '+relative)
         if relative == MANIFEST_NAME: continue
         row = {'path': relative, 'bytes': path.stat().st_size, 'sha256': sha256(path)}
         if relative in expected_vendor and row['sha256'] != expected_vendor[relative]:
             raise ValueError('Vendored release SHA-256 mismatch: '+relative)
+        if relative in expected_rocm and row['sha256'] != expected_rocm[relative]:
+            raise ValueError('Official ROCm release SHA-256 mismatch: '+relative)
         expected = model_files.get(relative)
         if expected:
             if 'manifest' in expected:
@@ -172,6 +221,8 @@ def audit_bundle(bundle, edition, *, root=None, strict=False, write_manifest=Tru
             raise ValueError('Required portable runtime assets are missing: '+', '.join(sorted(required-seen)))
         if set(expected_vendor)-seen:
             raise ValueError('Required vendored runtime assets are missing: '+', '.join(sorted(set(expected_vendor)-seen)))
+        if set(expected_rocm)-seen:
+            raise ValueError('Required official ROCm assets are missing: '+', '.join(sorted(set(expected_rocm)-seen)))
     if strict and edition == 'full' and (not asset or set(model_files)-seen):
         raise ValueError('FULL release is missing verified locked HY model assets')
     result = {'schema': 1, 'edition': edition, 'privacy_audit': 'passed', 'files': rows,
@@ -182,6 +233,9 @@ def audit_bundle(bundle, edition, *, root=None, strict=False, write_manifest=Tru
               'checks': ['no game scripts/saves/samples', 'no projects/settings/caches/logs',
                          'no linked assets', 'vendor/runtime allowlists' if strict else 'forbidden paths',
                          'locked HY model only' if edition == 'full' else 'no model payloads']}
+    if rocm_asset:
+        result['rocm'] = {'version': rocm_asset['version'], 'archive_sha256': rocm_asset['sha256'],
+                          'files': len(expected_rocm)}
     if write_manifest:
         (bundle/MANIFEST_NAME).write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
     print('RELEASE_PRIVACY_AUDIT '+edition.upper()+' passed; files '+str(len(rows)), flush=True)
@@ -432,6 +486,8 @@ def package_editions(root, bundle, editions, export_model):
                     'privacy_audits': {edition: {'status': audit['privacy_audit'], 'model_policy': audit['model_policy'],
                                                 'files': audit['totals']['files']} for edition, audit in audits.items()},
                     'game_executed': False, 'model_inference_executed': False}
+        if 'rocm' in initial_audit:
+            manifest['rocm'] = initial_audit['rocm']
         (staging / 'release-manifest.json').write_text(json.dumps(manifest, indent=2), encoding='utf-8')
         (staging / 'SHA256SUMS.txt').write_text(''.join(
             row['sha256'] + '  ' + row['name'] + '\n' for row in metadata), encoding='utf-8')

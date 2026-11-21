@@ -80,17 +80,25 @@ class DeploymentTests(unittest.TestCase):
     def test_light_build_never_requests_model_assets(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp)
-            for area in ('desktop/node_modules/electron/dist','desktop/dist','vendor/fonts','vendor/unrpyc','runtimes/ollama-fixture','runtimes/ollama-previous','licenses'):
+            primary = 'runtimes/ollama-0.40.15'
+            rocm_prefix = 'lib/ollama/rocm_v7_1/'
+            for area in ('desktop/node_modules/electron/dist','desktop/dist','vendor/fonts','vendor/unrpyc',primary,'runtimes/ollama-previous','runtimes/.downloads','licenses'):
                 (root/area).mkdir(parents=True,exist_ok=True)
             (root/'desktop/node_modules/electron/dist/electron.exe').write_bytes(b'fixture')
-            (root/'runtimes/ollama-fixture/ollama.exe').write_bytes(b'fixture runtime')
+            (root/primary/'ollama.exe').write_bytes(b'fixture runtime')
             (root/'runtimes/ollama-previous/ollama.exe').write_bytes(b'previous runtime')
+            rocm_archive = root/'runtimes/.downloads/ollama_rocm-0.40.15.zip'
+            with zipfile.ZipFile(rocm_archive, 'w') as archive:
+                archive.writestr(rocm_prefix+'ggml-hip.dll', b'fixture HIP backend')
+                archive.writestr(rocm_prefix+'amdhip64_7.dll', b'fixture ROCm runtime')
             for name in ('main.js','preload.js','index.html'):
                 (root/'desktop/dist'/name).write_text('fixture UI',encoding='utf-8')
             for name in ('translate.ps1','gui.ps1','README.md','LICENSE','runtime-lock.json','THIRD_PARTY_NOTICES.md','licenses/Hy-MT2-LICENSE.txt','docs/grok-context-preparation.txt','docs/context-runtime.md','docs/usage.md','docs/models.md','docs/cli.md','docs/diagnostics.md','docs/development.md','vendor/asset-lock.json','vendor/versions.json'):
                 p=root/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_text('fixture')
-            lock={'release':{'version':'0.1.0'},'ollama':{'directory':'runtimes/ollama-fixture','executable':'ollama.exe'},
-                  'ollama_compatibility':[{'directory':'runtimes/ollama-previous','executable':'ollama.exe'}]}
+            lock={'release':{'version':'0.1.0'},'ollama':{'directory':primary,'executable':'ollama.exe'},
+                  'ollama_compatibility':[{'directory':'runtimes/ollama-previous','executable':'ollama.exe'}],
+                  'ollama_rocm':{'version':'0.40.15','directory':primary+'/'+rocm_prefix.rstrip('/'),
+                                 'prefix':rocm_prefix,'executable':'ggml-hip.dll','sha256':setup.sha256(rocm_archive)}}
             (root/'runtime-lock.json').write_text(json.dumps(lock),encoding='utf-8')
             (root/'vendor/asset-lock.json').write_text(json.dumps({'schema':1,'files':{}}),encoding='utf-8')
             (root/'vendor/versions.json').write_text(json.dumps({'unrpyc':{'version':'fixture'}}),encoding='utf-8')
@@ -99,12 +107,24 @@ class DeploymentTests(unittest.TestCase):
                 (bundle/'_internal/python312.dll').write_bytes(b'fixture Python runtime')
                 for name in ('RenPyTranslator.exe','RenPyTranslator-cli.exe'):
                     (bundle/name).write_bytes(b'fixture launcher')
-            with patch('build_portable.ROOT',root),patch('build_portable.verify_vendor'),patch('build_portable.runtime_executable',return_value=root/'node.exe'),patch('build_portable.load_lock',return_value=lock),patch('build_portable.subprocess.run',side_effect=build),patch('build_portable.export_model',side_effect=AssertionError('LIGHT must not access models')),patch('build_portable.publish_local'):
+            with (
+                patch('build_portable.ROOT', root),
+                patch('build_portable.verify_vendor'),
+                patch('build_portable.runtime_executable', return_value=root/'node.exe'),
+                patch('build_portable.load_lock', return_value=lock),
+                patch('build_portable.subprocess.run', side_effect=build),
+                patch('build_portable.export_model', side_effect=AssertionError('LIGHT must not access models')),
+                patch('build_portable.publish_local'),
+                patch('prepare_locale_runtime.ensure_runtime'),
+                patch('development_setup.urllib.request.urlopen', side_effect=AssertionError('Use the cached ROCm fixture')),
+            ):
                 build_portable.main([])
             with zipfile.ZipFile(root/'portable/V0.1.0/RenPyTranslator-light.zip') as archive:
                 self.assertFalse(any('/models/ollama/' in name for name in archive.namelist()))
-                self.assertEqual(archive.read('RenPyTranslator/runtimes/ollama-fixture/ollama.exe'),b'fixture runtime')
+                self.assertEqual(archive.read('RenPyTranslator/'+primary+'/ollama.exe'),b'fixture runtime')
                 self.assertEqual(archive.read('RenPyTranslator/runtimes/ollama-previous/ollama.exe'),b'previous runtime')
+                self.assertEqual(archive.read('RenPyTranslator/'+primary+'/'+rocm_prefix+'ggml-hip.dll'),b'fixture HIP backend')
+                self.assertEqual(archive.read('RenPyTranslator/'+primary+'/'+rocm_prefix+'amdhip64_7.dll'),b'fixture ROCm runtime')
                 for name in ('LICENSE','docs/usage.md','docs/models.md','docs/cli.md','docs/diagnostics.md','docs/development.md','docs/context-runtime.md','docs/grok-context-preparation.txt'):
                     self.assertEqual(archive.read('RenPyTranslator/'+name),b'fixture')
                 package=json.loads(archive.read('RenPyTranslator/_desktop/resources/app/package.json'))

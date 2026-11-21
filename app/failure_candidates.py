@@ -40,7 +40,7 @@ def nonlanguage_reference(text):
     return None
 
 
-def intentional(row, entry, ui):
+def intentional(row, entry, ui, cfg=None):
     """Explicit policy takes priority over broad language-quality checks."""
     from ui_policy import standard
     source=row['source']
@@ -54,6 +54,17 @@ def intentional(row, entry, ui):
                   entry.get('model') in ('literal format','literal whitespace')):
         return 'literal_or_policy'
     bare=visible(source)
+    from japanese_output_policy import enabled as japanese_enabled,visible_view
+    if japanese_enabled(cfg):
+        # A message's \V[1]/\n is not a filesystem separator. Keep explicit
+        # URLs/drive paths intact, and inspect other text after engine controls.
+        explicit=nonlanguage_reference(bare)
+        if explicit=='url' or re.match(r'(?i)[a-z]:[\\/]',bare):return explicit
+        if row.get('usage') in ('speaker_label','name','name_label'):
+            from japanese_output_policy import _masked_tokens
+            bare=' '.join(_masked_tokens(source,cfg).split())
+        else:
+            bare=' '.join(visible_view(source,source,cfg).split())
     if not any(c.isalpha() for c in bare):return 'nonlinguistic'
     return nonlanguage_reference(bare)
 
@@ -80,9 +91,14 @@ def unchanged_english(row, entry, ui, names):
 
 def classify(row, entry, cfg, ui, names=(), *, indexed=False):
     """Return only candidate/status diagnostics; never emit source/output text."""
+    if cfg.get('engine')=='kirikiri':
+        from kirikiri_translation import row_config
+        cfg=row_config(cfg,row)
     if entry is not None and entry.get('source')!=row['source']:
         return {'excluded':'cache_source_mismatch'}
-    reason=intentional(row,entry,ui)
+    if entry is not None and entry.get('status')=='manual_translation':
+        return {'excluded':'manual_translation'}
+    reason=intentional(row,entry,ui,cfg)
     if reason:return {'excluded':reason}
     if entry is None:
         if not indexed and is_name(row,names):return {'excluded':'name'}
@@ -94,11 +110,17 @@ def classify(row, entry, cfg, ui, names=(), *, indexed=False):
     errors=validate_text(row['source'],text,cfg,check_link_content=True) if isinstance(text,str) else ['translation is not a string']
     if entry.get('status')=='source_fallback':return {'origin':'source_fallback','errors':errors}
     if errors:return {'origin':'validation_error','errors':errors}
+    from japanese_output_policy import enabled as japanese_enabled
+    if japanese_enabled(cfg) and entry.get('_japanese_ruby_pending'):
+        return {'origin':'ruby_reading_update','errors':[]}
     if normalize(cfg.get('source_language'))=='english' and unchanged_english(row,entry,ui,names):
         return {'origin':'unchanged_english','errors':[]}
     if entry.get('status')=='failure_recovered':
         body=visible(text)
-        if any(c.isalpha() for c in body) and not HANGUL.search(body):
+        from rpgmaker_names import name_only
+        from japanese_numbers import compare as compare_numbers
+        numeric_ok=japanese_enabled(cfg) and compare_numbers(row['source'],text)=='match'
+        if any(c.isalpha() for c in body) and not HANGUL.search(body) and not name_only(row['source'],cfg) and not numeric_ok:
             return {'origin':'validation_error','errors':['no Korean translation']}
         return {'origin':'saved_recovery','errors':[]}
     if isinstance(text,str) and not HANGUL.search(text) and visible(row['source'])==visible(text):

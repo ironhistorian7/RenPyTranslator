@@ -6,21 +6,29 @@ import math
 from pathlib import Path
 import re
 import threading
+import urllib.error
 import urllib.request
+from http.client import IncompleteRead, BadStatusLine
 from source_context import token_estimate
 
 CTX = 16384
 RESERVE = 128
 _LOCK = threading.Lock()
 _COUNTERS = {}
+_COUNTER_LOCKS = {}
 
 
 def post(endpoint, route, body):
     from model_runtime import track_request
     body = track_request(endpoint, route, body)
     request = urllib.request.Request(endpoint+route, json.dumps(body).encode(), {'Content-Type':'application/json'})
-    with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(request, timeout=120) as response:
-        return json.load(response)
+    try:
+        with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(request, timeout=120) as response:
+            return json.load(response)
+    except (urllib.error.URLError, TimeoutError, ConnectionError, IncompleteRead, BadStatusLine) as exc:
+        from request_diagnostics import mark_transport_failure
+        mark_transport_failure(exc, endpoint, route)
+        raise
 
 
 class Counter:
@@ -29,6 +37,7 @@ class Counter:
         self.reason = 'No owned tokenizer; conservative estimate (not actual tokens).'
         log = cfg.get('_runtime_log')
         if not log: return
+        probe_route = '/api/generate'
         try:
             # An empty Ollama prompt loads this model without generating text.
             post(cfg['endpoint'], '/api/generate', {'model':cfg['model'], 'prompt':'', 'stream':False,
@@ -37,9 +46,16 @@ class Counter:
             ports = re.findall(r'--port\s+(\d+)', text)
             if not ports: raise ValueError('Owned runner did not expose its tokenizer port')
             self.endpoint = 'http://127.0.0.1:'+ports[-1]
+            probe_route = '/tokenize'
             self.count('Tokenizer probe.')
             self.reason = None
         except Exception as exc:
+            # A missing optional endpoint can use an estimate. A dead runner
+            # must reach the owning runtime's existing bounded restart loop.
+            unsupported = (probe_route == '/tokenize' and isinstance(exc, urllib.error.HTTPError)
+                           and exc.code in (404, 405, 501))
+            if getattr(exc, '_rpt_transport', False) and not unsupported:
+                raise
             self.endpoint = None
             self.reason = type(exc).__name__+': '+str(exc)
             print('Tokenizer unavailable; using a conservative estimate. '+self.reason,flush=True)
@@ -60,14 +76,24 @@ class Counter:
 def counter(cfg):
     key = (cfg.get('_runtime_log'), cfg.get('endpoint'), cfg.get('model'), cfg.get('num_ctx',CTX))
     with _LOCK:
-        if key not in _COUNTERS: _COUNTERS[key] = Counter(cfg)
-        return _COUNTERS[key]
+        if key in _COUNTERS:return _COUNTERS[key]
+        lock=_COUNTER_LOCKS.setdefault(key,threading.Lock())
+    # A model may take seconds to load. Other GPU servers must be able to
+    # initialize their own tokenizers while this device is loading/recovering.
+    with lock:
+        with _LOCK:
+            if key in _COUNTERS:return _COUNTERS[key]
+        value=Counter(cfg)
+        with _LOCK:_COUNTERS[key]=value
+        return value
 
 
 def forget(cfg):
     with _LOCK:
         for key in list(_COUNTERS):
             if key[0] == cfg.get('_runtime_log'): del _COUNTERS[key]
+        for key in list(_COUNTER_LOCKS):
+            if key[0] == cfg.get('_runtime_log'): del _COUNTER_LOCKS[key]
 
 
 def guidance_tokens(context, count):
@@ -80,6 +106,14 @@ class InputBudgetError(RuntimeError): pass
 
 class BatchNeedsSplit(InputBudgetError):
     """Preflight only: retry smaller batches without spending a model call."""
+
+
+def should_report_adjustment(budget):
+    """Report actual window reductions and unexpected preselection reductions."""
+    return bool(budget.get('dropped')) or any(
+        item.get('reason') not in ('policy_cap', 'clean_retry', 'candidate_budget')
+        for item in budget.get('preselection_dropped', [])
+    )
 
 
 def fit(context, cfg, build):

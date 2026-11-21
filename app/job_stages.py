@@ -5,6 +5,7 @@ from job_events import set_phase
 PUBLIC_STAGES={
     'inspect and prepare':('prepare','작업 파일 준비 중'),
     'RPG Maker prepare':('prepare','작업 자료 확인 중'),
+    'Unity prepare':('prepare','작업 자료 확인 중'),
     'name preparation':('names','인명 표기 정리 중'),
     'name correction':('names','인명 표기 보정 중'),
     'translation':('translation','번역 준비 중'),
@@ -14,6 +15,8 @@ PUBLIC_STAGES={
     'presentation':('presentation','표시 설정 준비 중'),
     'render':('render','번역 파일 생성 중'),
     'RPG Maker patch output':('render','번역 파일 생성 중'),
+    'Unity patch output':('render','번역 에셋 생성 중'),
+    'Unity patch check':('validate','패치 검사 중'),
     'install support':('support','글꼴·표시 설정 적용 중'),
     'validate':('validate','패치 검사 중'),
     'patch check':('validate','패치 검사 중'),

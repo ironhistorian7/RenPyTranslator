@@ -15,6 +15,11 @@ _LOCK=threading.Lock()
 def runtime_settings(cfg):
     result={k:cfg.get(k) for k in ('engine','engine_variant','source_language','model','endpoint','num_ctx','parallel','kv_cache_type','_hardware_policy','_runtime_log','_runtime_pid','_runtime_env','_runtime_launch','_recovery_run_id','_runtime_generation','_cuda_diagnostic_mode')}
     result['context_txt_policy']='disabled_by_gpu_profile' if cfg.get('context_txt_enabled',True) is False else 'adaptive'
+    if cfg.get('_runtime_model_metadata'):result['model_metadata']=cfg['_runtime_model_metadata']
+    if cfg.get('_model_registration_compatibility'):result['model_registration_compatibility']=cfg['_model_registration_compatibility']
+    if cfg.get('model'):
+        from model_store import model_title
+        result['model_display_name']=model_title(cfg['model'])
     return result
 
 
@@ -49,6 +54,7 @@ def report(exc, cfg=None, rows=None, request_id=None, handled=False):
             if rows is not None:state['items']=[{k:r.get(k) for k in ('id','file','block','source_file','source_line','usage','usage_evidence')} for r in rows]
             if hasattr(exc,'context_budget'):state['context_budget']=exc.context_budget
             if hasattr(exc,'http_details'):state['http']=exc.http_details
+            if hasattr(exc,'request_diagnostics'):state['request_diagnostics']=exc.request_diagnostics
             if hasattr(exc,'native_launch'):state['native_launch']=exc.native_launch
             if hasattr(exc,'failures'):
                 state['validation_failures']=[dict(id=f['row'].get('id'),**{k:v for k,v in f.items() if k!='row'}) for f in exc.failures]
@@ -65,6 +71,9 @@ def report(exc, cfg=None, rows=None, request_id=None, handled=False):
             if hasattr(exc,'failures'):
                 counts={'affected':len(exc.failures),'accepted':len(exc.output)}
             elif rows is not None:counts={'affected':len(rows)}
+            elif isinstance(getattr(exc,'remaining',None),int):
+                counts={'missing':exc.remaining}
+                if isinstance(getattr(exc,'total',None),int):counts['total']=exc.total
             if counts:issue['counts']=counts
             state.update(error_id=path.stem,issue=dict(issue),
                          resume='Saved entries are retained. An in-flight unsaved batch may repeat.')
@@ -80,6 +89,11 @@ def report(exc, cfg=None, rows=None, request_id=None, handled=False):
         issue=dict(exc._rpt_issue,state=severity)
         exc._rpt_issue_state=severity
     import os
+    if handled:
+        from job_events import warning
+        warning(issue['code'],issue['title'],item_ids=[row.get('id') for row in rows or () if row.get('id')],
+                count=1,error_id=issue.get('error_id'),log_path=issue.get('log_path'),detail=issue.get('detail'))
+        return getattr(exc,'_rpt_error_file',None)
     if os.environ.get('RPT_DESKTOP_EVENTS')=='1':
         try:
             from job_events import emit

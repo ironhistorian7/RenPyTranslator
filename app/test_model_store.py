@@ -34,6 +34,36 @@ class ModelStoreTests(unittest.TestCase):
         store.save(path,{'config':{'digest':digest,'size':len(payload)},'layers':[{'mediaType':'application/vnd.ollama.image.model','digest':digest,'size':len(payload)}]})
         return blob,path
 
+    def test_quantization_uses_final_filename_tag_not_source_model_name(self):
+        for filename,expected in [
+            ('gemma-qat-q4_0-unquantized-heretic-v3.i1-IQ2_XS.gguf','IQ2_XS'),
+            ('HY-MT2-7B-Q6_K.gguf','Q6_K'),
+            ('folder/Model-Q4_K_M-00001-of-00002.gguf','Q4_K_M'),
+            ('folder/Model-IQ4_NL.gguf','IQ4_NL'),
+            ('Model-BF16.gguf','BF16'),
+            ('Q4_0-folder/model.gguf','미제공'),
+            ('rpt-hymt2-7b:q6_k','Q6_K')]:
+            self.assertEqual(store.quantization(filename),expected)
+
+    def test_existing_wrong_quantization_is_corrected_in_inventory_without_write(self):
+        _,manifest=self.install('generic:latest')
+        library=self.root/'data/model-library.json'
+        store.save(library,{'generic:latest':{'filename':'gemma-qat-q4_0-unquantized.i1-IQ2_XS.gguf','quantization':'Q4_0'}})
+        before=library.read_bytes()
+        self.assertEqual(store.inventory()['installed'][0]['quantization'],'IQ2_XS')
+        self.assertEqual(library.read_bytes(),before)
+
+    def test_manifest_config_quantization_wins_without_opening_weights(self):
+        weight,manifest=self.install('generic:latest')
+        config_payload=json.dumps({'file_type':'IQ2_XS'}).encode()
+        digest='sha256:'+hashlib.sha256(config_payload).hexdigest()
+        store.blob(digest).write_bytes(config_payload)
+        doc=json.loads(manifest.read_text(encoding='utf-8'));doc['config']={'digest':digest,'size':len(config_payload)}
+        store.save(manifest,doc)
+        store.save(self.root/'data/model-library.json',{'generic:latest':{'filename':'Wrong-Q4_0.gguf','quantization':'Q4_0'}})
+        with patch.object(store,'gguf',side_effect=AssertionError('No weights metadata scan')):
+            self.assertEqual(store.inventory()['installed'][0]['quantization'],'IQ2_XS')
+
     def test_none_is_explicit_and_never_defaults_to_installed_hy(self):
         self.install('rpt-hymt2-7b:q6_k');self.assertIsNone(store.selected())
         self.assertEqual(store.problem()['title'],'사용할 모델을 선택해 주세요.')
@@ -45,6 +75,30 @@ class ModelStoreTests(unittest.TestCase):
         self.assertEqual(store.problem()['title'],'번역 모델이 필요합니다.')
         blob,_=self.install();store.choose('example:latest');blob.unlink()
         self.assertEqual(store.problem()['title'],'선택한 모델을 찾을 수 없습니다.')
+
+    def test_dual_translation_requires_each_model_and_worker_count(self):
+        self.install('one:latest');self.install('two:latest')
+        gpus=[dict(id='GPU-0001',name='First',selectable=True,total=12282),
+              dict(id='GPU-0002',name='Second',selectable=True,total=12282)]
+        settings={'gpu_mode':'all','gpu_overrides':{'GPU-0001':{'model':'one:latest','parallel':2},
+                                                     'GPU-0002':{'model':'two:latest','parallel':4}}}
+        request={'op':'preflight','tasks':['run'],'engine':'rpgmaker','settings':settings}
+        with patch('desktop_bridge.policy_devices',return_value=gpus):
+            self.assertIsNone(store.dispatch(request))
+            self.assertEqual(store.require_job_model(['run'],preferences=settings),'one:latest')
+            self.assertIsNone(store.selected())
+            store.choose('two:latest')
+            self.assertEqual(store.require_job_model(['run'],preferences=settings),'one:latest')
+            settings['gpu_overrides']['GPU-0002']={'parallel':4}
+            self.assertIn('Second',store.dispatch(request)['detail'])
+            settings['gpu_overrides']['GPU-0002']={'model':'two:latest'}
+            settings['inference_overrides']={'parallel':8}
+            self.assertIn('동시 처리',store.dispatch(request)['detail'])
+            settings['gpu_overrides']['GPU-0002']={'model':'missing:latest','parallel':4}
+            self.assertIn('missing:latest',store.dispatch(request)['detail'])
+            settings['gpu_mode']='auto'
+            self.assertIsNone(store.dispatch(request))
+            self.assertEqual(store.require_job_model(['run'],preferences=settings),'two:latest')
 
     def test_delete_preserves_shared_blobs_and_clears_selection(self):
         blob,_=self.install('one:latest');self.install('two:latest');store.choose('one:latest')
@@ -196,8 +250,15 @@ class ModelStoreTests(unittest.TestCase):
 
     def test_cli_preflight_before_project_access_and_offline_jobs(self):
         import translate_game
-        with patch('translate_game.resolve_project',side_effect=AssertionError('Must not inspect games')) as resolve:
+        # Engine routing may inspect directory structure before model preflight.
+        # Keep this fixture synthetic and assert that project/content processing
+        # still cannot begin when no translation model has been selected.
+        detected={'engine':'renpy','engine_label':'Ren’Py','supported':True}
+        with patch('game_engine.detect',return_value=detected) as detect,\
+             patch('translate_game._translation_log_cleanup'),\
+             patch('translate_game.resolve_project',side_effect=AssertionError('Must not access project content')) as resolve:
             with self.assertRaisesRegex(ValueError,'모델'):translate_game.main(['run','--source','DO-NOT-READ'])
+            detect.assert_called_once_with(Path('DO-NOT-READ'))
             resolve.assert_not_called()
         self.assertFalse(store.needs_model(['font','layout','display','answers','language']))
 

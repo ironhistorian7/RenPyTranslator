@@ -30,16 +30,17 @@ class ReportingTests(unittest.TestCase):
             notice.notice('rpg_js_candidates',count=9)
             notice.notice('rpg_identifiers_preserved',count=4)
             notice.notice('rpg_read_failure',file='data/Extra.json',error_type='ValueError')
-            with patch('rpgmaker_notices.emit') as emit,redirect_stdout(io.StringIO()) as stdout:
+            with patch('rpgmaker_notices.emit') as emit,patch('rpgmaker_notices.warning') as warning,redirect_stdout(io.StringIO()) as stdout:
                 target=notice.save(project)
             data=json.loads(target.read_text(encoding='utf-8'))
             self.assertEqual(data['kind'],'rpg_extraction')
             self.assertEqual(data['details'],['synthetic per-file success'])
             events=[(call.args[0],call.kwargs) for call in emit.call_args_list]
-            self.assertEqual(events[0][0],'issue')
-            self.assertEqual(events[0][1]['counts'],{'files':1})
-            self.assertEqual(events[0][1]['state'],'warning')
-            self.assertEqual([event[1]['count'] for event in events[1:]],[9,4])
+            warning.assert_called_once()
+            self.assertEqual(warning.call_args.args[0],'rpg_read_failure')
+            self.assertEqual(warning.call_args.kwargs['count'],1)
+            self.assertEqual([event[0] for event in events],['notice','notice'])
+            self.assertEqual([event[1]['count'] for event in events],[9,4])
             self.assertNotIn('고급 설정',stdout.getvalue())
             self.assertNotIn('synthetic per-file success',stdout.getvalue())
 

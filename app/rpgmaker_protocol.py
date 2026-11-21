@@ -30,7 +30,7 @@ def wire_inputs(inputs):
                  name_hints={wire_markers(k):v for k,v in item.get('name_hints',{}).items()}) for item in inputs]
 
 
-def parse(content,count,*,expected_ids=None):
+def parse(content,count,*,expected_ids=None,allow_headerless=False):
     from hy_backend import parse as normal_parse
     parsed=normal_parse(content)
     # One requested item, one explicit numeric header with a harmless prefix.
@@ -41,7 +41,38 @@ def parse(content,count,*,expected_ids=None):
     expected=set(expected_ids) if expected_ids is not None else {'0'}
     if count==1 and len(expected)==1 and not parsed and len(headers)==1 and headers[0].start()==0 and headers[0][1] in expected:
         parsed={headers[0][1]:content.strip()[headers[0].end():].strip()};alias=True
+    if count==1 and len(expected)==1 and allow_headerless and not parsed and not headers:
+        value=content.strip()
+        # Only a single plain response can be assigned to the one requested ID.
+        # Do not reinterpret JSON, markdown, malformed IDs or protocol envelopes.
+        if (value and not re.search(r'[\r\n\x00]',value)
+                and not re.search(r'\[[^\]]*\]|</?target_id\b|```|^\s*[{}]',value,re.I)
+                and not re.search(r'^(?:translation|output|번역|출력)\s*:',value,re.I)):
+            parsed={next(iter(expected)):value};alias=True
     return parsed,alias
+
+
+def japanese_instruction(cfg):
+    """Instructions scoped to Japanese RPG Maker translation."""
+    from rpgmaker_output_policy import enabled
+    if not enabled(cfg):return ''
+    text=('일본어 의성어·의태어·감탄사와 웃음소리도 문맥에 맞는 자연스러운 한글 표현으로 옮기세요. '
+          '인명 외의 일본어 음절을 번역문에 남기지 마세요. 원문의 의미와 보호 표시는 유지하세요. '
+          '이전 문맥의 한국어는 이미 번역된 참고 대사이고 뒤의 일본어도 참고입니다. 번역 대상 항목만 출력하세요.')
+    kind=cfg.get('_rpg_retry_kind')
+    attempt=cfg.get('_rpg_retry_attempt',0)
+    if kind=='minor':
+        text+=' 남은 작은 일본어 잔류까지 확인하고 문장 전체를 자연스러운 한국어로 완성하세요.'
+    elif kind=='no_korean':
+        text+=' 원문 전체를 처음부터 한국어로 번역하세요. 일본어 원문을 그대로 답하지 마세요.'
+    elif kind=='mixed':
+        text+=' 한국어 문맥과 원문을 함께 확인하고 섞여 있는 일본어 표현을 모두 한국어로 바꾸세요.'
+    elif kind=='structure':
+        text+=' 입력의 보호 표시와 응답 항목을 정확히 복원하고 코드나 설명을 추가하지 마세요.'
+    if attempt:
+        text+=(' 뜻과 말투를 보존하며 남은 일본어를 다시 점검하세요.' if attempt==1 else
+               ' 표현을 새로 구성해 한국어 문장으로 완성하고 누락을 확인하세요.')
+    return text
 
 
 def previous_output(error):
@@ -51,11 +82,23 @@ def previous_output(error):
     return value if isinstance(value,str) else None
 
 
+def _draft_view(source,text,cfg):
+    if cfg is None:return text
+    from rpgmaker_names import mask_names
+    return mask_names(source,text,cfg)
+
+
 def correction_draft(source,error,cfg):
     """Only isolate language residue in a complete, structurally valid draft."""
     if 'untranslated Japanese text' not in error:return None
     value=previous_output(error)
-    if not value or not re.search(r'[가-힣]',value):return None
+    if not value or not re.search(r'[가-힣]',_draft_view(source,value,cfg)):return None
+    proof=cfg.get('_rpg_validated_draft',{})
+    if (cfg.get('_rpg_retry_kind')=='minor' and proof.get('source')==source
+            and proof.get('protected')==value):
+        # The parent kept this exact assembled draft only after one structural
+        # validation. Reuse that decision for the current immutable source.
+        return value
     from rpgmaker_tokens import split_outer_controls,protect,validate
     from translation import restore
     prefix,core,suffix=split_outer_controls(source);_,tokens=protect(core)
@@ -66,29 +109,30 @@ def correction_draft(source,error,cfg):
     return value if errors and set(errors)=={'untranslated Japanese text'} else None
 
 
-def correction_parts(draft,limit=8,tokens=()):
+def correction_parts(draft,limit=8,tokens=(),*,source='',cfg=None):
     """Read through known display anchors; values and unknown codes stay boundaries."""
-    from rpgmaker_tokens import KANA
+    from rpgmaker_tokens import RESIDUE
+    view=_draft_view(source,draft,cfg)
     words=[];positions=[];indices={}
     offset=0
-    for match in WORD.finditer(draft):
+    for match in WORD.finditer(view):
         if match.start()<offset:continue
         end=match.end()
         while True:
             cursor=end
             while True:
-                anchor=ANCHOR.match(draft,cursor)
+                anchor=ANCHOR.match(view,cursor)
                 if not anchor:break
                 index=int(anchor[1])
                 if index>=len(tokens) or not DISPLAY_CONTROL.fullmatch(tokens[index]):break
                 cursor=anchor.end()
-            following=WORD.match(draft,cursor)
+            following=WORD.match(view,cursor)
             if cursor==end or not following:break
             end=following.end()
         offset=end
         word=draft[match.start():end]
-        if not KANA.search(word):continue
-        punctuation=PUNCTUATION.match(draft,end)
+        if not RESIDUE.search(view[match.start():end]):continue
+        punctuation=PUNCTUATION.match(view,end)
         if punctuation:end=punctuation.end();word=draft[match.start():end];offset=end
         if word not in indices:indices[word]=len(words);words.append(word)
         positions.append((match.start(),end,str(indices[word])))
@@ -101,7 +145,7 @@ def correction_plan(source,error,cfg):
     if draft is None:return None
     from rpgmaker_tokens import split_outer_controls,protect
     _,core,_=split_outer_controls(source);_,tokens=protect(core)
-    parts=correction_parts(draft,cfg.get('batch_size',8),tokens)
+    parts=correction_parts(draft,cfg.get('batch_size',8),tokens,source=source,cfg=cfg)
     return (draft,parts) if parts is not None else None
 
 
@@ -118,9 +162,9 @@ def correction_ending(original,value):
             if not key(ending[0]).startswith(key(emitted[0])):
                 raise ValueError('RPG Japanese span correction changed punctuation')
             return value[:-len(emitted[0])]+ending[0]
-        if PUNCTUATION.search(visible):raise ValueError('RPG Japanese span correction added text after punctuation')
+        if re.search(r'[.!?…！？〜～~]',visible):raise ValueError('RPG Japanese span correction added text after punctuation')
         return value+ending[0]
-    if PUNCTUATION.search(visible):raise ValueError('RPG Japanese span correction added punctuation')
+    if emitted or re.search(r'[.!?…！？〜～~]',visible):raise ValueError('RPG Japanese span correction added punctuation')
     return value
 
 
@@ -177,14 +221,17 @@ def apply_corrections(draft,positions,values):
             # A fragment excludes surrounding punctuation. Accept an echoed suffix
             # only when those exact bytes already follow this occurrence in the draft.
             if repeated and draft[end:].startswith(repeated[2]):value=repeated[1].strip()
-        if not isinstance(value,str):
+        if not isinstance(value,str) or not value or any(c in value for c in '\r\n\x00'):
             raise ValueError('RPG Japanese span correction invalid or missing item '+key)
         # Original marker IDs and order remain explicit; no position projection.
         if ANCHOR.findall(value)!=ANCHOR.findall(original):
             raise ValueError('RPG Japanese span correction marker mismatch item '+key)
         value=correction_ending(original,value)
         visible=ANCHOR.sub('',value);previous=ANCHOR.sub('',original)
-        if (not re.fullmatch(r'[가-힣A-Za-z0-9 \-]+(?:[.!?…！？。、，：；:;,〜～~][가-힣A-Za-z0-9 \-]*)*',visible)
+        # Language residue and engine codes are checked once on the assembled
+        # translation. A fragment is not restricted to Hangul/ASCII characters:
+        # natural Korean can contain quotes, parentheses, symbols and name forms.
+        if (re.search(r'\s(?:→|⇒|=>|->)\s',visible)
                 or len(SENTENCE_END.findall(visible))>max(1,len(SENTENCE_END.findall(previous)))):
             raise ValueError('RPG Japanese fragment correction invalid or missing item '+key)
         replacements[start]=value.strip()
@@ -195,7 +242,9 @@ def apply_corrections(draft,positions,values):
 def retry_instruction(rows,errors,cfg):
     from rpgmaker_tokens import protect,split_outer_controls
     from translation import restore,movable_token
-    notes=['이전 출력의 오류를 교정하세요. 입력의 [ID]를 그대로 유지하고 한국어 결과만 출력하세요. '
+    # The request builder owns the response format (JSON or numbered text).
+    # Retry notes describe the repair only, never another wire protocol.
+    notes=['이전 출력의 오류를 교정하세요. 각 입력 항목의 한국어 번역을 완성하세요. '
            '보호 표시는 해석하거나 엔진 코드로 풀어 쓰지 마세요. 새 태그를 만들지 마세요.']
     for index,row in enumerate(rows):
         _,core,_=split_outer_controls(row['source']);_,tokens=protect(core)
@@ -206,17 +255,25 @@ def retry_instruction(rows,errors,cfg):
                          (index,', '.join(markers),', '.join(movable) or '없음'))
         error=errors.get(row['id'],'');candidate=previous_output(error)
         if 'untranslated Japanese text' in error or 'no Korean translation' in error:
-            notes.append('항목 %d에 일본어가 남았습니다. 이미 번역된 한국어의 뜻과 말투는 유지하고, 남은 일본어 부분을 원문 문맥에 맞춰 한국어로 교정하세요. 감탄사와 웃음소리도 한글로 표현하세요. 내용을 추가하지 마세요.'%index)
+            partial=None
             if candidate:
                 candidate=normalize_markers(candidate)
-                try:restore(candidate,tokens)
-                except ValueError:pass
-                else:
-                    # No raw engine-code mapping in this prompt, even on retries.
-                    if not re.search(r'\\(?:[A-Za-z]+|[.!|^><{}])',candidate):
-                        notes.append('항목 %d의 교정할 이전 번역: %s'%(index,candidate))
+                view=_draft_view(row['source'],candidate,cfg)
+                from rpgmaker_tokens import RESIDUE
+                if re.search(r'[가-힣]',view) and RESIDUE.search(view):
+                    try:restore(candidate,tokens)
+                    except ValueError:pass
+                    else:
+                        # No raw engine-code mapping or wholly untranslated
+                        # response is fed back as a Korean correction draft.
+                        if not re.search(r'\\(?:[A-Za-z]+|[.!|^><{}])',candidate):partial=candidate
+            if partial is not None:
+                notes.append('항목 %d에 일본어가 남았습니다. 원문을 참고하여 이미 번역된 한국어의 뜻과 말투는 유지하고, 남은 일본어 부분을 한국어로 교정하세요. 감탄사와 웃음소리도 한글로 표현하세요. 내용을 추가하지 마세요.'%index)
+                notes.append('항목 %d의 교정할 이전 번역: %s'%(index,partial))
+            else:
+                notes.append('항목 %d의 원문 전체를 한국어로 다시 번역하세요. 이전 응답의 일본어를 복사하지 말고, 감탄사와 웃음소리도 한글로 표현하세요. 내용을 추가하지 마세요.'%index)
         elif 'mismatch' in error or 'placeholder' in error:
             notes.append('항목 %d의 보호 표시 번호·개수·순서를 다시 확인하세요. 역슬래시로 감싸지 말고 입력 표기를 그대로 쓰세요.'%index)
         else:
-            notes.append('항목 %d의 출력 머리글은 반드시 [%d]이며 설명이나 별도 표제를 붙이지 마세요.'%(index,index))
+            notes.append('항목 %d를 누락하지 말고 번역하세요. 설명이나 별도 표제를 덧붙이지 마세요.'%index)
     return '\n'.join(notes)

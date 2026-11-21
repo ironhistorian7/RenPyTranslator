@@ -268,19 +268,20 @@ def encode(value: str, quote: str) -> str:
     return s
 
 
-def replace(text: str, edits: dict[str, str]) -> tuple[str, int]:
+def replace(text: str, edits: dict[str, str], *, positions: dict[int, tuple[str, str]] | None = None) -> tuple[str, int]:
     """문자열 리터럴만 갈아끼웁니다. 확인에 실패하면 원문 그대로 돌려줍니다.
 
     ``edits`` 는 {원래 글자: 새 글자}. 반환은 (새 소스, 바꾼 개수).
     """
-    if not edits:
+    if not edits and not positions:
         return text, 0
     lits = literals(text)
     pieces, last, n = [], 0, 0
     want: list[str] = []
     for lit in lits:
         cur = lit.text
-        new = edits.get(cur)
+        expected, positioned = (positions or {}).get(lit.start, (None, None))
+        new = positioned if expected == cur else edits.get(cur)
         if new is None or lit.subst or new == cur:
             want.append(cur)
             continue

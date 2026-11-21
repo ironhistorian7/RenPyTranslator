@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from engine import save_json
-from patch_validation import (classify, validate_final, _baseline, _commit_repairs,
+from patch_validation import (classify, validate_final, _baseline, _blocking_failures, _commit_repairs,
                               _repair_candidates, _signature, _font_path_repairs, _legacy_reference_text, _snapshot, _source_authenticity, run)
 
 
@@ -18,6 +18,16 @@ def success(check='render', events=None):
 def failure(check='render', error='broken', frames='', **kwargs):
     return dict(check=check, status='failed', error_type='Exception', error=error,
                 traceback=frames, **kwargs)
+
+
+def image_lint(file, line, image='speaker missing_pose'):
+    return dict(check='lint_issue', status='failed', error_type='LintIssue', file=file, line=line,
+                error=f'Could not find image ({image}) corresponding to attributes on say statement.')
+
+
+def lint(*issues):
+    capture = dict(check='lint_capture', status='passed')
+    return dict(check='lint', status='failed' if issues else 'passed', returncode=0, events=[capture, *issues])
 
 
 class FinalTextTests(unittest.TestCase):
@@ -92,6 +102,22 @@ class AttributionTests(unittest.TestCase):
     def test_matching_exit_codes_without_diagnostics_are_not_original_proof(self):
         a = dict(check='compile', status='failed', error_type='EngineExit', error='Engine exit 1')
         self.assertEqual(classify([a], [a], self.evidence)['attribution'], 'unknown')
+
+    def test_mapped_image_lint_does_not_hide_other_diagnostics(self):
+        source = image_lint('game/original.rpy', 7)
+        duplicated = image_lint('game/tl/korean/local.rpy', 10)
+        different_image = image_lint('game/tl/korean/local.rpy', 11, 'speaker other_pose')
+        different_origin = image_lint('game/tl/korean/local.rpy', 12)
+        unmapped = image_lint('game/tl/korean/local.rpy', 13)
+        rows = [dict(kind='dialogue', file='local.rpy', line=line,
+                     source_file='game/original.rpy', source_line=origin)
+                for line, origin in ((10, 7), (11, 7), (12, 8), (13, None))]
+        outcome = classify([lint(source)],
+                           [lint(source, duplicated, dict(duplicated), different_image, different_origin, unmapped)],
+                           self.evidence, rows)
+        blocked = _blocking_failures(outcome['failures'])
+        self.assertEqual([e['line'] for e in blocked], [10, 11, 12, 13])
+        self.assertEqual(outcome['failures'][1]['original_location'], {'file':'game/original.rpy', 'line':7})
 
 
 class WorkspaceTests(unittest.TestCase):
@@ -297,24 +323,39 @@ class WorkspaceTests(unittest.TestCase):
         self.assertTrue((self.project/'data/patch-validation.json').exists())
 
     def test_mocked_pair_reports_and_does_not_start_models(self):
-        self.write('data/catalog.json', json.dumps([dict(id='a', source='Example.', kind='dialogue', file='scene.rpy', line=0)]))
+        from translation import fingerprint
+
+        row = dict(id='a', source='Example.', kind='dialogue', file='scene.rpy', line=0,
+                   source_file='game/original.rpy', source_line=7)
+        self.write('data/catalog.json', json.dumps([row]))
         self.write('staging/game/tl/korean/scene.rpy', '"예시."\n')
-        self.write('data/translations.jsonl', 'cached')
+        cache = json.dumps(dict(id='a', source=row['source'], text='예시.', model=self.cfg['model'],
+                                fingerprint=fingerprint(self.cfg))) + '\n'
+        self.write('data/translations.jsonl', cache)
         def snapshot(project, cfg, target):
             target.mkdir(parents=True)
             (target/'staging/game').mkdir(parents=True)
             (target/'data').mkdir()
             return target
+        def execute(workspace, operation, timeout=180):
+            if operation != 'lint':
+                return success(operation)
+            original = image_lint('game/original.rpy', 7)
+            if workspace.name == 'baseline':
+                return lint(original)
+            return lint(original, image_lint('game\\tl\\korean\\scene.rpy', 1))
         with patch('patch_validation._snapshot', side_effect=snapshot), \
              patch('patch_validation._baseline', return_value={'confident':True}), \
              patch('patch_validation._source_authenticity', return_value={'verified':True}), \
              patch('patch_validation._original_code_files', return_value={'game/original.rpyc'}), \
              patch('patch_validation._menu_targets', return_value=[]), \
-             patch('patch_validation._execute', side_effect=lambda workspace, operation, timeout=180: success(operation)):
+             patch('patch_validation._execute', side_effect=execute):
             result = run(self.project, self.cfg, mode='compile')
         self.assertEqual(result['status'], 'passed')
+        self.assertEqual(result['failures'], [])
+        self.assertEqual(result['diagnostics'][1]['original_location'], {'file':'game/original.rpy', 'line':7})
         self.assertFalse(result['coverage']['startup'])
-        self.assertEqual((self.project/'data/translations.jsonl').read_text(), 'cached')
+        self.assertEqual((self.project/'data/translations.jsonl').read_text(), cache)
 
     def test_rpg_static_scope_passes_without_claiming_runtime(self):
         self.write('data/rpg-output.json', json.dumps({'files':['data/Map001.json']}))

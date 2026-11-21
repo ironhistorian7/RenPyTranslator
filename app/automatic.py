@@ -49,15 +49,15 @@ def resolve_project(source=None,config=None,model=None,source_language=None,engi
         cfg=json.loads(config.read_text(encoding='utf-8-sig')) if config.exists() else {
             'source':str(source),'language':'korean','target_language':'Korean',
             'model':model,'endpoint':'http://127.0.0.1:11434',
-            'num_ctx':8192,'batch_size':8,'automatic_version':VERSION}
+            'num_ctx':16384,'parallel':2,'batch_size':8,'automatic_version':VERSION}
         if engine!='renpy':cfg['engine']=engine
         if Path(cfg['source']).resolve()!=source:raise ValueError('Registry source mismatch')
         if parent==ROOT/'data/projects':index[key]=project.name;save_json(index_path,index)
     if model is not None:cfg['model']=model
     cfg['source_language']=normalize(source_language if source_language is not None else cfg.get('source_language'))
     if is_hy(cfg):
-        cfg.update(num_ctx=16384,batch_size=8,parallel=2,max_batch_source_words=400,
-                   _reuse_previous_models=True)
+        for key,value in dict(num_ctx=16384,batch_size=8,parallel=2,max_batch_source_words=400).items():
+            cfg.setdefault(key,value)
     cfg['_reuse_previous_models']=True
     (project/'data').mkdir(exist_ok=True)
     if not cfg.get('automatic_version'):

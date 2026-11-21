@@ -16,7 +16,7 @@ class TermMemory:
     def observe(self,entries):
         changed=False
         for entry in entries:
-            if entry.get('status')=='source_fallback':continue
+            if entry.get('status') in ('source_fallback','partial_translation') or entry.get('_rpg_residual_language'):continue
             source=entry.get('source','');target=entry['text']
             if source in self.candidates and source not in self.translations and len(target)<=96:
                 self.translations[source]=target;changed=True

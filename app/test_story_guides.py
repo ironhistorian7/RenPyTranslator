@@ -176,7 +176,7 @@ label .retry:
 
     def test_explicit_selection_and_deduplication(self):
         with self.assertRaises(ValueError):plan([])
-        self.assertEqual(plan(['run','font','names','failed','display','layout','answers']),['run','answers'])
+        self.assertEqual(plan(['run','font','names','failed','display','layout','answers']),['run','failed','answers'])
         self.assertEqual(plan(['font','display','layout','names','failed']),['failed','names','font'])
         self.assertEqual(plan(['answers']),['answers'])
         self.assertIn('--source',arguments(['answers','routes'],'Game',source=True))

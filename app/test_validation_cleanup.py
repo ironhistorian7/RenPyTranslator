@@ -19,6 +19,7 @@ class ValidationCleanupTests(unittest.TestCase):
         self.project.mkdir()
         self.artifact = self.project/'data/validation-runs/example'
         self.artifact.mkdir(parents=True)
+        self.write(self.project/'data/catalog.json', '[]')
 
     def write(self, path, text='fixture'):
         path.parent.mkdir(parents=True, exist_ok=True)

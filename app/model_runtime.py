@@ -8,6 +8,14 @@ import urllib.request
 
 _active=ContextVar('rpt_model_session',default=None)
 
+
+@contextmanager
+def process_owned_models():
+    """Owned multi-GPU servers release models when their process trees stop."""
+    token=_active.set(None)
+    try: yield
+    finally: _active.reset(token)
+
 def track_request(endpoint,route,body):
     session=_active.get()
     if session is not None and route in ('/api/chat','/api/generate') and body.get('model'):

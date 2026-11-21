@@ -3,7 +3,7 @@
   "repository": "https://github.com/eeewsm123123/gameloc",
   "license": "GPL-3.0-or-later",
   "files": {
-    "gameloc/apply.py": "d23059fc7d62f862da490db3bc7e7eabd10a557e685e59695cf1f950182ca234",
+    "gameloc/apply.py": "b72a7505dc9e9f1f5f9457c9091dfe790837ec05a980c975038509ff33749f9e",
     "gameloc/asar.py": "2b0f26122cc1839ba810ee262d403fd02cb16e60528d1e7883d8a537844b614f",
     "gameloc/bulk.py": "2d4261d36e6d2d5998b2e86e8dd9196f47a0d54a60a8cbd9770a20f3bdf5f23b",
     "gameloc/bundle.py": "a3cecddd2ceb9b8f50ee785dec2cd91b4264e3c8e118e7cc5301db3779240919",
@@ -12,7 +12,7 @@
     "gameloc/containers.py": "21357a2ee866f46e36d005d34b41c8d65b6d90efb7c6fc2da5705ffd836636e0",
     "gameloc/detect.py": "d9e1f83fcaf0302c612f05d375b0f84caf3422e17f4f2000d095ce97e652ce17",
     "gameloc/dllstrings.py": "724e76b56812a897ce7504fa78c7d22ad18223445fa8beb3d91f36fc3a9eaf2d",
-    "gameloc/extract.py": "745a718d90c8b5497c47ae85e56ae27baea3baaa7dd78cd034d2cc08fed151be",
+    "gameloc/extract.py": "f47879d6fe7ae0f5b3d29bc52f7190b61e5a6731a71ada6dbfc868a2c280ca45",
     "gameloc/eztrans.py": "78eab4d34afd2ebdcf74db86aa2ab83a0916d21f9318005befdec258b1048bee",
     "gameloc/fixups.py": "6cf86effc8269fc36206c33f4d20c6ab7912e8666bacbea3d64a8fd41850c98f",
     "gameloc/font.py": "a78f7e7b0cb329998fd603ec9d9da05f7ee32fe1c5831457967a43b9b132a82f",
@@ -23,7 +23,7 @@
     "gameloc/imagescan.py": "fb686f8b580e54b94b5667236aba12d1d5fa7d9c6d1536a87a6676f4612a0242",
     "gameloc/imagetrans.py": "8802a9bb1779b54b99fe9728fcfe7594a0050bb5d91d74dc855f4ac4a020184d",
     "gameloc/isolate.py": "d3a2972dfd939398c1c24e0f77eec822b73d66bf3e5ed93e39a5fd91be842995",
-    "gameloc/jslex.py": "13f322472e2479529865c2d0870ba2ce9b8c75835cb434414c6ed4fb8f219a9b",
+    "gameloc/jslex.py": "a0c7b7b03f17877ea17a3abb152a181712b1baaabcdea82eccd304bc7085a04c",
     "gameloc/jsonnest.py": "e0ff34c5eaae4380040f5e59bada2dbd31e9e64f5658556c46d96857d89a5b5d",
     "gameloc/langs.py": "b62c58797170bb51d4985ad0d841f5bd525992424f121ea1c5ca237b337e99ec",
     "gameloc/localefill.py": "5006d47796a52ad0be408113e50ef16ca52c21aea3a44c1ed64d3b745d5fc4d2",
@@ -56,7 +56,7 @@
     "gameloc/wolftext.py": "f9200e907c5951a1f5af794749a046ab59dd6a3a2037cc9f597727727d1d7597",
     "gameloc/__init__.py": "554c363ea61bad42b66c5187d0d0628074b1d20c9fc93d2d251271d51878ad9c",
     "gameloc/engines/renpy.py": "7db1a3fc615a73f1d172b5608c056b8ce99eac0463806c178faea17c4d192466",
-    "gameloc/engines/rpgmaker.py": "8c9014350406093f25a461c7362354fc9f2953225f4fb95baf7fb7e69641e9c7",
+    "gameloc/engines/rpgmaker.py": "a208aa04605b17fe5e4fb03cbdfdbb4835838f2ffc6b386e6c7541ec2672606c",
     "gameloc/engines/tyrano.py": "824dd52ef1dac66890bdc93312d250ca3d52a3140c485e94b6a4f06c37dd62e2",
     "gameloc/engines/wolf.py": "981a0f22b3e6f79c85c91255d272f3c3232f6d18e5ede86cb4784be18cfa4222",
     "gameloc/engines/__init__.py": "35b95a8d8bcf2c9487e7f072655375fb0c58a58a69a6437fb4eb760b6a4a1cf0",
@@ -95,6 +95,47 @@
         "gameloc/extract.py": {
           "upstream_sha256": "fdf15adb6e035c785bd90094faa799f0268346be755d1fd55688e95d660514b3",
           "modified_sha256": "745a718d90c8b5497c47ae85e56ae27baea3baaa7dd78cd034d2cc08fed151be"
+        }
+      }
+    },
+    "display-location-identifiers": {
+      "description": "Protect functional identifier occurrences while retaining proven standard display locations; remove global spelling-based display exemptions.",
+      "files": {
+        "gameloc/extract.py": {
+          "upstream_sha256": "fdf15adb6e035c785bd90094faa799f0268346be755d1fd55688e95d660514b3",
+          "previous_local_sha256": "745a718d90c8b5497c47ae85e56ae27baea3baaa7dd78cd034d2cc08fed151be",
+          "modified_sha256": "82a142c6aed06e7000426848a188d53e09ee0d9b4462431e7810c5e0a7aacd2a"
+        },
+        "gameloc/apply.py": {
+          "upstream_sha256": "87dc376dc29346e528741d1209a2a04ef6125cf19715bb157e4795517839850c",
+          "previous_local_sha256": "d23059fc7d62f862da490db3bc7e7eabd10a557e685e59695cf1f950182ca234",
+          "modified_sha256": "73f4125f6f47b7516516264b1f212311d806e2cd37595b8027f490036977eb43"
+        },
+        "gameloc/engines/rpgmaker.py": {
+          "upstream_sha256": "8c9014350406093f25a461c7362354fc9f2953225f4fb95baf7fb7e69641e9c7",
+          "previous_local_sha256": "8c9014350406093f25a461c7362354fc9f2953225f4fb95baf7fb7e69641e9c7",
+          "modified_sha256": "514101103a06dc28d9990561f55abce8214ba2d664bfffa49d10abdffff3b984"
+        }
+      }
+    },
+    "2026-11-15-current-local-patches": {
+      "description": "Record existing location-based RPG display/identifier and plugin JS literal handling, scoped extraction notices, and explicit final manual translation application. No translation heuristics changed for this build.",
+      "files": {
+        "gameloc/apply.py": {
+          "previous_local_sha256": "73f4125f6f47b7516516264b1f212311d806e2cd37595b8027f490036977eb43",
+          "modified_sha256": "b72a7505dc9e9f1f5f9457c9091dfe790837ec05a980c975038509ff33749f9e"
+        },
+        "gameloc/extract.py": {
+          "previous_local_sha256": "82a142c6aed06e7000426848a188d53e09ee0d9b4462431e7810c5e0a7aacd2a",
+          "modified_sha256": "f47879d6fe7ae0f5b3d29bc52f7190b61e5a6731a71ada6dbfc868a2c280ca45"
+        },
+        "gameloc/jslex.py": {
+          "previous_local_sha256": "13f322472e2479529865c2d0870ba2ce9b8c75835cb434414c6ed4fb8f219a9b",
+          "modified_sha256": "a0c7b7b03f17877ea17a3abb152a181712b1baaabcdea82eccd304bc7085a04c"
+        },
+        "gameloc/engines/rpgmaker.py": {
+          "previous_local_sha256": "514101103a06dc28d9990561f55abce8214ba2d664bfffa49d10abdffff3b984",
+          "modified_sha256": "a208aa04605b17fe5e4fb03cbdfdbb4835838f2ffc6b386e6c7541ec2672606c"
         }
       }
     }

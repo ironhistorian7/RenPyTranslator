@@ -1,5 +1,6 @@
 """Portable model catalogue and local store. Never reads game/project folders."""
 import contextlib
+from functools import lru_cache
 import hashlib
 import json
 import os
@@ -12,11 +13,16 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from app_paths import ROOT
+from ollama_manifests import ManifestError, ManifestStore
 
 RECOMMENDED = 'tencent/Hy-MT2-7B-GGUF'
 RECOMMENDED_FILE = 'HY-MT2-7B-Q6_K.gguf'
 HY_TEMPLATE = '{{ range .Messages }}{{ if eq .Role "user" }}<|startoftext|>{{ .Content }}<|extra_0|>{{ else if eq .Role "assistant" }}{{ .Content }}<|eos|>{{ end }}{{ end }}{{ .Response }}'
 _RUNTIME_UNSET=object()
+
+
+class ModelRegistrationError(ValueError):
+    pass
 
 
 def read_json(path, default):
@@ -44,11 +50,24 @@ def bounded(path):
     return path
 
 
+def manifest_store(runtime_id=_RUNTIME_UNSET):
+    version=None
+    if runtime_id is not _RUNTIME_UNSET:
+        if runtime_id:
+            from runtime_versions import normalize_id
+            version=normalize_id(runtime_id)[7:]
+        else:
+            from runtime_assets import load_lock
+            version=load_lock(ROOT)['ollama']['version']
+    return ManifestStore(model_root()/'ollama',checked=bounded,runtime_version=version)
+
+
 def manifests():
-    base=model_root()/'ollama/manifests'
-    if not base.exists():return {}
-    return {str(p.relative_to(base/'registry.ollama.ai/library')).replace('\\','/').rsplit('/',1)[0]+':'+p.name:p
-            for p in (base/'registry.ollama.ai/library').rglob('*') if p.is_file() and not p.is_symlink()}
+    return manifest_store().paths()
+
+
+def missing_runtime_model(name, version):
+    return manifest_store().missing_runtime_message(name,version)
 
 
 def blob(digest):
@@ -96,6 +115,146 @@ def protocol(name):
     return records().get(name,{}).get('protocol') or ('hy' if (name or '').lower().startswith(('rpt-hymt','hy-mt','hymt')) else 'generic')
 
 
+def gemma4_renderer(metadata):
+    """Resolve only a declared Gemma 4 size, never an alias/rounded count.
+
+    Quantized 12B weights can report fewer than twelve billion parameters. The
+    model's GGUF size label remains authoritative; a unique size tag in its
+    embedded name is a fallback only when that label is absent.
+    """
+    if not isinstance(metadata,dict) or str(metadata.get('general.architecture','')).strip().lower()!='gemma4':
+        return None
+    variants={'12B':'gemma4-large','26B':'gemma4-large','31B':'gemma4-large',
+              'E2B':'gemma4-small','E4B':'gemma4-small'}
+    label=metadata.get('general.size_label')
+    if label not in (None,''):
+        return variants.get(re.sub(r'\s+','',str(label)).upper())
+    name=metadata.get('general.name')
+    if not isinstance(name,str):return None
+    labels=set(re.findall(r'(?<![A-Z0-9])(E2B|E4B|12B|26B|31B)(?![A-Z0-9])',name.upper()))
+    return variants[next(iter(labels))] if len(labels)==1 else None
+
+
+def expected_renderer(metadata):
+    """Return a known explicit renderer, or keep upstream template selection.
+
+    Generic Qwen 3 and earlier Gemma families use their stored/native GGUF
+    template. Qwen 3.5 is selected only when its actual architecture and embedded
+    ChatML/thinking structure identify that registered renderer.
+    """
+    if not isinstance(metadata,dict):return None
+    family=str(metadata.get('general.architecture','')).strip().lower()
+    if family=='gemma4':return gemma4_renderer(metadata)
+    if family not in ('qwen35','qwen35moe'):return None
+    template=metadata.get('tokenizer.chat_template')
+    if not isinstance(template,str):return None
+    if not all(marker in template for marker in ('<|im_start|>','<|im_end|>')):return None
+    if not all(re.search(r'\b'+word+r'\b',template) for word in ('messages','role','content','assistant')):return None
+    if 'enable_thinking' not in template and not ('<think>' in template and '</think>' in template):return None
+    return 'qwen3.5'
+
+
+def registration_template_options(payload, metadata, *, existing=None):
+    """Prepare explicit renderers without changing stored custom settings.
+
+    ``existing`` must contain explicit stored options, not an inferred renderer
+    returned by the runtime. A custom template/renderer/parser is preserved.
+    Stops, weights, aliases and every unrelated payload field are untouched.
+    """
+    result=dict(payload);existing=existing if isinstance(existing,dict) else {}
+    renderer=expected_renderer(metadata)
+    if renderer is None:return result
+    legacy='gemma4' if renderer.startswith('gemma4-') else None
+    parser='gemma4' if renderer.startswith('gemma4-') else 'qwen3.5'
+    for options in (result,existing):
+        if options.get('renderer') not in (None,'',legacy) or options.get('template'):return result
+        if options.get('parser') and options['parser']!=parser:return result
+    result['renderer']=renderer
+    if renderer=='qwen3.5' and not result.get('parser') and not existing.get('parser'):
+        result['parser']='qwen3.5'
+    return result
+
+
+def renderer_api_supported(version):
+    """Renderer/from overrides are supported by both bundled Ollama versions."""
+    match=re.fullmatch(r'(?:ollama-)?v?(\d+)\.(\d+)\.(\d+)(?:[-+].*)?',str(version or ''))
+    return bool(match and tuple(map(int,match.groups()))>=(0,34,2))
+
+
+def _create_registered_model(endpoint,body):
+    req=urllib.request.Request(endpoint+'/api/create',json.dumps(body).encode(),{'Content-Type':'application/json'})
+    try:
+        with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req,timeout=300) as response:
+            result=json.load(response)
+    except urllib.error.HTTPError as exc:
+        try:message=json.loads(exc.read()).get('error',str(exc))
+        except (ValueError,OSError):message=str(exc)
+        raise ModelRegistrationError('모델을 등록하지 못했습니다: '+message) from exc
+    if result.get('error'):raise ModelRegistrationError(result['error'])
+    return result
+
+
+def _registered_template_options(store, model):
+    """Read only small stored config/options; never inferred /api/show values."""
+    config=store.blob(model['manifest']['config']['digest'])
+    if config.stat().st_size>1024*1024:return None,{}
+    details=read_json(config,None)
+    if not isinstance(details,dict):return None,{}
+    options={key:details[key] for key in ('renderer','parser') if isinstance(details.get(key),str)}
+    for layer in model['manifest']['layers']:
+        kind=layer.get('mediaType','')
+        if kind=='application/vnd.ollama.image.template':options['template']=True
+        elif kind in ('application/vnd.ollama.image.renderer','application/vnd.ollama.image.parser'):
+            path=store.blob(layer['digest'])
+            if path.stat().st_size>4096:return None,{}
+            options[kind.rsplit('.',1)[-1]]=path.read_text(encoding='utf-8').strip()
+    return details,options
+
+
+def ensure_registered_template(endpoint, model, *, runtime_version, metadata=None, store=None):
+    """Resolve known family rendering once on an already owned server.
+
+    Keep the exact alias and existing weight/parameter layers by deriving the
+    registration from itself. No download, weight hash, selection change or
+    inference is performed. Explicit custom rendering options remain untouched.
+    """
+    if not renderer_api_supported(runtime_version):
+        return {'status':'unsupported_runtime','updated':False}
+    store=store or manifest_store(runtime_version)
+    installed=store.model(model)
+    details,existing=_registered_template_options(store,installed)
+    if details is None:return {'status':'metadata_unavailable','updated':False}
+    current=existing.get('renderer')
+    if current not in (None,'','gemma4'):
+        return {'status':'already_configured' if current in ('gemma4-large','gemma4-small','qwen3.5') else 'preserved_custom',
+                'renderer':current,'parser':existing.get('parser'),'previous_parser':existing.get('parser'),'updated':False}
+    if existing.get('template') or existing.get('parser') not in (None,'','gemma4','qwen3.5'):
+        return {'status':'preserved_custom','renderer':current,'parser':existing.get('parser'),
+                'previous_parser':existing.get('parser'),'updated':False}
+    if metadata is None:
+        families=details.get('model_families') or []
+        supported={'gemma4','qwen35','qwen35moe'}
+        if details.get('model_family') not in supported and (not isinstance(families,(list,tuple)) or not supported.intersection(families)):
+            return {'status':'not_applicable','updated':False}
+        metadata=gguf(store.blob(installed['weight']['digest']))
+    payload=registration_template_options({'model':model,'from':model,'stream':False},metadata,existing=existing)
+    wanted=payload.get('renderer')
+    if not wanted:return {'status':'uncertain','updated':False}
+    if wanted==current:return {'status':'already_correct','renderer':wanted,'parser':existing.get('parser'),
+                              'previous_parser':existing.get('parser'),'updated':False}
+    _create_registered_model(endpoint,payload)
+    refreshed=ManifestStore(store.root,checked=store.checked,runtime_version=store.runtime_version)
+    updated=refreshed.model(model)
+    _,stored=_registered_template_options(refreshed,updated)
+    if (not updated['ready'] or updated['weight']['digest']!=installed['weight']['digest']
+            or stored.get('renderer')!=wanted or ('parser' in payload and stored.get('parser')!=payload['parser'])):
+        raise ModelRegistrationError('모델 대화 형식 보정 결과를 확인하지 못했습니다. 상세 기록을 확인해 주세요.')
+    return {'status':'updated','updated':True,'renderer':wanted,'previous_renderer':current,
+            'parser':stored.get('parser'),'previous_parser':existing.get('parser'),
+            'weight_digest':updated['weight']['digest'],'alias_preserved':True,
+            'basis':'gguf_metadata'}
+
+
 def local_sources(record):
     sources=list(record.get('local_files',[]))
     if record.get('local_file') and not any(s.get('local_file')==record['local_file'] for s in sources):
@@ -111,6 +270,23 @@ def display_name(name,record):
         if isinstance(filename,str) and filename.lower().endswith('.gguf'):
             return filename.replace('\\','/').rsplit('/',1)[-1]
     return name
+
+
+@lru_cache(maxsize=8)
+def _display_records(path,mtime_ns,size):
+    value=read_json(Path(path),{})
+    return value if isinstance(value,dict) else {}
+
+
+def model_title(name):
+    """Resolve only a saved display label; never scan files or contact a server."""
+    if not name:return ''
+    path=ROOT/'data/model-library.json'
+    try:
+        stat=path.stat()
+        record=_display_records(str(path),stat.st_mtime_ns,stat.st_size).get(name,{})
+        return display_name(name,record if isinstance(record,dict) else {})
+    except (OSError,ValueError,TypeError):return str(name)
 
 
 def gguf_files():
@@ -130,15 +306,13 @@ def gguf_files():
 
 
 def inventory():
-    entries=[];known=records()
-    for name,path in manifests().items():
+    entries=[];known=records();store=manifest_store()
+    for name in store.names():
         try:
-            m=read_json(bounded(path),{});layers=m.get('layers',[]);assets=[m['config'],*layers]
-            valid=all(blob(x['digest']).is_file() and (not x.get('size') or blob(x['digest']).stat().st_size==x['size']) for x in assets)
-            weight=next(x for x in layers if x['mediaType']=='application/vnd.ollama.image.model')
+            model=store.model(name);weight=model['weight'];valid=model['ready']
             info=known.get(name,{})
             entries.append(dict(id=name,title=display_name(name,info),size=weight['size'],sha=weight['digest'].removeprefix('sha256:'),ready=valid,
-                protocol=protocol(name),source=info.get('repo','수동 설치'),quantization=info.get('quantization',quantization(name)),
+                protocol=protocol(name),source=info.get('repo','수동 설치'),quantization=registered_quantization(store,model,info),
                 context=info.get('context'),estimatedMemory=estimate(weight['size']),description=info.get('description',''),
                 recommended=name=='rpt-hymt2-7b:q6_k' or info.get('recommended',False)))
         except (OSError,ValueError,KeyError,StopIteration):continue
@@ -170,6 +344,35 @@ def require_selected(name=None):
     return name or selected()
 
 
+def assigned_job_model(jobs, *, preferences=None, runtime_id=None):
+    """Validate every manual assignment and return the first device's model."""
+    if not needs_model(jobs):return None
+    from desktop_bridge import policy_devices,preferences as saved_preferences
+    preferences=saved_preferences() if preferences is None else preferences
+    if preferences.get('gpu_mode') not in ('all','selected'):return None
+    from gpu_execution_plan import candidate_devices,dual_mode,require_manual_gpu_overrides
+    runtime_id=preferences.get('runtime_id','') if runtime_id is None else runtime_id
+    candidates=candidate_devices(policy_devices(runtime_id),preferences,os.environ)
+    if not dual_mode(candidates,preferences):return None
+    overrides=preferences.get('gpu_overrides',{})
+    require_manual_gpu_overrides(candidates,overrides)
+    store=manifest_store(runtime_id)
+    validated=set()
+    for device,_ in candidates:
+        alias=overrides[device['id']]['model']
+        if alias in validated:continue
+        try: ready=store.model(alias)['ready']
+        except ManifestError as exc:raise ValueError(device['name']+' 모델 '+alias+' · '+str(exc)) from exc
+        if not ready:raise ValueError(device['name']+'에 지정한 모델을 설치해 주세요 · '+alias)
+        validated.add(alias)
+    return overrides[candidates[0][0]['id']]['model']
+
+
+def require_job_model(jobs, name=None, *, preferences=None, runtime_id=None):
+    return (assigned_job_model(jobs,preferences=preferences,runtime_id=runtime_id)
+            or require_selected(name))
+
+
 def choose(name):
     if name:require_selected(name)
     save(ROOT/'data/model-choice.json',{'selected':name or None})
@@ -189,25 +392,18 @@ def ensure_idle():
 
 
 def remove(name):
-    ensure_idle();paths=manifests()
-    if name not in paths:raise ValueError('설치된 모델을 찾을 수 없습니다.')
-    path=bounded(paths[name]);m=read_json(path,{})
-    digests={x['digest'] for x in [m['config'],*m['layers']]}
-    # Do not remove any blob referenced by another model, including foreign registries.
-    shared=set()
-    for other in (model_root()/'ollama/manifests').rglob('*'):
-        if other.is_file() and other!=path:
-            data=read_json(bounded(other),{})
-            if 'config' not in data or 'layers' not in data:raise ValueError('다른 모델의 등록 정보를 확인한 뒤 삭제해 주세요.')
-            shared.update(x['digest'] for x in [data['config'],*data['layers']])
+    ensure_idle();store=manifest_store()
+    # Complete the reference graph before changing any file. Both named stores
+    # and all manifest-list children can own a shared model/config blob.
+    paths,digests=store.deletion_plan(name)
     library=records();record=library.get(name,{})
     # Delete the manually installed copy only when it still refers to this registered content.
     for source in local_sources(record):
         local=source['local_file'];local_path=bounded(model_root()/local)
         if local_path.is_file() and local_path.stat().st_size==source.get('local_size') and local_path.stat().st_mtime_ns==source.get('local_mtime'):
             if not any(k!=name and any(s.get('local_file')==local for s in local_sources(r)) for k,r in library.items()):local_path.unlink()
-    path.unlink()
-    for digest in digests-shared:blob(digest).unlink(missing_ok=True)
+    for path in paths:path.unlink()
+    for digest in digests:store.blob(digest).unlink(missing_ok=True)
     library.pop(name,None);save(ROOT/'data/model-library.json',library)
     if selected()==name:choose(None)
     return inventory()
@@ -215,8 +411,27 @@ def remove(name):
 
 def estimate(size):return round(size*1.12+2*1024**3) if size else None
 def quantization(text):
-    match=re.search(r'(?i)(IQ\d[_A-Z0-9]*|Q\d[_A-Z0-9]*|BF16|F16|F32)',text)
-    return match[0].upper() if match else '미제공'
+    # Source model names may themselves contain QAT/Q4 labels. The final
+    # filename quantization describes the downloaded weights, e.g.
+    # gemma-qat-q4_0-unquantized.i1-IQ2_XS.gguf is IQ2_XS, not Q4_0.
+    filename=str(text or '').replace('\\','/').rsplit('/',1)[-1]
+    matches=re.findall(r'(?i)(?<![A-Z0-9])(IQ\d[_A-Z0-9]*|Q\d[_A-Z0-9]*|BF16|F16|F32)(?![A-Z0-9])',filename)
+    return matches[-1].upper() if matches else '미제공'
+
+
+def registered_quantization(store, model, info):
+    """Prefer the runner's small config; never scan/load model tensors."""
+    try:
+        config=store.blob(model['manifest']['config']['digest'])
+        if config.stat().st_size<=1024*1024:
+            details=read_json(config,{})
+            value=quantization(details.get('file_type','')) if isinstance(details,dict) else '미제공'
+            if value!='미제공':return value
+    except (OSError,ValueError,KeyError,TypeError):pass
+    for filename in [info.get('filename'),*[s.get('local_file') for s in local_sources(info)],model.get('name')]:
+        value=quantization(filename)
+        if value!='미제공':return value
+    return info.get('quantization') or '미제공'
 
 
 def hf_id(repo):
@@ -321,26 +536,33 @@ def register(path,info=None,digest=None,manual=False,runtime_id=_RUNTIME_UNSET):
         try:os.link(path,target)
         except OSError:shutil.copy2(path,target)
     alias=('rpt-hymt-' if hy else 'rpt-local-')+digest[:16]+':latest'
+    runtime_cfg=registration_runtime(alias,runtime_id)
     # Reuse an already registered model with the same weights (including the original Hy alias).
-    for existing,p in manifests().items():
-        if any(x.get('digest')=='sha256:'+digest and x.get('mediaType')=='application/vnd.ollama.image.model' for x in read_json(p,{}).get('layers',[])):
+    store=manifest_store(runtime_cfg['runtime_id'])
+    for existing in store.names():
+        try:model=store.model(existing)
+        except (OSError,ValueError):continue
+        if model['ready'] and model['weight']['digest']=='sha256:'+digest:
             alias=existing;break
-    if alias not in manifests():
+    if alias in store.names():
+        try:existing_model=store.model(alias)
+        except (OSError,ManifestError) as exc:
+            raise ModelRegistrationError('기존 모델 등록 정보를 읽을 수 없습니다: '+str(exc)) from exc
+        if not existing_model['ready'] or existing_model['weight']['digest']!='sha256:'+digest:
+            raise ModelRegistrationError('같은 이름의 모델 등록 정보를 확인해 주세요: '+alias)
+    if alias not in store.names():
         from hy_backend import runtime
         progress('모델 등록 중')
-        with runtime(registration_runtime(alias,runtime_id),require_model=False) as cfg:
+        with runtime(dict(runtime_cfg,model=alias),require_model=False) as cfg:
             body={'model':alias,'files':{info.get('filename',path.name if path.suffix=='.gguf' else 'model.gguf'):'sha256:'+digest},'stream':False}
             if hy:body.update(template=HY_TEMPLATE,parameters={'stop':['<|eos|>'],'temperature':0.7,'top_p':0.6,'top_k':20})
-            req=urllib.request.Request(cfg['endpoint']+'/api/create',json.dumps(body).encode(),{'Content-Type':'application/json'})
-            try:
-                with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req,timeout=300) as response:
-                    result=json.load(response)
-            except urllib.error.HTTPError as exc:
-                try:message=json.loads(exc.read()).get('error',str(exc))
-                except (ValueError,OSError):message=str(exc)
-                raise ValueError('모델을 등록하지 못했습니다: '+message) from exc
-            if result.get('error'):raise ValueError(result['error'])
-        if alias not in manifests():raise ValueError('모델 등록 파일이 생성되지 않았습니다.')
+            if renderer_api_supported(runtime_cfg['runtime_id']):body=registration_template_options(body,meta)
+            _create_registered_model(cfg['endpoint'],body)
+        try:created=manifest_store(runtime_cfg['runtime_id']).model(alias)
+        except (OSError,ManifestError) as exc:
+            raise ModelRegistrationError('모델 등록 결과를 읽을 수 없습니다: '+str(exc)) from exc
+        if not created['ready'] or created['weight']['digest']!='sha256:'+digest:
+            raise ModelRegistrationError('등록된 모델 파일이 요청한 GGUF와 일치하지 않습니다.')
     library=records();previous=library.get(alias,{})
     arch=meta.get('general.architecture','');record=dict(previous,**info)
     record.update(protocol='hy' if hy else 'generic',context=meta.get(arch+'.context_length'),quantization=quantization(info.get('filename',path.name)),digest=digest)
@@ -411,7 +633,18 @@ def dispatch(data):
     if op=='inventory':return inventory()
     if op=='search':return search(data.get('query',''))
     if op=='details':return details(data.get('repo'))
-    if op=='preflight':return problem() if needs_model(data.get('tasks',[]),data.get('engine')) else None
+    if op=='preflight':
+        jobs=data.get('tasks',[])
+        if not needs_model(jobs,data.get('engine')):return None
+        preferences=data.get('settings')
+        try:
+            if preferences is not None:
+                from desktop_bridge import validate_settings
+                preferences=validate_settings(preferences)
+            if assigned_job_model(jobs,preferences=preferences):return None
+        except ValueError as exc:
+            return {'code':'model_required','title':'GPU별 모델 설정을 확인해 주세요.','detail':str(exc)}
+        return problem()
     if op=='select':
         ensure_idle();return choose(data.get('model'))
     if op in ('delete','download','refresh'):

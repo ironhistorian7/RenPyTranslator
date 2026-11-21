@@ -72,12 +72,16 @@ class RunResumeTests(unittest.TestCase):
                 self.assertEqual(cachefile.read_bytes(),original_cache)
                 self.assertTrue(target.exists())
                 self.assertEqual(sentinel.read_text(encoding='utf-8'),'keep')
-                items=json.loads(body['messages'][1]['content'])['items']
-                self.assertEqual(len(items),1)
-                text=items[0]['text'];requests.append(text)
+                self.assertEqual(len(body['messages']),1)
+                prompt=body['messages'][0]['content']
+                self.assertIn('[Source Text]\n',prompt)
+                text=prompt.split('[Source Text]\n',1)[1];requests.append(text)
                 self.assertNotEqual(text,sources[0])
-                result='오늘 도니의 도움이 100% 필요해.' if '100/%' in text else '도니에게 말해 줘.'
-                return {'message':{'content':json.dumps({'0':result},ensure_ascii=False)}}
+                if '100/%' in text:
+                    return {'message':{'content':'오늘 도니의 도움이 100% 필요해.'}}
+                self.assertIn('<rpt000/>',text)
+                # Deliberately omit the required placeholder, exercising both retries.
+                return {'message':{'content':'도니에게 말해 줘.'}}
             command=['tasks','--tasks','run','--project',str(project),'--output',str(Path(temp)/'result')]
             name_requests=[]
             def name_request(endpoint,route,body):
@@ -90,6 +94,8 @@ class RunResumeTests(unittest.TestCase):
                   patch('translate_game.catalog',side_effect=AssertionError('Must reuse existing catalog')),
                   patch('engine.manifest',side_effect=AssertionError('Resume must not scan the source')),
                   patch('hy_backend.runtime',side_effect=lambda active:nullcontext(active)),
+                  patch('gpu_policy.configure',side_effect=lambda active:active),
+                  patch('name_review_control.run'),patch('translation_review.run',return_value=False),
                   patch('name_translation.request',side_effect=name_request),
                   patch('translation.request',side_effect=request)):
                 main(command)

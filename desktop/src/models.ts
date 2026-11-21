@@ -1,4 +1,5 @@
 import type {ModelLibrary,ModelRepo,ModelDetail,ModelFile,ModelJob,Snapshot,Reply} from './types';
+import {modelTitle} from './model-name';
 const el=(id:string)=>document.getElementById(id)!;
 const btn=(id:string)=>el(id) as HTMLButtonElement;
 const choose=(id:string)=>el(id) as HTMLSelectElement;
@@ -28,9 +29,9 @@ export class ModelsPanel{
   toggle(kind:string,open?:boolean){const list=el(kind+'-options');list.hidden=open===undefined?!list.hidden:!open;btn(kind+'-toggle').setAttribute('aria-expanded',String(!list.hidden));if(!list.hidden)list.querySelector<HTMLButtonElement>('button')?.focus();}
   async enter(){await this.refresh();if(!this.searched)await this.search();}
   async refresh(){const r=await this.check(window.rpt.model<ModelLibrary>({op:'inventory'}));if(r)this.renderLibrary(r);}
-  renderLibrary(r:ModelLibrary){this.library=r;const options=[new Option('선택 안 함','')];for(const m of r.installed)options.push(new Option(m.title+(m.title!==m.id?' · '+m.id:'')+' · '+bytes(m.size)+(m.ready?'':' · 파일 누락'),m.id));
+  renderLibrary(r:ModelLibrary){this.library=r;const options=[new Option('선택 안 함','')];for(const m of r.installed)options.push(new Option(modelTitle(m.id,r)+' · '+bytes(m.size)+(m.ready?'':' · 파일 누락'),m.id));
     choose('installed-model').replaceChildren(...options);choose('installed-model').value=r.selected||'';
-    el('model-selection').textContent=r.selected?'사용 중인 설정: '+r.selected:'선택된 모델이 없습니다.';
+    el('model-selection').textContent=r.selected?'선택한 모델: '+modelTitle(r.selected,r):'선택된 모델이 없습니다.';
     el('local-models-help').textContent=r.pending.length?`${r.pending.length}개 GGUF 파일을 찾았습니다. 목록 새로고침을 누르면 등록합니다.`:'받은 단일 GGUF 파일을 models 폴더 안 원하는 위치에 넣고 목록을 새로고침하세요.';
     this.installedInfo();this.repoBadges();if(this.detail)this.renderFiles(false);this.controls();this.onLibrary(r);}
   installed(file:ModelFile|null){return file?.sha?this.library?.installed.find(m=>m.ready&&m.sha===file.sha&&m.size===file.size):undefined;}

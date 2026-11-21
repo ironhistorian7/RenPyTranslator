@@ -4,6 +4,8 @@
 
 Ren’Py와 RPG Maker MV/MZ 게임을 로컬 AI로 한국어 번역하는 Windows 포터블 프로그램입니다. GUI와 PowerShell CLI를 지원하며, 번역 결과는 원본 게임에 복사해 적용합니다.
 
+KiriKiri의 KAG·일부 KAGEX PSB 시나리오와 Unity Windows 빌드의 일부 TextAsset 번역 형식도 지원합니다. [KiriKiri 안내](docs/kirikiri.md)와 [Unity 사용 안내](docs/usage.md#unity-패치)를 참고하세요.
+
 ### 주요 기능
 
 - 영어·일본어 원문을 한국어로 번역
@@ -17,6 +19,7 @@ Ren’Py와 RPG Maker MV/MZ 게임을 로컬 AI로 한국어 번역하는 Window
 - TXT 문맥 자료 자동 적용
 - Ren’Py 인명·호칭·입력 문구 보정, 선택지 힌트<sup>beta</sup>·입력 정답 표시<sup>beta</sup>
 - RPG Maker 캐릭터 DB 표기를 재사용하는 인명 보정
+- 전체 번역 전 이름 확인: 자동 제안을 참고해 수정하고, 확정한 표기를 재사용
 - Ollama 실행 환경 버전별 설치·선택
 
 ### 지원 환경
@@ -29,6 +32,8 @@ Ren’Py와 RPG Maker MV/MZ 게임을 로컬 AI로 한국어 번역하는 Window
 | 원문 언어 | 영어·일본어, 시작 전에 직접 선택 |
 | 번역 언어 | 한국어 |
 | 권장 GPU | HY-MT2-7B Q6_K 기준 VRAM 12GB |
+
+NVIDIA는 CUDA를 사용합니다. AMD는 번들 Ollama에서 인식된 ROCm을 우선 사용하고, ROCm을 사용할 수 없으면 Vulkan을 사용합니다. 여러 GPU를 쓰면 장치마다 모델과 동시 처리 수를 따로 지정하고 번역 작업을 나눕니다.
 
 6·8GB GPU용 설정도 제공합니다. 작은 GPU 설정은 12GB 카드의 메모리 예산 시험을 바탕으로 하며, 12GB 초과 GPU 설정은 추정값입니다. 자세한 기준은 [모델과 GPU 설정](docs/models.md)을 참고하세요. 게임의 커스텀 화면·플러그인에 따라 추가 호환 작업이 필요할 수 있습니다.
 
@@ -47,7 +52,8 @@ Ren’Py와 RPG Maker MV/MZ 게임을 로컬 AI로 한국어 번역하는 Window
 2. **AI 모델**에서 사용할 모델을 선택하고 적용합니다. LIGHT는 모델을 다운로드하거나 `models` 아래에 GGUF 파일을 넣은 뒤 목록을 새로고침합니다.
 3. **번역 → 게임 선택**에서 게임 실행 파일이 있는 폴더와 원문 언어를 선택합니다.
 4. **모델 확인 → 출력 설정 → 최종 확인**을 거쳐 번역을 시작합니다.
-5. 완료 페이지에서 결과 폴더를 열어 패치를 적용합니다.
+5. 이름 확인창이 열리면 사용할 표기를 확인합니다. 자동 처리된 이름도 아래 목록을 펼쳐 수정할 수 있습니다.
+6. 완료 페이지에서 결과 폴더를 열어 패치를 적용합니다.
 
 프로그램을 옮길 때는 EXE만 옮기지 말고 폴더 전체를 복사하세요. 포함된 기본·호환용 Ollama는 **설정 및 정보 → 추론 런타임**에서 선택합니다.
 
@@ -57,6 +63,8 @@ Ren’Py와 RPG Maker MV/MZ 게임을 로컬 AI로 한국어 번역하는 Window
 | --- | --- |
 | Ren’Py | 결과의 `game` 폴더를 원본의 `game` 폴더에 합칩니다. `game/game`으로 중첩하지 않습니다. |
 | RPG Maker MV/MZ | 결과의 `APPLY.txt`를 따라 `data`·`js`·`fonts`를 원본의 같은 위치에 덮어씁니다. `www`가 있으면 폴더 구조를 유지합니다. |
+| KiriKiri KAG / KAGEX PSB v2 | 결과의 `APPLY.txt`를 따라 `patch*.xp3`를 게임 EXE 옆에 복사합니다. 원본 ISO·EXE는 수정하지 않습니다. |
+| Unity TextAsset | 결과의 `APPLY.txt`를 따라 `*_Data` 아래의 번역 에셋을 같은 위치에 복사합니다. |
 
 패치는 번역에 사용한 것과 **같은 버전의 게임**에 적용합니다. 적용 후에는 평소처럼 게임 실행 파일을 엽니다.
 
@@ -72,6 +80,7 @@ Ren’Py와 RPG Maker MV/MZ 게임을 로컬 AI로 한국어 번역하는 Window
 | [문맥 자료](docs/context-runtime.md) | TXT 위치·형식, 장면 범위, 적용 확인 |
 | [오류와 로그](docs/diagnostics.md) | 실패 기록, 서버 복구, 문제 확인 |
 | [게임 업데이트와 패치 검사](docs/updates-and-checks.md) | 번역 재사용, 실행 검사, 오류 분류와 자동 보정 |
+| [KiriKiri 안내](docs/kirikiri.md) | 지원 시나리오·ISO 입력·XP3 패치 적용·검사 범위 |
 | [개발 및 배포](docs/development.md) | 소스 준비, 테스트, 포터블 빌드 |
 
 번역 요청은 로컬에서 처리합니다. 모델 조회·다운로드에는 인터넷이 필요합니다. Grok 등 외부 서비스로 문맥을 준비하는 작업은 선택 사항이며 프로그램이 자동 실행하지 않습니다.
@@ -87,6 +96,8 @@ RPG Maker MV/MZ 지원에는 [Gameloc](https://github.com/eeewsm123123/gameloc) 
 ## English
 
 RenPyTranslator is a portable Windows application that translates Ren’Py and RPG Maker MV/MZ games into Korean using local AI. It supports a desktop GUI and a PowerShell CLI, and produces patches to copy into the original game.
+
+KiriKiri KAG, supported KAGEX PSB scenarios, and selected Windows Unity TextAsset formats are also available. See [KiriKiri support](docs/kirikiri.md) and [Unity usage](docs/usage.md#unity-patches).
 
 ### Features
 
@@ -114,6 +125,8 @@ RenPyTranslator is a portable Windows application that translates Ren’Py and R
 | Output language | Korean |
 | Recommended GPU | 12GB VRAM for HY-MT2-7B Q6_K |
 
+NVIDIA uses CUDA. AMD uses ROCm when detected by the bundled Ollama runtime, with Vulkan as a fallback. When using multiple GPUs, select a model and worker count per device. Each device runs its own model instance and processes separate batches.
+
 Profiles are also available for 6GB and 8GB GPUs. These are based on memory-budget tests on a 12GB card; profiles above 12GB are estimates. See [Models and GPU settings](docs/models.md). Custom screens and plugins may need additional compatibility work.
 
 ### Download and run
@@ -131,7 +144,8 @@ Download the selected edition's `.zip` and every matching `.z01`, `.z02`, etc. i
 2. Select and apply a model in **AI Model**. For LIGHT, download a model or place a GGUF below `models` and refresh the list.
 3. In **Translation → Game**, select the folder containing the game executable and choose the source language.
 4. Continue through **Model → Output → Review** and start translation.
-5. Open the result folder from the completion page and apply the patch.
+5. When the name review opens, confirm or edit the spellings. Expand the lower list to edit automatically handled names as well.
+6. Open the result folder from the completion page and apply the patch.
 
 Move the entire portable folder, rather than the EXE alone. Select the bundled default or compatibility Ollama runtime under **Settings and information → Inference runtime**.
 
@@ -141,6 +155,8 @@ Move the entire portable folder, rather than the EXE alone. Select the bundled d
 | --- | --- |
 | Ren’Py | Merge the result's `game` folder into the original `game`. Do not create `game/game`. |
 | RPG Maker MV/MZ | Follow `APPLY.txt` to replace `data`, `js` and `fonts` at their original locations. Preserve the `www` structure when present. |
+| KiriKiri KAG / KAGEX PSB v2 | Follow `APPLY.txt` and copy `patch*.xp3` beside the game EXE. The original ISO and EXE remain unchanged. |
+| Unity TextAsset | Follow `APPLY.txt` and replace the translated assets at the matching paths under `*_Data`. |
 
 Apply patches to the **same game version** used for translation, then run the game's normal executable.
 

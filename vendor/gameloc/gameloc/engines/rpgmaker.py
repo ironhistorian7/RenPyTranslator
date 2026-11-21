@@ -391,9 +391,8 @@ def collect_identifiers_guess(base: Path, *, include_plugin_values: bool = True,
 def known_display_texts(base: Path) -> set[str]:
     """System.json 항목·데이터베이스 필드처럼 **틀림없이 화면에 나오는** 문구.
 
-    :func:`collect_identifiers_guess` 가 내놓은 값이 이 집합과 겹치면, 추정이
-    아니라 확실한 문구 쪽을 믿습니다 — 같은 낱말을 플러그인이 다른 용도로도
-    쓴다고 해서 System.json 의 메뉴 명령까지 통째로 사라지면 안 됩니다.
+    Legacy text inventory only. Exemptions must use is_display_location rather
+    than removing these spellings globally from the identifier inventory.
     """
     texts: set[str] = set()
     for _t, _l in _system(_safe_json(base / "data" / "System.json"), ""):
@@ -411,6 +410,66 @@ def _safe_json(path: Path):
         return {} if path.name == "System.json" else []
 
 
+def is_display_location(root: Path, location: Location, documents: dict | None = None) -> bool:
+    """Prove a standard displayed value by its JSON address and command code.
+
+    A displayed caption can spell the same as an unrelated event/model key.
+    Only this address is exempted. Database/type names and name-changing
+    commands can also be lookup values, so those collisions stay protected.
+    """
+    from ..treepath import get_by_path, parse_path
+
+    if location.kind != "loose" or location.fmt != "json":
+        return False
+    relative = Path(location.file.replace("\\", "/"))
+    if relative.is_absolute() or ".." in relative.parts or relative.parent.name.lower() != "data":
+        return False
+    name = relative.name
+    if name not in DB_FIELDS and name not in {"System.json", "CommonEvents.json", "Troops.json"} and not _MAP_FILE.fullmatch(name):
+        return False
+    cache = documents if documents is not None else {}
+    key = relative.as_posix()
+    if key not in cache:
+        try:
+            root = Path(root).resolve()
+            target = (root / relative).resolve()
+            if not target.is_relative_to(root):return False
+            cache[key] = json.loads(target.read_text("utf-8-sig"))
+        except (OSError, ValueError):
+            cache[key] = None
+    document = cache[key]
+    if document is None:return False
+
+    def address(pointer):
+        try:
+            parts = parse_path(pointer)
+            value = get_by_path(document, pointer)
+            if not isinstance(value, str):return False
+            if name == "System.json":
+                return (parts in [[key] for key in SYSTEM_SCALARS]
+                        or len(parts) == 3 and parts[0] == "terms" and parts[1] in SYSTEM_TERMS and isinstance(parts[2], int)
+                        or len(parts) == 3 and parts[:2] == ["terms", "messages"] and isinstance(parts[2], str))
+            if name in DB_FIELDS:
+                return (len(parts) == 2 and isinstance(parts[0], int)
+                        and parts[1] in DB_FIELDS[name] and parts[1] not in ("name", "nickname"))
+            if _MAP_FILE.fullmatch(name) and parts == ["displayName"]:return True
+            if "parameters" not in parts:return False
+            pos = parts.index("parameters")
+            if pos < 2 or parts[pos-2] != "list" or not isinstance(parts[pos-1], int):return False
+            command = get_by_path(document, format_path(parts[:pos]))
+            code = command.get("code") if isinstance(command, dict) else None
+            tail = parts[pos+1:]
+            if code in MERGEABLE:return tail == [0]
+            if code == CHOICES:return len(tail) == 2 and tail[0] == 0 and isinstance(tail[1], int)
+            if code == CHANGE_PROFILE:return tail == [1]
+            return code == 101 and tail == [4]
+        except (ValueError, KeyError, IndexError, TypeError):
+            return False
+
+    pointers = location.span or [location.ptr]
+    return bool(pointers) and all(address(pointer) for pointer in pointers)
+
+
 def collect_identifiers(base: Path, *, include_plugin_values: bool = True,
                         include_js_literals: bool = True) -> set[str]:
     """번역하면 안 되는 '참조용 이름' 을 모읍니다.
@@ -421,10 +480,8 @@ def collect_identifiers(base: Path, *, include_plugin_values: bool = True,
       · **추정** — 플러그인 설정·인자 중 화면 문구로 볼 수 없는 값.
         '플러그인 설정 전부' 를 켠 사용자는 이쪽을 빼고 볼 수 있습니다.
 
-    (하위 호환용 — 새 코드는 :func:`collect_identifiers_certain` /
-    :func:`collect_identifiers_guess` / :func:`known_display_texts` 를 따로
-    쓰세요. ``extract.py`` 는 그렇게 해서 추정 식별자가 확실한 화면 문구를
-    가리지 않게 합니다.)
+    Extract/apply keep the complete inventory and use is_display_location for
+    a proven displayed occurrence rather than unprotecting equal values.
     """
     return (collect_identifiers_certain(base)
             | collect_identifiers_guess(base, include_plugin_values=include_plugin_values,
@@ -494,12 +551,20 @@ def js_literal_is_key(src: str, lit) -> bool:
     after = src[lit.end:lit.end + 30].lstrip()
     if re.search(r"(?:===|!==|==|!=|\bcase)$", before) or re.match(r"(?:===|!==|==|!=)", after):
         return True
+    # Whitespace and comments may separate a quoted property from its colon.
+    trivia = r"(?:\s|/\*[\s\S]*?\*/|//[^\n]*(?:\n|$))*"
+    if (re.match(trivia + r":", src[lit.end:])
+            and re.search(r"[{,]" + trivia + r"$", src[:lit.start])):
+        return True                                   # object property key
     if before.endswith("[") and after.startswith("]"):
         return True                                   # obj['열쇠']
     val = lit.text
     short = len(val) <= 12 and not _SENTENCE_MARK.search(val)
     if short and before[-1:] in ("[", ",") and after[:1] in (",", "]"):
         return True                                   # 낱말 목록의 원소
+    # Common rendering and command-label calls can legitimately be very short.
+    if re.search(r"\b(?:drawText|drawTextEx|addCommand|setText|addText|drawLabel)\s*\([^()]*$", before):
+        return False
     return len(val) <= 8 and not _SENTENCE_MARK.search(val)
 
 
@@ -519,7 +584,6 @@ def extract_plugin_scripts(base: Path, root: Path) -> list:
         except Exception:
             continue
         rel = str(path.relative_to(root)).replace("\\", "/")
-        seen: set[str] = set()
         for lit in jslex.literals(text):
             if lit.subst:
                 continue        # `${...}` 안은 코드입니다
@@ -530,20 +594,17 @@ def extract_plugin_scripts(base: Path, root: Path) -> list:
                 continue        # 경로처럼 생긴 건 제외
             if js_literal_is_key(text, lit):
                 continue        # 코드가 값으로 비교하거나 열쇠로 쓰는 글자
-            if val in seen:
-                continue
-            seen.add(val)
+            ptr = "jspos:" + json.dumps([lit.start, val], ensure_ascii=False, separators=(",", ":"))
             out.append((val, Location(file=rel, kind="jsliteral", fmt="jsliteral",
-                                      ptr=val, asset=path.name)))
+                                      ptr=ptr, asset=path.name)))
     return out
 
 
 def count_js_dialogue(base: Path, *, min_len: int = 8) -> int:
-    """플러그인 js 안에 **대사로 보이는** 문장이 몇 개나 있는가.
+    """Count unique CJK literal candidates, not verified dialogue.
 
-    가져오지는 않고 세기만 합니다. '플러그인 js 파일까지' 를 안 켠 사용자에게
-    "여기 대사가 있다" 고 알려 주기 위한 것입니다. 짧은 낱말(등장인물 이름,
-    방향 표시 같은 것)은 빼고 문장만 셉니다 — 겁주지 않으려고요.
+    This broad inventory may include editor, metadata, and code strings. It is
+    retained for compatibility with existing callers and does not classify use.
     """
     from .. import jslex
 

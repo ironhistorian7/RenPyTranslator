@@ -5,10 +5,66 @@ import os
 import sys
 import threading
 import time
+from itertools import islice
+import re
 
 
 _LOCK=threading.RLock()
 _active=None
+_warnings={}
+_IDENTIFIER=re.compile(r'^[A-Za-z0-9][A-Za-z0-9_.:-]{0,95}$')
+
+
+def _warning_view(value):
+    return dict(code=value['code'],title=value['title'],detail=value.get('detail') or '',
+                occurrences=value['occurrences'],item_count=len(value['items']),
+                item_ids=list(islice(value['items'],24)),error_ids=value['error_ids'][-8:],
+                log_path=value.get('log_path'))
+
+
+def warning(code,title,*,item_ids=(),count=1,error_id=None,log_path=None,detail=None):
+    """Accumulate technical warnings once per diagnostic, never print a card."""
+    with _LOCK:
+        value=_warnings.setdefault(code,dict(code=code,title=title,detail=detail,
+            occurrences=0,items={},error_ids=[],seen=set(),log_path=None))
+        if error_id and error_id in value['seen']:return
+        if error_id:
+            value['seen'].add(error_id)
+            if _IDENTIFIER.fullmatch(str(error_id)):value['error_ids']=(value['error_ids']+[str(error_id)])[-8:]
+        value['occurrences']+=max(1,int(count))
+        for uid in item_ids:
+            if isinstance(uid,str) and _IDENTIFIER.fullmatch(uid):value['items'][uid]=None
+        if log_path:value['log_path']=str(log_path)
+        emit('warning',**_warning_view(value))
+
+
+def finish_warnings():
+    """One compact final summary; detailed diagnostics stay in their log files."""
+    with _LOCK:
+        values=[_warning_view(value) for value in _warnings.values()
+                if value['items'] or not value.get('had_items')]
+        if not values:
+            if _warnings:emit('warning_summary',warnings=[])
+            return []
+        if os.environ.get('RPT_DESKTOP_EVENTS')=='1':
+            emit('warning_summary',warnings=values)
+        else:
+            items=set().union(*(value['items'] for value in _warnings.values()))
+            print('주의 사항: %d개 유형 · %d건 · 관련 항목 %d개'%
+                  (len(values),sum(value['occurrences'] for value in values),len(items)),flush=True)
+        return values
+
+
+def resolve_item_warnings(item_ids):
+    """A repaired item remains in detailed logs, not in the final failure list."""
+    ids=set(item_ids)
+    codes={'validation_failed','missing_response','original_kept','partial_translation',
+           'output_limit','token_repeat_limit','generation_repetition'}
+    with _LOCK:
+        for code,value in _warnings.items():
+            if code not in codes:continue
+            if value['items']:value['had_items']=True
+            for uid in ids:value['items'].pop(uid,None)
 
 
 class _Rate:
@@ -88,13 +144,15 @@ class TranslationProgress:
     """One pending-ID denominator across server generations of a translation phase."""
     def __init__(self):
         self.units=None;self.records={};self.cached=0;self.rate=None;self.state=None
-        self.total_work=0;self.completed_work=0;self.original_kept=0
+        self.total_work=0;self.completed_work=0;self.original_kept=0;self.partial_ids=set()
 
     def _settle(self,items):
         for item in items:
             uid=item['id']
             if uid not in self.units:continue
             original=item.get('status')=='source_fallback'
+            if item.get('status')=='partial_translation':self.partial_ids.add(uid)
+            else:self.partial_ids.discard(uid)
             if uid not in self.records:
                 self.completed_work+=self.units[uid];self.original_kept+=original
             else:self.original_kept+=original-self.records[uid]
@@ -125,13 +183,13 @@ class TranslationProgress:
     def snapshot(self):
         return dict(completed=len(self.records),pending_at_start=len(self.units),
                     seconds=round(time.monotonic()-self.state.started),
-                    cached=self.cached,successful=len(self.records)-self.original_kept,
-                    original_kept=self.original_kept)
+                    cached=self.cached,successful=len(self.records)-self.original_kept-len(self.partial_ids),
+                    original_kept=self.original_kept,partial=len(self.partial_ids))
 
     def publish(self):
         snapshot=self.snapshot();done=self.completed_work;total=self.total_work
         progress('translation',snapshot['completed'],snapshot['pending_at_start'],
-                 cached=snapshot['cached'],successful=snapshot['successful'],original_kept=snapshot['original_kept'],
+                  cached=snapshot['cached'],successful=snapshot['successful'],original_kept=snapshot['original_kept'],partial=snapshot['partial'],
                  work_completed=done,work_total=total,rate_unit='source_units',eta_seconds=self.rate.estimate(done,total))
 
 

@@ -63,8 +63,8 @@ class SourceRepairTests(unittest.TestCase):
         selected=['failed','names','font','display','layout']
         self.assertEqual(plan(selected),['failed','names','font'])
         self.assertEqual(plan(['display','layout']),['display'])
-        self.assertEqual(plan(['run',*selected]),['run'])
-        self.assertEqual(plan(['retranslate',*selected]),['retranslate'])
+        self.assertEqual(plan(['run',*selected]),['run','failed'])
+        self.assertEqual(plan(['retranslate',*selected]),['retranslate','failed'])
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp);source,project=self.fixture(root)
             with self.no_fallback(root) as repair,contextlib.redirect_stdout(io.StringIO()):

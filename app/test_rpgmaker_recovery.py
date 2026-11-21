@@ -73,15 +73,19 @@ class RecoveryTests(unittest.TestCase):
         self.assertIsNone(correction_draft(source,error.replace('<rpt000/>',''),CFG))
         self.assertIsNone(correction_draft(source,error.replace('안녕ッ','おはよう'),CFG))
 
-    def test_partial_correction_sends_korean_draft_instead_of_retranslating_original(self):
+    def test_partial_correction_references_original_but_targets_only_the_draft(self):
         cfg=dict(CFG,model='rpt-hymt2-7b:q6_k',_rpg_retry_errors={'x':"['untranslated Japanese text']; output='안녕ッ<rpt000/>'"})
         row=dict(id='x',source=r'\PX[80]おはよう\.',kind='dialogue',usage='dialogue')
         from contextlib import nullcontext
         with patch('translation.request',return_value={'message':{'content':'[0] 안녕'}}) as request,patch('hy_backend.runtime',side_effect=lambda cfg:nullcontext(cfg)):
             result,_=translate_batch([row],{'source_passage':[{'text':'Other original text'}]},cfg)
         prompt=request.call_args.args[2]['messages'][0]['content']
-        self.assertIn('[0] 안녕ッ',prompt);self.assertNotIn('おはよう',prompt)
+        background=json.loads(prompt.split('[Background Information]\n',1)[1].split('[Source Text]',1)[0])
+        self.assertEqual(background['original_source'],'おはよう')
+        self.assertNotIn('spelling_context',background)
+        self.assertEqual(prompt.split('[Source Text]',1)[1].strip().splitlines()[0],'[0] 안녕ッ')
         self.assertNotIn('Other original text',prompt)
+        self.assertNotIn(r'\PX',prompt);self.assertNotIn(r'\.',prompt)
         self.assertNotIn('RPT000',prompt)
         self.assertEqual(result[0]['text'],r'\PX[80]안녕\.')
 
@@ -90,8 +94,17 @@ class RecoveryTests(unittest.TestCase):
         words,positions=correction_parts(draft)
         self.assertEqual(words,['안녕ッ'])
         self.assertEqual(apply_corrections(draft,positions,{'0':'안녕'}),'기존 안녕<rpt000/>안녕 문장')
-        for value in ('안녕ッ','<haha>','안녕\n다시','',None):
+        for value in ('안녕\n다시','',None):
             with self.subTest(value=value),self.assertRaises(ValueError):apply_corrections(draft,positions,{'0':value})
+        # Assembly preserves the model value; the one final language/control
+        # validation remains responsible for residual kana and invented tags.
+        from rpgmaker_tokens import validate
+        source=r'기존 おはよう\.おはよう 문장'
+        for value,reason in (('안녕ッ','untranslated Japanese text'),
+                             ('<haha>','RPG Maker control code mismatch')):
+            with self.subTest(value=value):
+                assembled=apply_corrections(draft,positions,{'0':value})
+                self.assertIn(reason,validate(source,restore(assembled,[r'\.']),CFG))
 
     def test_fragment_echoed_punctuation_only_when_original_has_same_suffix(self):
         draft='웃음ッ!!<rpt000/>'
@@ -133,9 +146,13 @@ class RecoveryTests(unittest.TestCase):
         from contextlib import nullcontext
         with patch('translation.request',return_value={'message':{'content':'[0] 가나!!'}}) as request,patch('hy_backend.runtime',side_effect=lambda cfg:nullcontext(cfg)):
             result,_=translate_batch([row],{},cfg)
-        prompt=request.call_args.args[2]['messages'][0]['content'].split('[Source Text]',1)[1]
-        self.assertEqual(prompt.strip(),'[0] 가ッ나!!')
+        prompt=request.call_args.args[2]['messages'][0]['content']
+        background=json.loads(prompt.split('[Background Information]\n',1)[1].split('[Source Text]',1)[0])
+        self.assertEqual(background['original_source'],'가ッ나!! 그 다음 대사')
+        self.assertNotIn('spelling_context',background)
+        self.assertEqual(prompt.split('[Source Text]',1)[1].strip().splitlines()[0],'[0] 가ッ나!!')
         self.assertNotIn('RPT',prompt)
+        self.assertNotIn(r'\.',prompt)
         self.assertEqual(result[0]['text'],r'가\.나!! 그 다음 대사')
 
     def test_punctuation_width_and_repetition_do_not_change_original_bytes_or_control_position(self):
@@ -156,25 +173,22 @@ class RecoveryTests(unittest.TestCase):
         for changed in (value.replace('000','001',1),value+' 다음 대사.',value.replace('<rpt001/>','')):
             with self.assertRaises(ValueError):apply_corrections(draft,positions,{'0':changed})
 
-    def test_last_translation_failure_still_gets_two_independent_correction_attempts(self):
+    def test_last_translation_failure_cannot_open_a_new_correction_budget(self):
         with tempfile.TemporaryDirectory() as tmp:
             project=Path(tmp);row=dict(id='x',source='あッ',kind='dialogue',usage='dialogue',file='test',block='one')
             save_json(project/'data/catalog.json',[row]);seen=[]
             cfg=dict(CFG,model='rpt-hymt2-7b:q6_k',parallel=1)
             residual="['untranslated Japanese text']; output='아ッ'"
             def batch(items,context,active,retry=''):
-                phase=active['_rpg_correction_enabled'];seen.append(phase)
-                if len(seen)==4:raise ValueError('Response parse error')
-                if len(seen)<5:
-                    error='Missing response ID' if len(seen)<3 else residual
-                    raise BatchTranslationError([],[dict(row=row,error=error)],dict(seconds=0,items=1))
-                self.assertEqual(correction_draft(row['source'],active['_rpg_retry_errors']['x'],active),'아ッ')
-                return [dict(id='x',source=row['source'],text='아',model=cfg['model'],fingerprint=fingerprint(cfg))],dict(seconds=0,items=1)
+                seen.append(active.get('_rpg_clean_retry',False))
+                self.assertEqual(items[0]['source'],row['source'])
+                error='Missing response ID' if len(seen)<3 else residual
+                raise BatchTranslationError([],[dict(row=row,error=error)],dict(seconds=0,items=1))
             with redirect_stdout(io.StringIO()),patch('translation.translate_batch',side_effect=batch):_translate(project,cfg)
-            self.assertEqual(seen,[False,False,False,True,True])
-            self.assertEqual(cache(project,cfg)['x']['text'],'아')
-            events=[json.loads(x) for x in (project/'data/translation-requests.jsonl').read_text(encoding='utf-8').splitlines()]
-            self.assertEqual([e['attempt'] for e in events if e.get('retry_phase')=='correction'],[0,1])
+            self.assertEqual(seen,[False,False,False])
+            record=cache(project,cfg)['x']
+            self.assertEqual((record['id'],record['source'],record['text'],record['status']),('x','あッ','あッ','source_fallback'))
+            self.assertEqual(correction_draft(row['source'],record['error'],cfg),'아ッ')
 
     def test_correction_exhaustion_retains_valid_draft_for_future_resume_and_stops(self):
         cfg=dict(CFG,model='rpt-hymt2-7b:q6_k',_rpg_retry_errors={'x':"['untranslated Japanese text']; output='아ッ'"})
@@ -184,20 +198,89 @@ class RecoveryTests(unittest.TestCase):
             with self.assertRaises(BatchTranslationError) as raised:translate_batch([row],{},cfg)
         error=raised.exception.failures[0]['error']
         self.assertEqual(correction_draft(row['source'],error,cfg),'아ッ')
+        self.assertEqual(raised.exception.failures[0]['correction_failure'],'structure')
 
-    def test_resume_uses_saved_valid_draft_and_stops_after_two_correction_failures(self):
+    def test_correction_validation_reports_language_failure_separately(self):
+        cfg=dict(CFG,model='rpt-hymt2-7b:q8_0',_rpg_retry_errors={'x':"['untranslated Japanese text']; output='아カ'"})
+        row=dict(id='x',source='あカ',kind='dialogue',usage='dialogue')
+        from contextlib import nullcontext
+        with patch('translation.request',return_value={'message':{'content':'[0] 아カ'}}),patch('hy_backend.runtime',side_effect=lambda cfg:nullcontext(cfg)):
+            with self.assertRaises(BatchTranslationError) as raised:translate_batch([row],{},cfg)
+        self.assertEqual(raised.exception.failures[0]['correction_failure'],'language')
+
+    def test_resume_uses_clean_source_and_retains_fallback(self):
         with tempfile.TemporaryDirectory() as tmp:
             project=Path(tmp);row=dict(id='x',source='あッ',kind='dialogue',usage='dialogue',file='test',block='one')
             save_json(project/'data/catalog.json',[row]);seen=[]
-            residual="['untranslated Japanese text']; output='아ッ'"
+            # An entirely Japanese draft requires a clean-source retry.
+            residual="['untranslated Japanese text']; output='おはよう'"
             cfg=dict(CFG,model='rpt-hymt2-7b:q6_k',parallel=1,_rpg_previous_failures={'x':residual})
             def batch(items,context,active,retry=''):
-                seen.append(active['_rpg_correction_enabled'])
+                seen.append(active.get('_rpg_clean_retry',False))
+                self.assertEqual(items[0]['source'],row['source'])
+                self.assertEqual(active['_rpg_retry_errors'],{})
+                self.assertEqual(retry,'')
                 raise ValueError('Unparseable correction response')
             with redirect_stdout(io.StringIO()),patch('translation.translate_batch',side_effect=batch):_translate(project,cfg)
-            self.assertEqual(seen,[True,True])
+            self.assertEqual(len(seen),2)
+            self.assertTrue(all(seen))
             record=cache(project,cfg)['x'];self.assertEqual(record['status'],'source_fallback')
-            self.assertEqual(correction_draft(row['source'],record['error'],cfg),'아ッ')
+            self.assertIsNone(correction_draft(row['source'],record['error'],cfg))
+            self.assertEqual(record['error'],'Unparseable correction response')
+
+    def test_residual_failure_retries_original_without_draft(self):
+        for reason in ('untranslated Japanese text','no Korean translation'):
+            with self.subTest(reason=reason),tempfile.TemporaryDirectory() as tmp:
+                project=Path(tmp);row=dict(id='x',source='あッ',kind='dialogue',usage='dialogue',file='test',block='one')
+                save_json(project/'data/catalog.json',[row]);seen=[]
+                # An entirely Japanese draft requires a clean-source retry.
+                residual="['untranslated Japanese text']; output='おはよう'"
+                cfg=dict(CFG,model='rpt-hymt2-7b:q8_0',_rpg_previous_failures={'x':residual})
+                def batch(items,context,active,retry=''):
+                    full=active.get('_rpg_clean_retry',False)
+                    seen.append(full)
+                    self.assertEqual(items[0]['source'],row['source'])
+                    self.assertEqual(active['_rpg_retry_errors'],{})
+                    self.assertEqual(retry,'')
+                    raise BatchTranslationError([],[dict(row=row,error=reason,correction_failure='language')],dict(seconds=0,items=1))
+                with redirect_stdout(io.StringIO()),patch('translation.translate_batch',side_effect=batch):_translate(project,cfg)
+                self.assertEqual(len(seen),2)
+                self.assertTrue(all(seen))
+                record=cache(project,cfg)['x'];self.assertEqual(record['status'],'source_fallback')
+                self.assertIsNone(correction_draft(row['source'],record['error'],cfg))
+                self.assertEqual(record['error'],reason)
+
+    def test_terminal_clean_source_failure_does_not_retry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project=Path(tmp);row=dict(id='x',source='あッ',kind='dialogue',usage='dialogue',file='test',block='one')
+            save_json(project/'data/catalog.json',[row]);seen=[]
+            # An entirely Japanese draft requires a clean-source retry.
+            residual="['untranslated Japanese text']; output='おはよう'"
+            cfg=dict(CFG,_rpg_previous_failures={'x':residual})
+            def batch(items,context,active,retry=''):
+                seen.append(active.get('_rpg_clean_retry',False))
+                self.assertEqual(items[0]['source'],row['source'])
+                self.assertEqual(retry,'')
+                raise BatchTranslationError([],[dict(row=row,error='untranslated Japanese text',terminal=True)],dict(seconds=0,items=1))
+            with redirect_stdout(io.StringIO()),patch('translation.translate_batch',side_effect=batch):_translate(project,cfg)
+            self.assertEqual(seen,[True])
+            self.assertEqual(cache(project,cfg)['x']['status'],'source_fallback')
+
+    def test_clean_source_failure_at_budget_does_not_retry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project=Path(tmp);row=dict(id='x',source='あッ',kind='dialogue',usage='dialogue',file='test',block='one')
+            save_json(project/'data/catalog.json',[row]);seen=[]
+            # An entirely Japanese draft requires a clean-source retry.
+            residual="['untranslated Japanese text']; output='おはよう'"
+            cfg=dict(CFG,_rpg_previous_failures={'x':residual})
+            def batch(items,context,active,retry=''):
+                seen.append(active.get('_rpg_clean_retry',False))
+                self.assertEqual(items[0]['source'],row['source'])
+                self.assertEqual(retry,'')
+                raise BatchTranslationError([],[dict(row=row,error=residual,retry_attempt=4)],dict(seconds=0,items=1))
+            with redirect_stdout(io.StringIO()),patch('translation.translate_batch',side_effect=batch):_translate(project,cfg)
+            self.assertEqual(seen,[True])
+            self.assertEqual(cache(project,cfg)['x']['status'],'source_fallback')
 
     def test_helpers_follow_nested_calls_but_stop_on_story_scripts_cycles_and_unknowns(self):
         c=lambda code,args=[]:dict(code=code,parameters=args)

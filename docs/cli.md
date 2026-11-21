@@ -16,6 +16,10 @@ $tool = 'E:\Tools\RenPyTranslator'
 
 원문이 영어라면 `-SourceLanguage english`를 사용합니다. 새 프로젝트에서 생략하면 영어이며, 기존 프로젝트는 저장된 원문 언어를 유지합니다. 출력은 한국어입니다. 원문 언어 변경만으로 완료된 항목을 다시 번역하지 않습니다.
 
+KiriKiri는 게임 폴더 또는 ISO 파일을 `-Source`로 지정할 수 있습니다. `run`, `retranslate`, `names`, `failed`, `display`, `check`를 지원하며 `check`는 게임을 실행하지 않는 정적 검사입니다. [지원 형식과 적용 방법](kirikiri.md)을 확인하세요.
+
+Unity TextAsset은 `run`, `retranslate`, `failed`, `check`를 지원합니다. `prepare`로 텍스트 형식을 먼저 확인하고, `check`로 결과 에셋을 정적 검사할 수 있습니다. [Unity 사용 안내](usage.md#unity-패치)를 참고하세요.
+
 다국어 RPG Maker 게임에 인식 가능한 CSV·JSON 번역 테이블이 있으면 선택한 언어의 표시문구를 번역 입력으로 사용합니다. 테이블 형식을 확인할 수 없으면 플러그인의 동작을 추측해 치환하지 않습니다. 연결 결과는 내부 프로젝트의 `data/rpg-source-language.json`에서 확인할 수 있습니다.
 
 명령 없이 실행하거나 `repair`에서 `-Fix`, `tasks`에서 `-Tasks`를 생략하면 도움말만 표시합니다. `check`는 Ren’Py에서 별도 검사 환경의 게임 엔진을 실행하며, RPG Maker에서는 게임을 실행하지 않고 정적 검사합니다.
@@ -44,6 +48,8 @@ $tool = 'E:\Tools\RenPyTranslator'
 
 ### 필요한 부분만 보정
 
+자동 복구 후 미번역이 남으면 결과 생성 전에 직접 입력을 받습니다. 일반 문장과 빈 줄은 그대로 저장하며 `/skip`은 현재 값을 유지하고 `/cancel`은 작업을 중단합니다. `/literal` 다음 줄은 명령어 모양도 그대로 저장하고, `/json` 다음 줄에는 줄바꿈이 포함된 JSON 문자열을 입력할 수 있습니다. 대화형 입력이 없는 실행에서는 GUI나 대화형 PowerShell로 이어서 처리하라는 안내와 함께 중지합니다.
+
 ```powershell
 & "$tool\translate.ps1" -Command repair -Project "$tool\project\YourGame-kr" -Fix font
 & "$tool\translate.ps1" -Command repair -Project "$tool\project\YourGame-kr" -Fix failed
@@ -55,7 +61,7 @@ $tool = 'E:\Tools\RenPyTranslator'
 | `-Fix` | 처리 내용 | 지원 엔진 |
 | --- | --- | --- |
 | `font` | 글꼴·기본 메뉴·표시 | 두 엔진 |
-| `failed` | 실패·미번역 후보 복구. 저장된 응답을 먼저 사용하고 남은 대상만 로컬 번역 | 두 엔진 |
+| `failed` | 실패·미번역 후보 복구. RPG Maker의 한자 잔여 등 부분 미번역도 포함하며, 저장된 응답을 먼저 사용 | 두 엔진 |
 | `display` | 원문 참고 표시·배치 | 두 엔진 |
 | `layout` | 대화창 높이 조정 | 두 엔진 |
 | `names` | 인명·호칭·입력 문구 및 관련 텍스트; RPG Maker는 인명 표기 통일 | 두 엔진 |
@@ -110,6 +116,8 @@ $tool = 'E:\Tools\RenPyTranslator'
 
 Use `english` for English source text. Omitting the option keeps an existing project's selection; a new project defaults to English. Output is Korean. Changing source language does not retranslate completed entries.
 
+Unity TextAsset supports `run`, `retranslate`, `failed`, and `check`. Use `prepare` to inspect supported text formats and `check` for static patch validation. See [Unity usage](usage.md#unity-patches).
+
 For multilingual RPG Maker games, recognized CSV/JSON translation tables supply the selected language's display text as translation input. Unknown plugin table formats are not guessed. Check `data/rpg-source-language.json` inside the workspace for the mapping results.
 
 Running without a command, or omitting `-Fix` for `repair` or `-Tasks` for `tasks`, prints help only. The explicit `check` command runs Ren’Py in an isolated workspace; RPG Maker checks are static and do not launch the game.
@@ -119,6 +127,8 @@ Running without a command, or omitting `-Fix` for `repair` or `-Tasks` for `task
 Use `update -Project <old-project> -Source <new-game>` to import a newer game, or `check -Project <project>` to inspect a patch. See [Game updates and patch checks](updates-and-checks.md).
 
 ### Repair an existing result
+
+Remaining failures prompt for manual input before export. Ordinary input and empty lines are stored verbatim. Use `/skip` to keep the current value, `/cancel` to stop, `/literal` to enter a reserved command as text, or `/json` followed by a JSON string for multiline input. Non-interactive jobs stop with instructions to continue in the GUI or an interactive terminal.
 
 ```powershell
 & "$tool\translate.ps1" -Command retranslate -Project "$tool\project\YourGame-kr"
@@ -133,7 +143,7 @@ Use `update -Project <old-project> -Source <new-game>` to import a newer game, o
 | Scope | Purpose | Engines |
 | --- | --- | --- |
 | `font` | Fonts, standard menus and presentation | Both |
-| `failed` | Failed or detected untranslated items; saved responses first, local inference only where needed | Both |
+| `failed` | Failed or incomplete items, including visible ideograph residue in RPG Maker; saved responses first | Both |
 | `display` | Original-reference visibility and placement | Both |
 | `layout` | Textbox height | Both |
 | `names` | Names, address, inputs and affected text; RPG Maker actor-name consistency | Both engines |

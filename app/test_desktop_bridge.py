@@ -43,7 +43,7 @@ class DesktopBridgeTests(unittest.TestCase):
             with self.assertRaises(ValueError): bridge.gpu_environment({'gpu_mode':'selected','gpu_ids':['GPU-0001']})
 
     def test_preferences_and_run_preserve_existing_cli_contract(self):
-        with tempfile.TemporaryDirectory() as temp,patch.object(bridge,'ROOT',Path(temp)),patch('translate_game.main') as run,patch('sys.argv',['cli']),patch('model_store.require_selected',return_value='synthetic:latest'),patch('game_engine.require'):
+        with tempfile.TemporaryDirectory() as temp,patch.object(bridge,'ROOT',Path(temp)),patch.object(bridge,'policy_devices',return_value=[]),patch('translate_game.main') as run,patch('sys.argv',['cli']),patch('model_store.require_selected',return_value='synthetic:latest'),patch('game_engine.require'):
             data={'path':'X:/synthetic-project','source':False,'tasks':['font','names'],
                   'settings':dict(bridge.DEFAULTS,output='result',theme='dark',gpu_mode='all')}
             with contextlib.redirect_stdout(io.StringIO()):bridge.run_request(data)
@@ -104,6 +104,57 @@ class DesktopBridgeTests(unittest.TestCase):
         with patch.object(bridge,'command',return_value=text):
             gpu=bridge.nvidia_devices('fake-smi')[0]
             self.assertIsNone(gpu['used']);self.assertEqual(gpu['total'],12288)
+
+    def test_failed_nvidia_query_falls_back_to_amd_inventory(self):
+        import subprocess
+        amd={'id':'DXGI-0000000000000001','vendor':'amd','total':16384}
+        igpu={'id':'DXGI-0000000000000002','vendor':'other','total':512}
+        for error in (OSError('unavailable'),subprocess.TimeoutExpired('nvidia-smi',5)):
+            with patch.object(bridge,'nvidia_devices',side_effect=error),\
+                 patch('gpu_inventory.dxgi_adapters',return_value=[amd,igpu]):
+                self.assertEqual(bridge.policy_devices(),[amd])
+        nvidia={'id':'GPU-0001','total':12288}
+        with patch.object(bridge,'nvidia_devices',return_value=[nvidia]),\
+             patch('gpu_inventory.dxgi_adapters',side_effect=OSError('DXGI unavailable')):
+            self.assertEqual(bridge.policy_devices(),[nvidia])
+        with patch.object(bridge,'nvidia_devices',return_value=[nvidia]),\
+             patch('gpu_inventory.dxgi_adapters',return_value=[amd]):
+            self.assertEqual(bridge.policy_devices(),[dict(nvidia,mixed_amd=True),amd])
+
+    def test_amd_child_enables_vulkan_without_inventing_gpu_mask(self):
+        import engine
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);exe=runtime_executable('ollama',root);exe.parent.mkdir(parents=True);exe.touch()
+            proc=Mock(pid=123456);proc.poll.return_value=None
+            cfg={'model':hy_backend.DEFAULT_MODEL,'_hardware_policy':{'vendor':'amd'}}
+            def api(endpoint,route):return {'models':[]} if route=='/api/tags' else {'version':'test'}
+            with patch.object(engine,'ROOT',root),patch.object(bridge,'preferences',return_value=bridge.DEFAULTS),\
+                 patch.object(hy_backend.subprocess,'Popen',return_value=proc) as launch,patch('native_process.run'),\
+                 patch.object(hy_backend,'api',side_effect=api),patch.dict('os.environ',{},clear=True):
+                with hy_backend.runtime(cfg,require_model=False):
+                    env=launch.call_args.kwargs['env']
+                    self.assertEqual(env['OLLAMA_VULKAN'],'1')
+                    self.assertNotIn('CUDA_VISIBLE_DEVICES',env)
+                    self.assertNotIn('GGML_VK_VISIBLE_DEVICES',env)
+
+    def test_mixed_auto_pins_nvidia_and_disables_other_backends_in_child(self):
+        import engine
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);exe=runtime_executable('ollama',root);exe.parent.mkdir(parents=True);exe.touch()
+            proc=Mock(pid=123456);proc.poll.return_value=None
+            cfg={'model':hy_backend.DEFAULT_MODEL,'_hardware_policy':{'mixed_amd':True},
+                 '_hardware_cuda_device':'GPU-0001'}
+            def api(endpoint,route):return {'models':[]} if route=='/api/tags' else {'version':'test'}
+            with patch.object(engine,'ROOT',root),patch.object(bridge,'preferences',return_value=bridge.DEFAULTS),\
+                 patch.object(hy_backend.subprocess,'Popen',return_value=proc) as launch,patch('native_process.run'),\
+                 patch.object(hy_backend,'api',side_effect=api),patch.dict('os.environ',{'OLLAMA_LLM_LIBRARY':'vulkan'},clear=True):
+                with hy_backend.runtime(cfg,require_model=False):
+                    env=launch.call_args.kwargs['env']
+                    self.assertEqual(env['CUDA_VISIBLE_DEVICES'],'GPU-0001')
+                    self.assertEqual(env['OLLAMA_VULKAN'],'0')
+                    self.assertEqual(env['HIP_VISIBLE_DEVICES'],'-1')
+                    self.assertEqual(env['ROCR_VISIBLE_DEVICES'],'-1')
+                    self.assertNotIn('OLLAMA_LLM_LIBRARY',env)
 
 
 if __name__=='__main__':unittest.main()

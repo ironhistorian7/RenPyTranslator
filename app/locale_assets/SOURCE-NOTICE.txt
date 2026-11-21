@@ -1,0 +1,29 @@
+Locale Emulator source and redistribution information
+
+The two unchanged DLLs are from the official Locale Emulator v2.5.0.1 release.
+The release archive and individual DLL SHA-256 values are in PROVENANCE.txt.
+The runtime is loaded dynamically. The two DLLs are next to Play-Korean.exe;
+users can replace them with compatible rebuilt versions. The included launcher
+source is PortableLocaleLauncher.cs, adapted from the upstream LEProc wrapper.
+A compatible .NET Framework 4 compiler can build it with:
+ csc /target:winexe /platform:x86 /reference:System.Windows.Forms.dll PortableLocaleLauncher.cs
+
+The included upstream archives are:
+- Locale-Emulator-v2.5.0.1-source.zip: official release tag v2.5.0.1,
+  commit db03abf6914beeca09ee975120ff5ce2091c8dca;
+  SHA256 C0763B7E12A9B7B4DAF172CE8790AFCB0BC702014C8F05186C83F6B65F1C5C39.
+- Locale-Emulator-Core-2021-08-23-source.zip: official Core commit
+  ae7160dc5deb97947396abcd784f9b98b6ee38b3;
+  SHA256 80040EAB31970EC1381BFA57A2C00B507501487EFAC0220DBD3CD8FB37007941.
+  This is the latest Core commit before the 2.5.0.1 release, but the release
+  does not identify a Core commit; exact correspondence to the distributed
+  DLLs has NOT been established. These archives therefore do not establish
+  that complete corresponding source for these particular DLLs was supplied.
+  Confirm the build provenance with upstream or independently verify it before
+  claiming the source-distribution condition is satisfied. Core build steps
+  and required toolchain information are in the archive's README.md.
+
+Original source repositories:
+https://github.com/xupefei/Locale-Emulator
+https://github.com/xupefei/Locale-Emulator-Core
+The included COPYING and COPYING.LESSER contain GPLv3 and LGPLv3 terms.

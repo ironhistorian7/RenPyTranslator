@@ -2,7 +2,7 @@
   "schema": 1,
   "python": "3.12",
   "release": {
-    "version": "0.3.1"
+    "version": "0.4.0"
   },
   "build_tools": {
     "bandizip": {
@@ -38,6 +38,17 @@
     "url": "https://github.com/ollama/ollama/releases/download/v0.40.15/ollama-windows-amd64.zip",
     "sha256": "9ca74a7ab66ec86870b1eecac7df160df08dc4e3a291ab5d2d59bcf9310221c6",
     "prefix": ""
+  },
+  "ollama_rocm": {
+    "version": "0.40.15",
+    "directory": "runtimes/ollama-0.40.15/lib/ollama/rocm_v7_1",
+    "executable": "ggml-hip.dll",
+    "url": "https://github.com/ollama/ollama/releases/download/v0.40.15/ollama-windows-amd64-rocm.zip",
+    "sha256": "2f5e81675329a5de2477a4a25823d55d5c3ead8d59522e92eac1664ab492faeb",
+    "prefix": "lib/ollama/rocm_v7_1/",
+    "ignored_members": [
+      "README_ROCm.txt"
+    ]
   },
   "full_model": {
     "repository": "tencent/Hy-MT2-7B-GGUF",

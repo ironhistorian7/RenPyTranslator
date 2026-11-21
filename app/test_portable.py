@@ -68,7 +68,9 @@ class PortableTests(unittest.TestCase):
         self.assertEqual(arguments(['layout'],'P',scale='default'),
                          ['tasks','--tasks','layout','--project','P','--suffix=-kr','--textbox-scale','default'])
         with self.assertRaises(ValueError):arguments([],'P')
-        with self.assertRaises(ValueError):arguments(['failed'],'P',source=True)
+        repair=arguments(['failed'],'P',source=True)
+        self.assertEqual(repair[:5],['tasks','--tasks','failed','--source','P'])
+        self.assertNotIn('--project',repair)
 
     def test_layout_repair_does_not_render_scan_scripts_or_load_model(self):
         from translate_game import repair

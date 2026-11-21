@@ -24,6 +24,7 @@
         clear.apply(this, arguments);
         this._rptOriginal = null;
         this._rptTranslation = null;
+        this._rptManual = false;
         this._rptChoiceOriginals = null;
     };
     var command101 = Game_Interpreter.prototype.command101;
@@ -39,6 +40,7 @@
             // Native add() hooks have already run. Do not translate our final text again.
             $gameMessage._texts = [translated];
             $gameMessage._rptTranslation = translated;
+            $gameMessage._rptManual = !!next._rpt_manual;
             $gameMessage._rptOriginal = original || null;
         }
         return result;
@@ -55,6 +57,7 @@
         if (typeof translated === 'string') {
             $gameMessage._texts = [translated];
             $gameMessage._rptTranslation = translated;
+            $gameMessage._rptManual = !!next._rpt_manual;
             $gameMessage._rptOriginal = original || null;
         }
         return result;
@@ -318,7 +321,7 @@
         startMessage.apply(this, arguments);
         if (!this._textState || (!original && typeof $gameMessage._rptTranslation !== 'string')) return;
         var state = this._textState;
-        var repaired = original && repairPositionBreaks(original, $gameMessage.allText());
+        var repaired = original && !$gameMessage._rptManual && repairPositionBreaks(original, $gameMessage.allText());
         if (repaired && repaired !== $gameMessage.allText()) state.text = this.convertEscapeCharacters(repaired);
         var referenceSize = Math.max(1, Math.round(this.contents.fontSize * options.referenceRatio));
         var indent = state.startX === undefined ? (this.newLineX ? this.newLineX(state) : 0) : state.startX;

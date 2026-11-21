@@ -4,9 +4,13 @@
 
 ## 한국어
 
+KiriKiri 게임은 KAG·지원되는 KAGEX PSB 형식에 한해 처리합니다. 폴더 또는 ISO가 들어 있는 폴더를 선택하고, 결과의 XP3 패치를 게임 EXE 옆에 복사합니다. 엔진별 기능 차이와 검사 범위는 [KiriKiri 안내](kirikiri.md)를 참고하세요.
+
 ### 번역 시작
 
 왼쪽 메뉴의 **번역**을 엽니다. 기본 작업은 번역이며, 일반적인 글꼴·메뉴·표시 보정도 함께 진행합니다.
+
+이름 자동 처리가 끝나면 전체 대사 번역에 앞서 **이름 확인** 창이 열립니다. 위쪽의 확인할 이름을 수정하고, 자동 처리된 이름은 아래 접힌 목록에서 펼쳐볼 수 있습니다. 자동 제안은 참고용이며, 원문을 그대로 쓰려면 **원어 유지**를 누릅니다. **확인하고 번역 시작**을 눌러야 대사 번역이 진행됩니다. 확정한 표기는 프로젝트에 저장되며, 같은 목록으로 작업을 재개할 때는 다시 묻지 않습니다.
 
 #### 1. 게임 선택
 
@@ -37,11 +41,13 @@
 
 #### 4. 최종 확인
 
-게임, 실행할 작업, 원문 언어, 모델과 결과 위치를 확인한 뒤 시작합니다. 진행률과 예상 남은 시간은 **현재 단계**를 기준으로 표시하며, 경과 시간은 작업을 시작한 때부터 셉니다. 초기 표본이 적거나 처리량을 셀 수 없는 단계에서는 남은 시간을 계산 중으로 표시합니다. 번역 완료·원문 유지·기존 번역 재사용 수는 따로 확인할 수 있습니다.
+게임, 실행할 작업, 원문 언어, 모델과 결과 위치를 확인한 뒤 시작합니다. 진행률과 예상 남은 시간은 **현재 단계**를 기준으로 표시하며, 경과 시간은 작업을 시작한 때부터 셉니다. 초기 표본이 적거나 처리량을 셀 수 없는 단계에서는 남은 시간을 계산 중으로 표시합니다. 번역 완료·원문 유지·부분 번역·기존 번역 재사용 수는 따로 확인할 수 있습니다.
 
 Ren’Py 패치 검사는 별도 검사 복사본의 창을 엽니다. RPG Maker 패치 검사는 게임을 실행하지 않는 정적 검사입니다.
 
 ### 완료와 중단
+
+자동 복구 후에도 미번역이나 부분 번역이 남으면, 결과를 저장하기 전에 직접 입력 창이 열립니다. 수정한 항목만 적용되며 빈 값·여러 줄·원어 표기도 그대로 저장합니다. 적용을 해제한 항목은 기존 상태로 유지합니다. 직접 확정한 값은 이후 자동 번역이나 이름 보정에서 바꾸지 않습니다.
 
 정상 완료되면 **결과 폴더 열기**로 패치를 확인합니다. **확인**을 누르면 현재 작업 화면을 초기화하고 첫 단계로 돌아갑니다. 저장된 번역·결과·모델은 그대로 남습니다.
 
@@ -50,6 +56,8 @@ Ren’Py 패치 검사는 별도 검사 복사본의 창을 엽니다. RPG Maker
 **로그 폴더 열기**는 해당 오류 기록이 있는 폴더를 엽니다. 실패 후 폴더를 열면 첫 단계로 돌아가며, 열지 못하면 오류 화면을 유지합니다. 자세한 기록은 접힌 **상세 기록**과 [오류와 로그](diagnostics.md)에서 확인할 수 있습니다.
 
 취소하거나 오류가 나도 저장된 번역은 유지합니다. 같은 프로젝트를 선택해 **번역**을 다시 실행하면 완료한 항목을 재사용합니다. 취소 직전 저장되지 않은 배치는 다시 처리할 수 있습니다.
+
+일본어 원문은 Ren’Py·RPG Maker·KiriKiri 모두 재개할 때 저장된 자동 번역의 가나·한자 잔류를 확인합니다. 남은 항목만 복구하고, 정상 번역과 직접 확정한 값은 유지합니다. `っ/ッ/ｯ`만 남은 표현은 문장이 비지 않는 범위에서 정리합니다. 복구되지 않은 한국어 초안도 보존하며, 마지막 직접 입력 창에서 수정할 수 있습니다.
 
 ### 기존 결과 보정과 재번역
 
@@ -73,6 +81,12 @@ RPG Maker의 **인명 표기 보정**은 캐릭터 DB에 번역된 이름을 같
 
 **재번역**은 기존 결과를 남겨두고 별도 프로젝트에서 다시 번역합니다. 모델이나 TXT 문맥을 바꿔 비교할 때 사용합니다. 일반 번역 재개는 저장된 번역을 재사용하므로, 문맥 파일만 바꿔도 완료된 항목이 자동 재번역되지는 않습니다.
 
+### Unity 패치
+
+Windows 빌드의 `resources.assets`에 들어 있는, 구조가 확인된 언어별 TextAsset을 번역합니다. 구조가 확인된 영어 기본 대사도 영어 번역에 포함합니다. 선택한 원문 언어 슬롯을 한국어로 바꾸므로 적용 후 게임에서 해당 슬롯을 선택합니다. 결과의 `APPLY.txt`를 따라 변경된 에셋을 같은 빌드의 `*_Data` 아래에 복사합니다. 원본 에셋은 보관하세요.
+
+Unity의 **패치 검사**는 재삽입한 텍스트와 에셋 구조를 정적으로 검사합니다. 별도 기동이나 글꼴 설치 없이 한글이 표시되는지는 게임별로 확인하세요. Unity Localization의 String Table, Addressables 번들, 이미지 안의 텍스트, 코드에 있는 문자열은 현재 이 경로에서 처리하지 않습니다.
+
 ### 패치 적용과 호환 범위
 
 Ren’Py는 결과의 `game`을 원본 게임의 `game`에 합칩니다. RPG Maker는 결과의 `APPLY.txt`를 따라 `data`·`js`·`fonts`를 같은 위치에 덮어씁니다. `www` 구조가 있으면 그대로 유지합니다. 적용 전 원본 파일을 보관하면 되돌리기 쉽습니다.
@@ -93,10 +107,14 @@ Ren’Py 호환 목표는 6.99 계열, 7.3.5~7.8.7, 8.x입니다. 6.99.0·6.99.1
 
 Open **Translation** in the sidebar. The default translation job includes the normal font, menu and display corrections.
 
+After automatic name preparation, **Name review** opens before dialogue translation. Edit names needing attention at the top, or expand the lower list to edit automatically handled names. Automatic proposals are references; choose **Keep original** to retain the source spelling. Dialogue translation starts only after confirmation. Approved spellings are saved with the project and reused when resuming the same list.
+
 1. **Game:** Select the folder containing the executable, then choose English or Japanese. Existing workspaces and exported results use the same folder picker. Single-language games use their original scripts. RPG Maker uses explicitly labeled CSV/JSON locale tables and supported language-plugin declarations for the selected input and original reference, without changing the game's language setting. Unrecognized custom translation systems need separate review. Ren’Py original-versus-`tl` selection remains separate. Expand **Other settings · Tasks** for retranslation or additional tasks.
 2. **Model:** Check the local model, GPU, context window, concurrency and TXT context status. Use the link to **AI Model** to download, select and apply a model.
 3. **Output:** Choose a destination. The default is `project/<game>-kr` below the application folder. **Other settings** contains textbox height, reference visibility and the output suffix. `default` keeps the original height; `1.2` means 120%. The original reference is on by default at 55% of the Korean text size. Ren’Py also offers language-panel placement. Retranslation produces a separate comparison result.
 4. **Review:** Check the game, tasks, source language, model and destination, then start. Progress and estimated remaining time refer to the current phase; elapsed time covers the whole job. Ren’Py patch checks open separate validation copies. RPG Maker patch checks are static and do not launch the game.
+
+Completed translations, original fallbacks, partial translations and reused entries have separate counts. Partial drafts are included in the final manual review.
 
 Hiding the original reference does not hide untranslated fallback text.
 
@@ -111,6 +129,8 @@ An error card shows the current status and error ID. Automatic recovery displays
 **Open log folder** opens the folder containing the relevant error record. After a failed job, successfully opening that folder returns to the first step; if opening fails, the error page remains. Raw output stays under the collapsed details. See [Diagnostics](diagnostics.md).
 
 Cancellation and errors retain saved translations. Select the same project and run **Translation** again to reuse completed entries. An in-flight unsaved batch may repeat.
+
+If failed or partial translations remain after automatic recovery, a final review opens before export. Edit the entries you want to apply; empty values, multiple lines and original-language text are preserved. Unchecked entries keep their current state. Manually confirmed values are excluded from later automatic translation and name corrections.
 
 ### Repair or retranslate an existing result
 
@@ -133,6 +153,14 @@ Unsupported controls are hidden. Name/failure corrections and missing scene summ
 For RPG Maker, **Character-name consistency** reuses translated actor database names in speaker labels with the same source name. Select an existing output folder and run this task alone; no model or full retranslation is needed. Dialogue, nicknames and input prompts remain unchanged. The internal project's `data/rpg-name-report.json` records the result.
 
 **Retranslation** keeps the old result and translates in a separate project for comparison. Normal resume reuses completed entries, even if the model settings or TXT context have changed.
+
+For Japanese input, Ren’Py, RPG Maker and KiriKiri also check saved automatic translations for remaining kana or ideographs when resuming. Only incomplete entries are retried; completed translations and manually confirmed values are preserved. Residual `っ/ッ/ｯ` is removed where this leaves valid visible content. Unresolved Korean drafts remain available for the final manual review.
+
+### Unity patches
+
+For Windows builds, this adapter translates supported locale TextAssets stored in `resources.assets`. When the game stores English dialogue in shared base files, the adapter includes verified English entries. The selected source-language slot displays Korean after the patch is applied. Follow `APPLY.txt` to place the translated assets at their matching paths under `*_Data` of the same build. Keep a copy of the original assets.
+
+Unity **Patch check** validates the reinserted text and asset structure without launching the game. Check Korean font rendering on the target game. Unity Localization String Tables, Addressables bundles, text baked into images, and compiled strings are outside the current adapter scope.
 
 ### Apply and run
 

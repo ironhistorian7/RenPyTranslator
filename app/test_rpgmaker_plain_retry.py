@@ -99,27 +99,34 @@ class PlainRetryTests(unittest.TestCase):
             self.assertEqual(values[r'\P[1]']['text'],'Birch')
             self.assertEqual(values[r'\P[2]']['text'],'아스터')
 
-    def test_transport_sends_no_markers_and_logs_reconstruction(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            cfg=dict(CFG,_trace_dir=tmp,_rpg_retry_errors={'x':ERROR})
-            row=dict(id='x',source=r'\PX[90]こんにちは\.',kind='dialogue',usage='dialogue')
-            with patch('translation.request',return_value={'message':{'content':'[0] 안녕하세요'}}) as request,patch('hy_backend.runtime',side_effect=lambda cfg:nullcontext(cfg)):
-                result,_=translate_batch([row],{},cfg)
-            prompt=request.call_args.args[2]['messages'][0]['content']
-            self.assertEqual(prompt.split('[Source Text]',1)[1].strip(),'[0] こんにちは')
-            self.assertNotIn('RPT000',prompt);self.assertNotIn('<rpt',prompt)
-            self.assertEqual(result[0]['text'],r'\PX[90]안녕하세요\.')
-            events=[json.loads(line) for line in (Path(tmp)/'translation-requests.jsonl').read_text(encoding='utf-8').splitlines()]
-            self.assertTrue(any(e['event']=='rpg_plain_restoration' for e in events))
+    def test_marker_failure_retry_preserves_functional_controls(self):
+        for model in ('invented-generic', 'rpt-hymt2-7b:q6_k'):
+            with self.subTest(model=model), tempfile.TemporaryDirectory() as tmp:
+                cfg=dict(CFG,model=model,_trace_dir=tmp,_rpg_retry_errors={'x':ERROR})
+                source=r'\PX[90]こんにちは\.世界\V[1]'
+                row=dict(id='x',source=source,kind='dialogue',usage='dialogue')
+                with patch('translation.request',return_value={'message':{'content':'[0] 안녕하세요⟦RPT000⟧세상⟦RPT001⟧'}}) as request,patch('hy_backend.runtime',side_effect=lambda cfg:nullcontext(cfg)):
+                    result,_=translate_batch([row],{},cfg)
+                body=request.call_args.args[2]
+                self.assertNotIn('format',body)
+                prompt=next(m['content'] for m in reversed(body['messages']) if m['role']=='user')
+                submitted=prompt.split('[Source Text]',1)[1]
+                self.assertIn('[0] こんにちは',submitted)
+                self.assertRegex(submitted,r'(?i)rpt000')
+                self.assertRegex(submitted,r'(?i)rpt001')
+                self.assertEqual(row['source'],source)
+                self.assertEqual(result[0]['text'],r'\PX[90]안녕하세요\.세상\V[1]')
+                events=[json.loads(line) for line in (Path(tmp)/'translation-requests.jsonl').read_text(encoding='utf-8').splitlines()]
+                self.assertFalse(any(e['event']=='rpg_plain_restoration' for e in events))
 
-    def test_plain_failure_returns_to_marked_retry_within_existing_budget(self):
+    def test_missing_functional_marker_remains_a_validation_failure(self):
         from translation import BatchTranslationError
-        row=dict(id='x',source=r'こんにちは\.',kind='dialogue',usage='dialogue')
+        row=dict(id='x',source=r'こんにちは\V[1]',kind='dialogue',usage='dialogue')
         cfg=dict(CFG,_rpg_retry_errors={'x':ERROR})
-        with patch('translation.request',return_value={'message':{'content':'[0] <rpt000/>안녕'}}),patch('hy_backend.runtime',side_effect=lambda cfg:nullcontext(cfg)):
+        with patch('translation.request',return_value={'message':{'content':'[0] 안녕'}}),patch('hy_backend.runtime',side_effect=lambda cfg:nullcontext(cfg)):
             with self.assertRaises(BatchTranslationError) as failed:translate_batch([row],{},cfg)
-        self.assertIn('RPG plain retry failed:',failed.exception.failures[0]['error'])
-        self.assertIsNone(plan(row['source'],failed.exception.failures[0]['error'],cfg))
+        self.assertEqual(failed.exception.failures[0]['row']['source'],row['source'])
+        self.assertIn('mismatch',failed.exception.failures[0]['error'].lower())
 
     def test_pipeline_retries_only_failed_row_and_keeps_successful_cache(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -128,13 +135,14 @@ class PlainRetryTests(unittest.TestCase):
             save_json(p/'data/catalog.json',rows)
             saved=dict(id='ok',source='晴れ',text='맑음',model=CFG['model'],fingerprint=fingerprint(CFG))
             cache_file=p/'data/translations.jsonl';raw=json.dumps(saved,ensure_ascii=False)+'\n';cache_file.write_text(raw,encoding='utf-8')
-            responses=[{'message':{'content':'[0] 안녕'}},{'message':{'content':'[0] 안녕'}}]
+            responses=[{'message':{'content':'[0] 안녕'}},{'message':{'content':'[0] 안녕⟦RPT000⟧'}}]
             with redirect_stdout(io.StringIO()),patch('translation.request',side_effect=responses) as request,patch('hy_backend.runtime',side_effect=lambda cfg:nullcontext(cfg)):
                 _translate(p,dict(CFG,parallel=1))
             self.assertEqual(request.call_count,2)
             first=request.call_args_list[0].args[2]['messages'][0]['content']
             last=request.call_args_list[1].args[2]['messages'][0]['content']
-            self.assertIn('⟦RPT000⟧',first);self.assertNotIn('⟦RPT000⟧',last)
+            self.assertRegex(first,r'(?i)rpt000');self.assertRegex(last,r'(?i)rpt000')
+            self.assertNotIn('format',request.call_args_list[0].args[2]);self.assertNotIn('format',request.call_args_list[1].args[2])
             self.assertTrue(cache_file.read_text(encoding='utf-8').startswith(raw))
             self.assertEqual(cache(p,CFG)['x']['text'],r'안녕\.')
 

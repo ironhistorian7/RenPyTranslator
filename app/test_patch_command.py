@@ -40,7 +40,8 @@ class PatchCommandTests(unittest.TestCase):
     def test_normal_build_does_not_repeat_successful_paired_engine_checks(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp);(root/'data').mkdir()
-            with patch('diagnostics.stage'),patch.object(translate_game,'read_catalog',return_value=[{'id':'one'}]),patch.object(translate_game,'presentation'),\
+            with patch('diagnostics.stage'),patch('translation_review.run'),\
+                 patch.object(translate_game,'read_catalog',return_value=[{'id':'one'}]),patch.object(translate_game,'presentation'),\
                  patch('display_policy.install'),patch.object(translate_game,'render'),\
                  patch.object(translate_game,'install_support'),patch.object(translate_game,'package') as publish,\
                  patch.object(translate_game,'validate',side_effect=[RuntimeError('Engine exit 1: compile.log'),None]) as validate,\
@@ -50,7 +51,8 @@ class PatchCommandTests(unittest.TestCase):
             self.assertEqual(validate.call_count,1);publish.assert_called_once()
 
     def test_failed_causal_check_keeps_original_build_error(self):
-        with patch('diagnostics.stage'),patch.object(translate_game,'presentation'),patch('display_policy.install'),\
+        with patch('diagnostics.stage'),patch('translation_review.run'),\
+             patch.object(translate_game,'presentation'),patch('display_policy.install'),\
              patch.object(translate_game,'render'),patch.object(translate_game,'install_support'),\
              patch.object(translate_game,'package') as publish,\
              patch.object(translate_game,'validate',side_effect=RuntimeError('Engine exit 1: compile.log')),\

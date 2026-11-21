@@ -6,7 +6,7 @@ from engine import ROOT, save_json, verify_source
 from translation import read_catalog, cache, validate_entry
 from replacements import effective_cache, replace_visible, load_rules
 from name_hints import ensure_metadata
-from display_text import compose, attach_josa
+from display_text import compose, attach_josa, rendered_value
 
 def install_support(project,cfg):
     game=project/'staging/game'; lang=cfg['language']
@@ -144,7 +144,7 @@ def package(project,cfg):
         if row['file'] not in rendered_files:
             rendered_files[row['file']]=(project/'staging/game/tl'/cfg['language']/row['file']).read_text(encoding='utf-8-sig').splitlines()
         lines=rendered_files[row['file']]
-        if rendered_text(lines[row['line']],row) != compose(row,known[row['id']],metadata):
+        if rendered_text(lines[row['line']],row) != rendered_value(row,known[row['id']],metadata):
             raise ValueError(f'Rendered file is stale: {row["id"]}; run render and validate')
     reports=project/'output';reports.mkdir(exist_ok=True)
     from output_paths import destination

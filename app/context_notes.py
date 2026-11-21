@@ -150,7 +150,9 @@ class ContextNotes:
         source = Path(cfg['source']) if cfg.get('source') and not cfg.get('_repair') else None
         # Source TXT is authoritative, even on resume. No source game scripts are
         # read. If the original game was moved, the prepared copy remains portable.
-        if source and source.is_dir():
+        if cfg.get('engine')=='kirikiri':
+            root = project / 'data/kirikiri-context'
+        elif source and source.is_dir():
             root = source / (Path(cfg.get('rpg_base','.'))/'context' if cfg.get('engine')=='rpgmaker' else 'game/context')
         else:
             root = project / ('data/rpg-source/'+cfg.get('rpg_base','.')+'/context' if cfg.get('engine')=='rpgmaker' else 'staging/game/context')

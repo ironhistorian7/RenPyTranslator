@@ -9,16 +9,18 @@ const env={...process.env,RPT_TOOL_ROOT:path.join(out,'runtime')};delete env.ELE
 const app=await electron.launch({executablePath:require('electron'),args:[process.cwd()],env,timeout:30000});
 const page=await app.firstWindow(),errors=[];page.on('pageerror',e=>errors.push(e.message));
 try{
-  await app.evaluate(({BrowserWindow,ipcMain},root)=>{
+  await app.evaluate(({BrowserWindow,ipcMain},{root,gpuOnly})=>{
     BrowserWindow.getAllWindows()[0].hide();
     const settings={output:'project',suffix:'-kr',scale:'default',source_language:'english',show_reference:true,language_corner:'right',language_margin:12,theme:'light',gpu_mode:'auto',gpu_ids:[],inference_preset:'auto',inference_overrides:{}};
     const values={num_ctx:16384,parallel:2,kv_cache_type:'q8_0',context_txt_enabled:true};
     const snapshot={root,settings,tasks:{run:'번역',retranslate:'재번역',font:'폰트·메뉴 보정',names:'이름·호칭·입력 보정',failed:'미번역 복구',display:'원문 참고 표시 보정',layout:'대화창·선택지 표시 조정',answers:'입력 정답 표시',routes:'선택지 힌트',language:'언어 전환 패널'},fixes:['font','names','failed','display','layout'],defaultModel:'test-hy',runtime:'Ollama · test',gpus:[{id:'GPU-0001',name:'NVIDIA GeForce RTX 4070 SUPER',total:12288,used:0,utilization:0,driver:'test',selectable:true,active:false}],models:[],warnings:[],inference:{presets:[{...values,id:'12gb',minimum_total_mib:11264,support:'measured'}],detected_profile:'12gb',total_mib:12288,support:'measured',recommended:values,effective:values,selected_preset:'auto',overrides:{},reduced_only:false,warnings:[],estimated:false}};
     const library={selected:'test-hy',installed:[{id:'test-hy',title:'HY-MT2-7B',size:6000000000,ready:true,quantization:'Q6_K',estimatedMemory:8000000000},{id:'test-other',title:'테스트 모델',size:4000000000,ready:true,estimatedMemory:6000000000}],pending:[],folder:root+'/models'};
+    if(gpuOnly)snapshot.gpus.push({...snapshot.gpus[0],id:'GPU-0002',name:'Second GPU'});
     const idle={running:false,canceling:false,exitCode:null,result:null,stage:'대기 중',completed:null,total:null,started:null};
     let job=idle;const reply=fn=>async(_e,...args)=>({ok:true,value:await fn(...args)});
     const handle=(id,fn)=>{ipcMain.removeHandler('rpt:'+id);ipcMain.handle('rpt:'+id,reply(fn));};
     handle('info',()=>snapshot);
+    handle('inferencePreview',s=>({...snapshot.inference,devices:snapshot.gpus.filter(g=>s.gpu_mode!=='selected'||s.gpu_ids.includes(g.id)).map(g=>({id:g.id,name:g.name,total_mib:g.total,recommended:values,effective:{...values,...s.gpu_overrides?.[g.id]},warnings:[]}))}));
     handle('appearance',theme=>theme==='dark');handle('save',s=>s);
     handle('model',r=>{if(r.op==='search')return [];if(r.op==='select'){library.selected=r.model;snapshot.defaultModel=r.model;}return library;});
     handle('project',r=>{const rpg=r.path.includes('RPG'),source=!r.path.endsWith('-kr');return {source,game_name:rpg?'SampleRPG':'SampleVN',engine:rpg?'rpgmaker':'renpy',engine_label:rpg?'RPG Maker MZ':'Ren’Py',supported:!r.path.includes('Unknown'),stop_message:r.path.includes('Unknown')?'지원되지 않는 게임입니다.':null,supported_tasks:rpg?['run','retranslate','font','names','failed','display','layout']:null,source_language:source?null:'japanese'};});
@@ -27,6 +29,15 @@ try{
     const cp=require('node:child_process'),fs=require('node:fs'),{EventEmitter}=require('node:events'),{PassThrough,Writable}=require('node:stream');
     const exec=cp.execFile,spawn=cp.spawn;
     cp.execFile=(exe,args,opts,callback)=>{
+      if(args.includes('--desktop-support')){
+        const p=new EventEmitter();
+        p.stdin=new Writable({write(chunk,_enc,done){
+          const {job_context}=JSON.parse(chunk.toString());
+          const result=job_context.state==='failed'?{text:'### RenPyTranslator 오류 제보\n\n- 상태: 실패'}:{error:'Missing test failure'};
+          done();setTimeout(()=>callback(null,JSON.stringify(result),''),0);
+        }});
+        return p;
+      }
       if(!args.includes('--desktop-project')&&!args.includes('--desktop-models'))return exec(exe,args,opts,callback);
       const p=new EventEmitter();p.stdin=new Writable({write(chunk,_enc,done){const r=JSON.parse(chunk.toString());const result=args.includes('--desktop-models')?{result:null}:{engine:'rpgmaker',supported:true,supported_tasks:['run','retranslate','font','names','failed','display','layout'],stop_message:null};done();setTimeout(()=>callback(null,JSON.stringify(result),''),0);}});return p;
     };
@@ -35,13 +46,102 @@ try{
       const p=new EventEmitter();p.stdout=new PassThrough();p.stderr=new PassThrough();
       p.stdin=new Writable({write(chunk,_enc,done){globalThis.testRequest=JSON.parse(chunk.toString());done();setTimeout(()=>p.stdout.write('8/16 entries, batch 0.1s\n'),10);}});
       const timer=setInterval(()=>{if(fs.existsSync(opts.env.RPT_CANCEL_FILE))globalThis.finishTestJob(130);},20);
+      globalThis.emitTestWarning=()=>p.stdout.write('RPT_EVENT '+JSON.stringify({event:'warning',code:'synthetic_warning',title:'Synthetic warning',detail:'Handled warning'})+'\n');
       globalThis.finishTestJob=(code)=>{clearInterval(timer);if(code===0)p.stdout.write('Output folder: '+root+'/project/SampleRPG-kr\n');if(code===1)p.stderr.write('Synthetic test failure\n');p.stdout.end();p.stderr.end();p.emit('close',code);};
       return p;
     };
-    const {shell}=require('electron');shell.openPath=async target=>{globalThis.openedFolder=target;return globalThis.failOpen?'Synthetic folder-open error':'';};
+    const {shell,dialog,clipboard}=require('electron');
+    let clipboardText='';
+    clipboard.writeText=text=>{if(globalThis.failCopy)throw new Error('Clipboard busy');clipboardText=text;};
+    clipboard.readText=()=>clipboardText;
+    globalThis.testAlerts=[];
+    dialog.showMessageBox=async (_window,options)=>{globalThis.testAlerts.push(options);return {response:0,checkboxChecked:false};};
+    shell.openPath=async target=>{globalThis.openedFolder=target;return globalThis.failOpen?'Synthetic folder-open error':'';};
 
-  },root);
+  },{root,gpuOnly:process.argv.includes('--gpu-only')});
   await page.reload();await page.waitForFunction(()=>document.body.dataset.ready==='true');
+  if(process.argv.includes('--gpu-only')){
+    await page.locator('[data-page=models]').click();
+    await page.waitForFunction(()=>document.querySelector('#installed-model').options.length===3);
+    await page.locator('#inference-advanced summary').click();
+    assert.equal(await page.locator('#inference-devices').isVisible(),false);
+    await page.locator('input[name=gpu-mode][value=all]').evaluate(e=>e.click());
+    await page.waitForFunction(()=>document.querySelectorAll('.inference-device').length===2&&!document.querySelector('#inference-devices').hidden);
+    const devices=page.locator('.inference-device');
+    assert.equal(await page.locator('#inference-common').isVisible(),false);
+    assert.equal(await devices.nth(0).locator('select').nth(0).inputValue(),'');
+    assert.equal(await devices.nth(0).locator('input').nth(0).inputValue(),'');
+    assert.equal(await devices.nth(0).locator('input').nth(1).inputValue(),'16384');
+    assert.equal(await devices.nth(0).locator('select').nth(1).inputValue(),'q8_0');
+    assert.equal(await devices.nth(0).locator('select').nth(2).inputValue(),'true');
+    assert.doesNotMatch(await devices.nth(0).innerText(),/GPU-0001|공통|상속/);
+    await page.waitForFunction(()=>document.querySelector('#wizard-model').hidden);
+    assert.match(await page.locator('#wizard-device-models').textContent(),/모델 선택 필요/);
+    assert.match(await page.locator('#wizard-preset').textContent(),/동시 처리 입력 필요/);
+    assert.doesNotMatch(await page.locator('#wizard-preset').textContent(),/GPU-000/);
+    await devices.nth(0).locator('input').nth(1).fill('8192');
+    await devices.nth(0).locator('input').nth(1).fill('');
+    await devices.nth(0).locator('input').nth(1).blur();
+    assert.equal(await devices.nth(0).locator('input').nth(1).inputValue(),'16384');
+    await devices.nth(0).locator('select').nth(0).selectOption('test-hy');
+    await devices.nth(1).locator('select').nth(0).selectOption('test-other');
+    await devices.nth(0).locator('input').nth(0).fill('3');
+    await devices.nth(1).locator('input').nth(0).fill('2');
+    assert.equal(await devices.nth(0).locator('select').nth(0).inputValue(),'test-hy');
+    assert.equal(await devices.nth(1).locator('select').nth(0).inputValue(),'test-other');
+    await page.locator('input[name=gpu-mode][value=auto]').evaluate(e=>e.click());
+    assert.equal(await page.locator('#inference-devices').isVisible(),false);
+    assert.equal(await page.locator('#inference-common').isVisible(),true);
+    await page.locator('input[name=gpu-mode][value=selected]').evaluate(e=>e.click());
+    await page.locator('[data-gpu="GPU-0001"]').evaluate(e=>e.click());
+    assert.equal(await page.locator('#inference-devices').isVisible(),false);
+    await page.locator('[data-gpu="GPU-0002"]').evaluate(e=>e.click());
+    await page.waitForFunction(()=>!document.querySelector('#inference-devices').hidden&&document.querySelectorAll('.inference-device').length===2);
+    assert.equal(await devices.nth(0).locator('select').nth(0).inputValue(),'test-hy');
+    assert.equal(await devices.nth(1).locator('select').nth(0).inputValue(),'test-other');
+    assert.equal(await devices.nth(0).locator('input').nth(0).inputValue(),'3');
+    assert.equal(await devices.nth(1).locator('input').nth(0).inputValue(),'2');
+    assert.deepEqual(errors,[]);console.log('GPU editor gating and selections passed');
+  } else if(process.argv.includes('--fatal-alert-only')){
+    const start=async()=>{
+      const reply=await page.evaluate(async()=>{const info=await window.rpt.info();return window.rpt.start({path:'X:/SampleRPG-kr',source:false,tasks:['run'],settings:info.value.settings});});
+      assert.equal(reply.ok,true);
+      await page.waitForFunction(async()=>{const state=await window.rpt.state();return state.value.job.running&&state.value.job.completed===8;});
+    };
+    const finish=async(code)=>{
+      await app.evaluate((_electron,code)=>globalThis.finishTestJob(code),code);
+      await page.waitForFunction(async code=>{const state=await window.rpt.state();return !state.value.job.running&&state.value.job.exitCode===code;},code);
+    };
+    await start();await finish(130);assert.deepEqual(await app.evaluate(()=>globalThis.testAlerts),[]);
+    await start();await finish(0);assert.deepEqual(await app.evaluate(()=>globalThis.testAlerts),[]);
+    await start();await app.evaluate(()=>globalThis.emitTestWarning());
+    await page.waitForFunction(async()=>{const state=await window.rpt.state();return state.value.job.warnings?.some(w=>w.code==='synthetic_warning');});
+    assert.deepEqual(await app.evaluate(()=>globalThis.testAlerts),[]);
+    await finish(0);assert.deepEqual(await app.evaluate(()=>globalThis.testAlerts),[]);
+    await start();await finish(1);
+    const popup=page.locator('#error-report');
+    await popup.waitFor({state:'visible'});
+    assert.match(await popup.innerText(),/반드시 함께 붙여넣어 주세요/);
+    assert.match(await popup.innerText(),/오류 원인을 확인할 수 있습니다/);
+    await page.keyboard.press('Escape');
+    assert.equal(await popup.isVisible(),true);
+    await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].close());
+    assert.equal(await popup.isVisible(),true);
+    assert.equal((await page.evaluate(()=>window.rpt.reset())).ok,false);
+    await app.evaluate(()=>{globalThis.failCopy=true;});
+    await popup.getByRole('button').click();
+    await popup.getByRole('alert').waitFor({state:'visible'});
+    assert.equal(await popup.isVisible(),true);
+    await app.evaluate(()=>{globalThis.failCopy=false;});
+    await popup.getByRole('button').click();
+    await popup.waitFor({state:'hidden'});
+    assert.match(await app.evaluate(({clipboard})=>clipboard.readText()),/RenPyTranslator 오류 제보/);
+    assert.equal((await page.evaluate(()=>window.rpt.reset())).ok,true);
+    assert.deepEqual(await app.evaluate(()=>globalThis.testAlerts),[]);
+    assert.deepEqual(errors,[]);
+    console.log(JSON.stringify({passed:true,checks:['fatal: required report modal','Escape, window close and reset blocked','clipboard failure keeps modal open','clipboard success closes modal','handled warning, success and cancel: no modal'],gameOrModelExecuted:false},null,2));
+  } else {
+
   await page.locator('[data-page=info]').click();await page.locator('button[data-theme=light]').click();await page.locator('[data-page=translate]').click();
   assert.equal(await page.locator('[data-page=advanced]').count(),0);
   assert.equal(await page.locator('input[name=source]').count(),0);
@@ -53,8 +153,8 @@ try{
   assert.equal(await page.locator('#source-language').inputValue(),'japanese');
   await page.locator('#task-options summary').first().click();
   await page.locator('[data-task=retranslate]').check();assert.equal(await page.locator('[data-task=run]').isChecked(),false);
-  await page.locator('#repairs summary').click();await page.locator('[data-task=display]').check();assert.equal(await page.locator('[data-task=retranslate]').isChecked(),false);
-  await page.locator('[data-task=display]').uncheck();assert.equal(await page.locator('#wizard-next').isDisabled(),true);
+  await page.locator('#repairs summary').click();await page.locator('[data-task=display]').check();assert.equal(await page.locator('[data-task=retranslate]').isChecked(),true);assert.equal(await page.locator('[data-task=display]').isChecked(),true);
+  await page.locator('[data-task=display]').uncheck();await page.locator('[data-task=retranslate]').uncheck();assert.equal(await page.locator('#wizard-next').isDisabled(),true);
   await page.locator('[data-task=run]').check();await page.locator('[data-task=routes]').check();
   await page.locator('#task-options summary').first().click();
   await page.screenshot({path:path.join(out,'01-game-light.png')});
@@ -77,7 +177,7 @@ try{
   assert.equal(await page.locator('[data-task=routes]').isChecked(),false);
   await page.locator('#repairs summary').click(); // close from earlier test
   await page.locator('#repairs summary').click();
-  await page.locator('[data-task=display]').check();assert.equal(await page.locator('[data-task=run]').isChecked(),false);
+  await page.locator('[data-task=display]').check();assert.equal(await page.locator('[data-task=run]').isChecked(),true);assert.equal(await page.locator('[data-task=display]').isChecked(),true);
   await next();await next();assert.equal(await page.locator('#renpy-display').isVisible(),false);
   await page.screenshot({path:path.join(out,'03-output-rpg-dark.png')});
   await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].setSize(920,720));
@@ -89,7 +189,7 @@ try{
   assert.equal(await page.locator('#source-path').isDisabled(),true);
   await page.screenshot({path:path.join(out,'05-running-dark.png')});
   await page.locator('#cancel').click();await page.waitForFunction(()=>document.querySelector('#status').textContent==='취소됨');
-  const request=await app.evaluate(()=>globalThis.testRequest);assert.equal(request.source,false);assert.deepEqual(request.tasks,['display']);assert.equal(request.settings.show_reference,false);assert.equal(request.settings.scale,'1.2');
+  const request=await app.evaluate(()=>globalThis.testRequest);assert.equal(request.source,false);assert.deepEqual(request.tasks,['run','display']);assert.equal(request.settings.show_reference,false);assert.equal(request.settings.scale,'1.2');
   await back();await back();await back();await back();
   await page.locator('#source-path').fill('X:/Unknown');await page.locator('#source-path').press('Tab');await page.waitForFunction(()=>document.querySelector('#engine-note').textContent.includes('지원되지'));
   assert.equal(await page.locator('#wizard-next').isDisabled(),true);
@@ -117,6 +217,8 @@ try{
   await runAgain();await app.evaluate(()=>globalThis.finishTestJob(1));
   await page.waitForFunction(()=>document.querySelector('#finish').textContent==='로그 폴더 열기');
   await page.screenshot({path:path.join(out,'07-failed-dark.png')});
+  await page.locator('#error-report-copy').click();
+  await page.locator('#error-report').waitFor({state:'hidden'});
   await app.evaluate(()=>{globalThis.failOpen=true;});await page.locator('#finish').click();
   await page.waitForFunction(()=>document.querySelector('#message').textContent.includes('folder-open'));
   assert.equal(await page.locator('#completion-pane').isVisible(),true);assert.notEqual(await page.locator('#source-path').inputValue(),'');
@@ -127,4 +229,9 @@ try{
   assert.equal(await page.evaluate(()=>typeof window.require),'undefined');assert.equal(await page.evaluate(()=>typeof window.process),'undefined');assert.deepEqual(errors,[]);
   const report={passed:true,checks:['single automatic folder picker','four-step navigation','task mutual exclusion and independent fixes','project language restored','installed model selection','shared original reference toggle','RPG unsupported controls hidden','light/dark settings retained','920x720 scrollable layout','job request/progress/locking/cancel','unknown engines blocked','success confirmation resets UI and main state','error logs open then reset','failed folder open retains log','selected model retained','isolated renderer'],screenshots:10,gameOrModelExecuted:false};
   await writeFile(path.join(out,'report.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2));
-}finally{await app.close();}
+  }
+}finally{
+  if(!page.isClosed()&&await page.locator('#error-report').isVisible())
+    await app.evaluate(({app})=>{setTimeout(()=>app.exit(0),0);});
+  await app.close();
+}

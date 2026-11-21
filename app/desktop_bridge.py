@@ -20,7 +20,7 @@ from task_plan import TASKS, FIXES, arguments
 
 DEFAULTS = dict(output='project', suffix='-kr', scale='default', language_corner='right',
                 language_margin=12, source_language='english', theme='system', gpu_mode='auto', gpu_ids=[],
-                inference_preset='auto', inference_overrides={}, show_reference=True, runtime_id='')
+                inference_preset='auto', inference_overrides={}, gpu_overrides={}, show_reference=True, runtime_id='')
 
 
 def preferences():
@@ -49,13 +49,13 @@ def validate_settings(data):
     if result['gpu_mode'] not in ('auto','all','selected'):
         raise ValueError('GPU 사용 방식을 확인하세요.')
     ids = result['gpu_ids']
-    if not isinstance(ids, list) or any(not isinstance(i,str) or not re.fullmatch(r'GPU-[a-fA-F0-9-]+',i) for i in ids):
+    if not isinstance(ids, list) or any(not isinstance(i,str) or not re.fullmatch(r'(?:GPU-[a-fA-F0-9-]+|DXGI-[a-fA-F0-9]{16})',i) for i in ids):
         raise ValueError('GPU 장치 목록을 확인하세요.')
     result['gpu_ids'] = list(dict.fromkeys(ids))
     from gpu_policy import validate_inference
     result.update(validate_inference(result))
     if result['gpu_mode'] == 'selected' and not ids:
-        raise ValueError('사용할 NVIDIA GPU를 하나 이상 선택하세요.')
+        raise ValueError('사용할 GPU를 하나 이상 선택하세요.')
     if result['language_corner'] not in ('left','right') or not 0 <= int(result['language_margin']) <= 300:
         raise ValueError('언어 패널 위치와 여백을 확인하세요.')
     result['language_margin'] = int(result['language_margin'])
@@ -64,6 +64,16 @@ def validate_settings(data):
         raise ValueError('높이 배율은 0.25~4 또는 default입니다.')
     result['scale'] = scale
     return result
+
+
+def preview_inference_settings(data):
+    from gpu_policy import inference_preview, validate_inference
+    if not isinstance(data,dict): raise ValueError('GPU 설정을 확인하세요.')
+    settings=dict(DEFAULTS,**{k:v for k,v in data.items() if k in DEFAULTS})
+    validate_inference(settings)
+    if settings['gpu_mode'] not in ('auto','all','selected') or not isinstance(settings['gpu_ids'],list):
+        raise ValueError('GPU 사용 방식을 확인하세요.')
+    return inference_preview(policy_devices(settings.get('runtime_id')),settings)
 
 
 def save_settings(data):
@@ -106,6 +116,48 @@ def nvidia_devices(smi=None):
     return devices
 
 
+def _select_amd_backend(gpu, physical, runtime_id=None):
+    matches=[item for item in physical if item.get('luid_valid') and item.get('luid')==gpu.get('luid')
+             and item.get('vendor_id')==gpu.get('vendor_id') and item.get('device_id')==gpu.get('device_id')]
+    if len(matches)==1:
+        gpu.update(selectable=True,backend='vulkan',vulkan_index=matches[0]['index'])
+    from amd_rocm import resolve_rocm
+    from runtime_assets import runtime_executable
+    try:
+        executable=runtime_executable('ollama',ROOT,runtime_id=runtime_id or None)
+        match=resolve_rocm(executable,gpu,os.environ)
+    except (OSError,ValueError):
+        return
+    if match:
+        gpu.update(selectable=True,backend='rocm',rocm_index=match['index'])
+
+
+def policy_devices(runtime_id=None):
+    """Return CUDA and uniquely matched AMD hardware identities."""
+    try:
+        devices = nvidia_devices()
+    except (OSError, subprocess.TimeoutExpired):
+        devices = []
+    from gpu_inventory import dxgi_adapters
+    try:
+        adapters = dxgi_adapters()
+    except (OSError, ValueError):
+        if devices: return devices
+        raise
+    try:
+        from vulkan_inventory import vulkan_devices
+        physical = vulkan_devices()
+    except (OSError, ValueError, ImportError):
+        physical = []
+    for gpu in adapters:
+        if gpu.get('vendor') != 'amd': continue
+        _select_amd_backend(gpu,physical,runtime_id)
+        devices.append(gpu)
+    if any(d.get('vendor') == 'amd' for d in devices):
+        devices = [dict(d, mixed_amd=True) if str(d.get('id','')).startswith('GPU-') else d for d in devices]
+    return devices
+
+
 def gpu_environment(settings):
     mode = settings.get('gpu_mode','auto')
     if mode == 'auto': return {}
@@ -116,9 +168,11 @@ def gpu_environment(settings):
     if mode != 'selected': raise ValueError('Unknown GPU policy')
     ids = settings.get('gpu_ids', [])
     validate_settings(dict(settings, gpu_mode='selected'))
-    detected = {d['id'] for d in nvidia_devices()}
+    detected = {d['id'] for d in (policy_devices(settings.get('runtime_id')) if any(i.startswith('DXGI-') for i in ids) else nvidia_devices()) if d.get('selectable', True)}
     if not set(ids).issubset(detected):
         raise ValueError('선택한 GPU가 연결되어 있지 않습니다. 설정 및 정보에서 장치를 다시 선택하세요.')
+    if any(i.startswith('DXGI-') for i in ids):
+        return dict(OLLAMA_SCHED_SPREAD='0')
     return dict(CUDA_VISIBLE_DEVICES=','.join(ids), OLLAMA_SCHED_SPREAD='1' if len(ids)>1 else '0',
                 HIP_VISIBLE_DEVICES='-1', ROCR_VISIBLE_DEVICES='-1', OLLAMA_VULKAN='0')
 
@@ -167,11 +221,16 @@ def runtime_info():
             if not pids: continue
             with opener.open(endpoint+'/api/ps',timeout=1) as response:
                 loaded = json.load(response).get('models',[])
-            owners.update(pids)
+            if loaded: owners.update(pids)
+            launch=info.get('native_launch') or {}
+            device=launch.get('runtime_device') or {}
+            hardware=info.get('hardware_policy') or {}
             result.append(dict(configured_model=info['model'], loaded=[{
                 'name':m.get('name',m.get('model','')), 'size':m.get('size'),
                 'vram':m.get('size_vram'), 'quantization':m.get('details',{}).get('quantization_level')
-            } for m in loaded], policy=info.get('policy',{})))
+            } for m in loaded], policy=info.get('policy',{}),
+                device_id=device.get('id'),device_name=device.get('name'),device_backend=device.get('backend'),
+                parallel=hardware.get('parallel'),num_ctx=hardware.get('num_ctx')))
         except (OSError,ValueError,KeyError,TypeError): continue
     return result,owners
 
@@ -188,29 +247,63 @@ def snapshot():
             for device in devices: device['active'] = device['id'] in busy
         except (OSError,subprocess.TimeoutExpired) as exc:
             warnings.append('NVIDIA 상태를 확인할 수 없습니다: '+str(exc))
+    saved=preferences()
     if os.name == 'nt':
+        try:
+            from gpu_inventory import dxgi_adapters
+            adapters = dxgi_adapters()
+            try:
+                from vulkan_inventory import vulkan_devices
+                physical = vulkan_devices()
+            except (OSError, ValueError, ImportError):
+                physical=[]
+            for gpu in adapters:
+                if gpu.get('vendor')=='amd':
+                    _select_amd_backend(gpu,physical,saved.get('runtime_id'))
+                if gpu['vendor'] != 'nvidia' or not any(d.get('selectable') for d in devices):
+                    devices.append(gpu)
+        except (OSError, ValueError):
+            pass
         try:
             shell = str(Path(os.environ.get('SystemRoot','C:/Windows'))/'System32/WindowsPowerShell/v1.0/powershell.exe')
             text = command([shell,'-NoProfile','-NonInteractive','-Command',
                 '[Console]::OutputEncoding=[Text.UTF8Encoding]::new(); @(Get-CimInstance Win32_VideoController | Select-Object Name,PNPDeviceID,DriverVersion) | ConvertTo-Json -Compress'],timeout=8)
             adapters = json.loads(text or '[]')
             if isinstance(adapters,dict): adapters=[adapters]
-            for gpu in adapters:
-                if any(d['name']==gpu['Name'] for d in devices): continue
-                devices.append(dict(id=gpu.get('PNPDeviceID',gpu['Name']), name=gpu['Name'],
-                    total=None,used=None,utilization=None,driver=gpu.get('DriverVersion'),selectable=False,active=None))
+            from gpu_inventory import merge_drivers
+            merge_drivers(devices, adapters)
         except (OSError,ValueError,subprocess.TimeoutExpired):
             if not devices: warnings.append('GPU 장치 정보를 읽지 못했습니다. 드라이버를 확인하세요.')
-    saved=preferences()
+        try:
+            # These WMI classes expose Windows GPU performance counters. They
+            # contain no game data, command lines, or unrelated process details.
+            script = "[Console]::OutputEncoding=[Text.UTF8Encoding]::new(); $a=@(Get-CimInstance Win32_PerfFormattedData_GPUPerformanceCounters_GPUAdapterMemory | Select-Object Name,DedicatedUsage); $e=@(Get-CimInstance Win32_PerfFormattedData_GPUPerformanceCounters_GPUEngine | Select-Object Name,UtilizationPercentage); $p=@(Get-CimInstance Win32_PerfFormattedData_GPUPerformanceCounters_GPUProcessMemory | Select-Object Name,DedicatedUsage); @{adapters=$a;engines=$e;processes=$p} | ConvertTo-Json -Depth 4 -Compress"
+            metrics=json.loads(command([shell,'-NoProfile','-NonInteractive','-Command',script],timeout=15))
+            from gpu_inventory import performance_values
+            values=performance_values(metrics.get('adapters',[]),metrics.get('engines',[]),metrics.get('processes',[]),owners)
+            for gpu in devices:
+                if gpu.get('vendor')!='amd': continue
+                metric=values.get(gpu.get('luid'),{})
+                for key in ('used','utilization','active'):
+                    if key in metric: gpu[key]=metric[key]
+                if not owners and 'used' in metric: gpu['active']=False
+        except (OSError,ValueError,subprocess.TimeoutExpired,UnboundLocalError):
+            pass
     from app_version import version
     from runtime_versions import installed
     runtimes=installed(ROOT)
     selected_runtime=next((item for item in runtimes if item['id']==saved['runtime_id']),None)
     if selected_runtime is None and not saved['runtime_id']:selected_runtime=next((item for item in runtimes if item['default']),None)
     from gpu_policy import inference_preview
+    from model_store import selected,model_title
+    default_model=selected() or ''
+    for owner in active:
+        for loaded in owner.get('loaded',[]):
+            loaded['display_name']=model_title(loaded.get('name',loaded.get('model','')))
     return dict(root=str(ROOT), settings=saved, inference=inference_preview(devices,saved), tasks=TASKS, fixes=sorted(FIXES),
                 appVersion=version(), runtimes=runtimes,
-                defaultModel=__import__('model_store').selected() or '', runtime=selected_runtime['name'] if selected_runtime else '런타임 없음', models=active, gpus=devices, warnings=warnings)
+                defaultModel=default_model,defaultModelDisplayName=model_title(default_model),
+                runtime=selected_runtime['name'] if selected_runtime else '런타임 없음', models=active, gpus=devices, warnings=warnings)
 
 
 def run_request(data):
@@ -221,8 +314,9 @@ def run_request(data):
     format_info=require(data.get('path',''),data.get('source',False),data.get('tasks',[]))
     if 'update' in data.get('tasks',[]):require(data['update_source'],True,data.get('tasks',[]))
     if settings['runtime_id']:args+=['--runtime-id',settings['runtime_id']]
-    from model_store import needs_model,require_selected
-    if needs_model(data.get('tasks',[]),format_info.get('engine')):args+=['--model',require_selected()]
+    from model_store import needs_model,require_job_model
+    jobs=data.get('tasks',[])
+    if needs_model(jobs,format_info.get('engine')):args+=['--model',require_job_model(jobs,preferences=settings)]
     save_settings(settings)
     print('실행: '+subprocess.list2cmdline(args),flush=True)
     sys.argv = [sys.argv[0]]+args

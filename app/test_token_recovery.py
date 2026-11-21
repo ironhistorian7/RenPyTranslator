@@ -1,4 +1,5 @@
 import json
+import re
 from contextlib import nullcontext
 from pathlib import Path
 import tempfile
@@ -16,6 +17,21 @@ CFG={'language':'korean','model':'fake','endpoint':'http://127.0.0.1:11434','bat
 
 def response(items):
     return {'message':{'content':json.dumps(items,ensure_ascii=False)}}
+
+def request_payload(body):
+    content=body['messages'][-1]['content']
+    if content.startswith('{'):return json.loads(content)
+    source=content.split('[Source Text]\n',1)[1]
+    matches=list(re.finditer(r'(?m)^\[(\d+)\] ',source))
+    items=[dict(id=m[1],text=source[m.end():matches[i+1].start() if i+1<len(matches) else len(source)].strip()) for i,m in enumerate(matches)]
+    if not matches:items=[dict(id='0',text=source)]
+    if '[Input details — reference only]\n' in content:
+        details=json.loads(content.split('[Input details — reference only]\n',1)[1].split('\n\n',1)[0])
+        for item in items:item.update(details[item['id']])
+    context={}
+    if '[Background Information — reference only]\n' in content:
+        context=json.loads(content.split('[Background Information — reference only]\n',1)[1].split('\n\n',1)[0])
+    return dict(items=items,context_do_not_translate=context)
 
 class TokenRecoveryTests(unittest.TestCase):
     def setUp(self):
@@ -41,7 +57,7 @@ class TokenRecoveryTests(unittest.TestCase):
         row=dict(id='one',kind='dialogue',source='Image [index] of [count] locked.')
         with patch('translation.request',return_value=response({'0':'전체 <rpt001/>개 중 <rpt000/>번 이미지는 잠겨 있습니다.'})) as call:
             out,_=translate_batch([row],{},CFG)
-        item=json.loads(call.call_args.args[2]['messages'][1]['content'])['items'][0]
+        item=request_payload(call.call_args.args[2])['items'][0]
         self.assertEqual(item['movable_placeholders'],['<rpt000/>','<rpt001/>'])
         self.assertEqual(validate_text(row['source'],out[0]['text'],CFG),[])
 
@@ -105,7 +121,7 @@ class TokenRecoveryTests(unittest.TestCase):
             (target/'story.rpy').write_text(template,encoding='utf-8')
             rows=catalog(p,CFG);calls=[]
             def fake_request(endpoint,route,body):
-                payload=json.loads(body['messages'][1]['content']);calls.append(payload)
+                payload=request_payload(body);calls.append(payload)
                 if len(calls)==1:
                     return response({'0':'알려진 <rpt000/>아리엘<rpt001/>','1':'여기로 와요.'})
                 return response({'0':'여기로 와요.'})
@@ -114,8 +130,8 @@ class TokenRecoveryTests(unittest.TestCase):
             self.assertEqual([len(c['items']) for c in calls],[2,1,1])
             for retry in calls[1:]:
                 self.assertIn('Please come',retry['items'][0]['text'])
-                self.assertEqual(set(retry['context_do_not_translate']),{'variable_identities'})
-                self.assertEqual(retry['context_do_not_translate']['variable_identities']['name']['kind'],'name')
+                self.assertNotIn('source_passage',retry['context_do_not_translate'])
+                self.assertIn('<rpt000/>',retry['items'][0]['text'])
             known=cache(p,CFG);fallback=known[rows[1]['id']]
             self.assertEqual(fallback['text'],rows[1]['source'])
             self.assertEqual(fallback['status'],'source_fallback')

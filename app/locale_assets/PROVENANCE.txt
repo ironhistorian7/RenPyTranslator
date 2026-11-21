@@ -1,0 +1,8 @@
+Locale Emulator v2.5.0.1 by xupefei and contributors
+Official release: https://github.com/xupefei/Locale-Emulator/releases/tag/v2.5.0.1
+Release ZIP SHA256: 808FF584426D52CC775AD6406DA00622F454BE95BD4C8FBCA42EEF4B7235AD5C
+LoaderDll.dll SHA256: 82FAE0F44F4CA0C9C37907DF74CEF2415EEB5FAE1CF8D4F36F34FFCAF7E3CC0C
+LocaleEmulator.dll SHA256: C79C175FDAD174AA46A72197D148316299A56F950AAAB1B84930D09EE1084A88
+Source: https://github.com/xupefei/Locale-Emulator/tree/v2.5.0.1
+Core source: https://github.com/xupefei/Locale-Emulator-Core
+License: LGPL 3.0; see COPYING.LESSER and COPYING. PortableLocaleLauncher.cs includes adaptations of LEProc/LoaderWrapper.cs and is provided in source form under the same license.

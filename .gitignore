@@ -39,8 +39,10 @@
 
 # Upstream game fixtures are not part of the translator source distribution.
 /vendor/unrpyc/testcases/
+/assets/kirikiri-ui/source-sprites/
 
 # Development dependencies and generated files.
+/.rocm-gfx906/
 /.venv/
 node_modules/
 /desktop/dist/

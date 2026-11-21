@@ -1,5 +1,5 @@
 """Hy-MT's single-user translation protocol and tool-owned local Ollama server."""
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from datetime import datetime,timezone
 from functools import lru_cache
 import hashlib
@@ -91,8 +91,21 @@ def is_hy(cfg):
     return protocol(cfg.get('model'))=='hy'
 
 
+def japanese_general_instruction(cfg):
+    """Japanese-only guidance shared by generic and HY prompts."""
+    from source_language import normalize
+    if normalize(cfg.get('source_language'))!='japanese':return ''
+    text=('일본어 의성어·의태어·감탄사와 웃음소리, 독특한 말버릇도 문맥과 인물의 말투에 맞는 자연스러운 한국어로 옮기세요. '
+          '원문의 의미와 보호 표시는 유지하세요.')
+    if cfg.get('_japanese_retry_attempt',0)>=2:
+        text+=' 이전 답변을 참고하지 말고 원문 전체를 처음부터 다른 자연스러운 표현으로 번역하세요.'
+    elif cfg.get('_japanese_retry_kind'):
+        text+=' 원문 전체를 확인하여 일본어가 남지 않도록 자연스러운 한국어로 완성하세요.'
+    return text
+
+
 def body(inputs, context, cfg, glossary, retry_note):
-    from source_language import instruction
+    from source_language import instruction,normalize
     from label_policy import LABEL_USES, context_for
     from translation_output import estimate_output
     rpg=cfg.get('engine')=='rpgmaker'
@@ -107,9 +120,16 @@ def body(inputs, context, cfg, glossary, retry_note):
                           if rpg and cfg.get('_rpg_correction_mode') and not cfg.get('_rpg_plain_correction') else instruction(cfg))
     prompt = (language_instruction+'자연스러운 한국어로 번역하세요. 의미와 말투를 유지하고 내용을 추가하거나 누락하지 마세요. '
               '설명 없이 번역만 출력하세요. 각 항목의 [ID]를 유지하세요.\n')
+    if rpg and normalize(cfg.get('source_language'))=='japanese':
+        prompt+=('제목·선택지 표제 안의 한자도 한국어로 번역하세요. '
+                 '인명은 가능하면 음역하되 원어·로마자 표기도 허용합니다. '
+                 '인명을 제외한 문장과 구절은 한국어로 번역하세요.\n')
     if not rpg:
         prompt+=('글자 색·크기·강조 같은 시각 서식은 프로그램이 처리합니다. 서식 태그를 추가하지 마세요. '
                  '각 [ID]와 번역문만 출력하고 target_id 같은 문맥 메타데이터는 출력하지 마세요.\n')
+    from kirikiri_translation import ui_instruction
+    ui_note=ui_instruction(inputs,cfg)
+    if ui_note:prompt+=ui_note+'\n'
     if rpg and cfg.get('_rpg_plain_retry'):
         prompt+=('표시 코드는 프로그램이 복원합니다. 번역에 코드나 보호 표시를 추가하지 마세요. '
                  '아래 이름·숫자는 읽기용 값입니다. 표기를 그대로 유지하되 한국어 어순과 조사는 자연스럽게 번역하세요: '
@@ -121,17 +141,23 @@ def body(inputs, context, cfg, glossary, retry_note):
                    '이름표는 이름·직책만, UI 라벨은 해당 표시문구만 번역하세요. '
                    '명칭을 대사나 설명문으로 확장하지 마세요. 화자 접두사·인용 대사·사건을 만들지 마세요. '
                    '용어표의 source/target은 표기 참고입니다. 입력에 없는 내용을 추가하지 마세요.\n')
+        if cfg.get('_name_preparation'):
+            prompt += ('고유 인명은 뜻풀이 대신 한국어로 음역하세요. 숫자와 상태 설명은 유지하고, '
+                       '명시적인 직책·관계 호칭은 뜻에 맞게 번역하세요. 이름만 출력하세요.\n')
     else:
         prompt += ('Background Information은 참고 자료이며 번역 대상이 아닙니다. Source Text의 항목만 번역하세요. '
                'source_passage는 원문 순서이며 target_id는 Source Text에서 같은 ID인 항목의 위치입니다. '
                '화자와 앞뒤 원문을 참고해 호칭과 말투를 선택하되, 명시되지 않은 관계나 청자를 단정하지 마세요. '
                '화자 식별자가 다르다는 이유만으로 다른 인물이라고 단정하지 마세요.\n')
     reading={item['id']:item['reading_text'] for item in inputs if item.get('reading_text')}
+    if context.get('ruby_readings'):
+        prompt+='ruby_readings는 원문 단어의 읽기 참고입니다. 의미와 명칭을 해석하는 데 사용하고, 루비 표기 코드는 번역에 출력하지 마세요.\n'
     if reading:
-        prompt+=('reading_text는 화면 좌표·대기 코드와 화면 줄바꿈을 제외한 같은 원문이며 뜻을 읽는 참고입니다. '
+        prompt+=(('reading_text는 시각·대기 코드를 제외한 같은 원문의 읽기 참고입니다. '
+                  if rpg else 'reading_text는 화면 좌표·대기 코드와 화면 줄바꿈을 제외한 같은 원문이며 뜻을 읽는 참고입니다. ')+
                  '표시 코드가 단어 중간에 있어도 하나의 단어·감탄사로 해석하세요. '
                  '번역할 내용은 Source Text와 동일하며 입력의 보호 표시를 보존하세요. '
-                 '일반 명사는 뜻으로 번역하고, 실제 고유명사만 음역하세요. 일본어 글자를 번역에 남기지 마세요. '
+                 '일반 명사는 뜻으로 번역하고, 인명 외의 일본어 표현은 한국어로 번역하세요. '
                  '앞뒤 발화와 원문의 말투를 유지하고 임의로 존댓말과 반말을 바꾸지 마세요.\n')
     if context.get('translation_guidance') and not labels_only:
         prompt += ('translation_guidance의 공통 문체, 파일 배경(file), 현재 장면(scene)과 관련 용어를 해석에 참고하세요. '
@@ -169,12 +195,40 @@ def body(inputs, context, cfg, glossary, retry_note):
     prompt += '\n\n[Source Text]\n' + '\n'.join('['+item['id']+'] '+item['text'] for item in inputs)
     if retry_note and not labels_only and not rpg: prompt += '\n\n' + retry_note
     if rpg and cfg.get('_rpg_fragment_correction') and not cfg.get('_rpg_plain_correction'):
+        fragment_context={k:context[k] for k in ('original_source','spelling_context','correction_reading','source_passage') if k in context}
+        name_instruction=''
+        if context.get('person_name_spellings'):
+            fragment_context['person_name_spellings']=context['person_name_spellings']
+            name_instruction=('person_name_spellings는 인명 표기입니다. 실제 인물을 가리킬 때만 이 표기를 따르고, '
+                              '국가명이나 일반 명사에는 적용하지 마세요. ')
         prompt=('입력은 한국어 번역에 일본어가 섞여 남은 구절입니다. 구절 전체의 뜻과 발음을 읽고 일본어 잔류를 자연스러운 한국어로 교정하세요. '
                 '⟦RPT숫자⟧는 대기·서식 표시입니다. 표시가 단어 중간에 있어도 의미는 이어지며, 표시 자체는 번호·개수·순서를 그대로 유지하세요. '
+                'original_source는 번역 전 원문 전체입니다. 뜻과 문맥은 이를 기준으로 판단하세요. '
                 'correction_reading은 표시를 제외한 같은 구절입니다. spelling_context와 source_passage는 참고이며 번역 대상이 아닙니다. '
-                '각 [ID]와 수정한 해당 구절만 출력하세요. 뒤의 다른 대사나 설명·인용부호를 덧붙이지 마세요.\n'
-                '\n[Background Information]\n'+json.dumps({k:context[k] for k in ('spelling_context','correction_reading','source_passage') if k in context},ensure_ascii=False)+
+                +name_instruction+'각 [ID]와 수정한 해당 구절만 출력하세요. 뒤의 다른 대사나 설명·인용부호를 덧붙이지 마세요.\n'
+                '\n[Background Information]\n'+json.dumps(fragment_context,ensure_ascii=False)+
                 '\n\n[Source Text]\n'+'\n'.join('['+item['id']+'] '+item['text'] for item in inputs))
+    if rpg and cfg.get('_rpg_clean_retry'):
+        prompt=(instruction(cfg)+'자연스러운 한국어로 번역하고 의미와 말투를 유지하세요. '
+                '설명 없이 각 [ID]와 해당 번역만 출력하세요. Background Information은 번역하지 않는 참고 자료입니다. '
+                '인명·용어 표기는 해당 인물이나 의미일 때 적용하세요.\n')
+        if labels_only:prompt+='입력은 이름표 또는 UI 문구입니다. 이름·직책·표시문구만 출력하고 대사를 만들지 마세요.\n'
+        if any('movable_placeholders' in item and item['movable_placeholders'] for item in inputs):
+            prompt+='movable_placeholders의 변수만 한국어 어순에 맞춰 이동할 수 있습니다.\n'
+        if any(re.search(r'⟦RPT\d+⟧|<rpt\d+/>',item['text']) for item in inputs):
+            prompt+='입력의 보호 표시를 각각 정확히 한 번 보존하고, 변수 외 표시의 상대 순서를 유지하세요. 새 표시를 만들지 마세요.\n'
+        prompt+='\n[Background Information]\n'+json.dumps(background,ensure_ascii=False,separators=(',',':'))
+        if current:prompt+='\n\n[Current State — reference only]\n'+current
+        prompt+='\n\n[Source Text]\n'+'\n'.join('['+item['id']+'] '+item['text'] for item in inputs)
+    if rpg:
+        from rpgmaker_protocol import japanese_instruction
+        extra=japanese_instruction(cfg)
+        if extra:prompt+='\n\n'+extra
+        if normalize(cfg.get('source_language'))=='japanese':
+            prompt+='\n원문의 독특한 말버릇도 인물의 말투에 맞게 자연스러운 한국어로 옮기세요.'
+    else:
+        extra=japanese_general_instruction(cfg)
+        if extra:prompt+='\n\n'+extra
     return {'model':cfg['model'], 'stream':False, 'keep_alive':'30s',
             'messages':[{'role':'user','content':prompt}],
             'options':{'num_ctx':cfg.get('num_ctx',16384), 'num_predict':estimate_output(inputs,cfg),
@@ -233,8 +287,50 @@ def api(endpoint, route):
     with opener.open(endpoint+route, timeout=2) as response: return json.load(response)
 
 
+class RocmStartupError(RuntimeError):
+    """A selected ROCm runner did not start or did not use the GPU."""
+
+
+def has_vulkan_route(device):
+    return device.get('backend')=='vulkan' or type(device.get('vulkan_index')) is int
+
+
+def _load_rocm_model(endpoint, cfg):
+    body = {'model': cfg['model'], 'stream': False, 'keep_alive': '10m',
+            'options': {'num_ctx': cfg.get('num_ctx', 8192)}}
+    request = urllib.request.Request(
+        endpoint + '/api/generate', json.dumps(body).encode('utf-8'),
+        headers={'Content-Type': 'application/json'})
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    with opener.open(request, timeout=180) as response:
+        result = json.load(response)
+    if not result.get('done') or result.get('error'):
+        raise RuntimeError('ROCm model loading did not complete')
+    for model in api(endpoint, '/api/ps').get('models', []):
+        if model.get('name', model.get('model')) == cfg['model'] and (model.get('size_vram') or 0) > 0:
+            return model['size_vram']
+    raise RuntimeError('Ollama did not offload the requested model to ROCm')
+
+
 @contextmanager
 def runtime(cfg, require_model=True):
+    with ExitStack() as stack:
+        try:
+            active = stack.enter_context(_runtime(cfg, require_model))
+        except RocmStartupError as exc:
+            device = cfg.get('_runtime_device', {})
+            if not has_vulkan_route(device):
+                raise
+            from runtime_recovery import cancelled
+            cancelled()
+            print(f"GPU warning: {device.get('name', 'AMD GPU')} ROCm 사용 실패 · Vulkan으로 전환", flush=True)
+            fallback = dict(cfg, _amd_force_vulkan=True, _amd_fallback_reason=str(exc))
+            active = stack.enter_context(_runtime(fallback, require_model))
+        yield active
+
+
+@contextmanager
+def _runtime(cfg, require_model=True):
     """No global settings; an occupied port belongs to someone else."""
     from engine import ROOT
     from model_runtime import model_session
@@ -273,20 +369,71 @@ def runtime(cfg, require_model=True):
                OLLAMA_NUM_PARALLEL=str(cfg.get('parallel',2)), OLLAMA_MAX_LOADED_MODELS='1',
                OLLAMA_FLASH_ATTENTION='1', OLLAMA_KV_CACHE_TYPE=cfg.get('kv_cache_type','q8_0'), OLLAMA_NO_CLOUD='1', OLLAMA_KEEP_ALIVE='30s',
                LLAMA_ARG_CACHE_RAM='0', LLAMA_ARG_CTX_CHECKPOINTS='2')
-    for key,value in gpu_environment(policy).items():
+    for key,value in gpu_environment(dict(policy,runtime_id=selected_runtime)).items():
         if value is None: env.pop(key,None)
         else: env[key]=value
+    if cfg.get('_hardware_policy',{}).get('vendor')=='amd':
+        # Do not invent a Vulkan device index; Ollama selects available GPUs.
+        env.setdefault('OLLAMA_VULKAN','1')
     if cfg.get('_hardware_cuda_device'):
         env.update(CUDA_VISIBLE_DEVICES=cfg['_hardware_cuda_device'],OLLAMA_SCHED_SPREAD='0')
+        if cfg.get('_hardware_policy',{}).get('mixed_amd'):
+            env.update(HIP_VISIBLE_DEVICES='-1',ROCR_VISIBLE_DEVICES='-1',OLLAMA_VULKAN='0')
+            env.pop('OLLAMA_LLM_LIBRARY',None)
+    # Explicit per-child routing is used only by the mixed runtime pool.  Clear
+    # inherited selectors first so a user preference cannot leak another GPU in.
+    device=cfg.get('_runtime_device')
+    use_rocm=False
+    if device:
+        device=dict(device)
+        cfg['_runtime_device']=device
+        for key in ('CUDA_VISIBLE_DEVICES','HIP_VISIBLE_DEVICES','ROCR_VISIBLE_DEVICES',
+                    'GGML_VK_VISIBLE_DEVICES','OLLAMA_LLM_LIBRARY'):
+            env.pop(key,None)
+        if device['backend']=='cuda':
+            env.update(CUDA_VISIBLE_DEVICES=str(device['selector']),HIP_VISIBLE_DEVICES='-1',
+                       ROCR_VISIBLE_DEVICES='-1',OLLAMA_VULKAN='0',OLLAMA_SCHED_SPREAD='0')
+        elif device['backend'] in ('vulkan','rocm'):
+            env.pop('GGML_BACKEND_PATH',None)
+            env.pop('OLLAMA_LIBRARY_PATH',None)
+            from native_process import native_runtime_directory
+            library_directory=native_runtime_directory(executable)
+            match=None
+            if require_model and not cfg.get('_amd_force_vulkan'):
+                from amd_rocm import resolve_rocm
+                match=resolve_rocm(executable,device,env,library_directory=library_directory)
+            if match:
+                use_rocm=True
+                env.pop('GPU_DEVICE_ORDINAL',None)
+                env.pop('HSA_OVERRIDE_GFX_VERSION',None)
+                env.update(CUDA_VISIBLE_DEVICES='-1',HIP_VISIBLE_DEVICES=str(match['index']),
+                           OLLAMA_LLM_LIBRARY=match['variant'],OLLAMA_VULKAN='0',OLLAMA_SCHED_SPREAD='0')
+                device.update(backend='rocm', selector=match['index'], selector_resolution=match)
+                cfg['_hardware_policy']=dict(cfg.get('_hardware_policy', {}), backend='rocm')
+            else:
+                if not has_vulkan_route(device):
+                    raise RuntimeError('선택한 AMD GPU의 ROCm을 시작할 수 없습니다.')
+                env.update(CUDA_VISIBLE_DEVICES='-1',HIP_VISIBLE_DEVICES='-1',ROCR_VISIBLE_DEVICES='-1',
+                           OLLAMA_VULKAN='1',OLLAMA_SCHED_SPREAD='0',VK_LOADER_LAYERS_DISABLE='~implicit~')
+                from vulkan_inventory import resolve_selector
+                match=resolve_selector(device,env,library_directory=library_directory)
+                device.update(backend='vulkan',planned_selector=device.get('vulkan_index') if device.get('backend')=='rocm' else device['selector'],
+                              selector=match['index'],selector_resolution=match)
+                cfg['_hardware_policy']=dict(cfg.get('_hardware_policy',{}),backend='vulkan')
+                env['GGML_VK_VISIBLE_DEVICES']=str(match['index'])
+        else: raise ValueError('Unsupported runtime device backend')
+    if str(env.get('OLLAMA_VULKAN','')).lower() in ('1','true','yes'):
+        env['VK_LOADER_LAYERS_DISABLE']='~implicit~'
     diagnostic_mode='blocking' if os.environ.get('RPT_CUDA_DIAGNOSTICS','').strip().lower()=='blocking' else 'off'
     if diagnostic_mode=='blocking':env['CUDA_LAUNCH_BLOCKING']='1'
     cfg['_cuda_diagnostic_mode']=diagnostic_mode
     runtime_env={k:env[k] for k in ('OLLAMA_HOST','OLLAMA_MODELS','OLLAMA_NUM_PARALLEL',
         'OLLAMA_MAX_LOADED_MODELS','OLLAMA_FLASH_ATTENTION','OLLAMA_KV_CACHE_TYPE',
-        'OLLAMA_NO_CLOUD','OLLAMA_KEEP_ALIVE','OLLAMA_LLM_LIBRARY','OLLAMA_GPU_OVERHEAD',
+        'OLLAMA_NO_CLOUD','OLLAMA_KEEP_ALIVE','OLLAMA_LLM_LIBRARY','OLLAMA_GPU_OVERHEAD','OLLAMA_GO_TEMPLATE',
         'LLAMA_ARG_CACHE_RAM','LLAMA_ARG_CTX_CHECKPOINTS','CUDA_VISIBLE_DEVICES',
         'CUDA_LAUNCH_BLOCKING','GGML_CUDA_DISABLE_GRAPHS','OLLAMA_SCHED_SPREAD',
-        'OLLAMA_VULKAN','GGML_VK_VISIBLE_DEVICES') if k in env}
+        'OLLAMA_VULKAN','GGML_VK_VISIBLE_DEVICES','HIP_VISIBLE_DEVICES','ROCR_VISIBLE_DEVICES',
+        'VK_LOADER_LAYERS_DISABLE') if k in env}
     logs = ROOT/'logs'; logs.mkdir(exist_ok=True)
     log_path=logs/('hy-server-'+str(os.getpid())+'-'+str(port)+'.log')
     with log_path.open('ab') as log:
@@ -302,12 +449,15 @@ def runtime(cfg, require_model=True):
                               launch_error=repr(exc))
             exc.runtime_exit=exit_state
             _write_runtime_record(log,'RPT runtime exit: ',exit_state,exit_state)
+            if use_rocm and isinstance(exc, (OSError, RuntimeError)):
+                raise RocmStartupError(str(exc)) from exc
             raise
         from cancel_runtime import register,unregister
         from engine import save_json
-        descriptor = ROOT/'data/runtime'/(str(os.getpid())+'.json')
+        descriptor = ROOT/'data/runtime'/(str(os.getpid())+('-'+str(port) if device else '')+'.json')
         exit_state['server_pid']=proc.pid
         registered=False
+        ready=False
         try:
             register(proc);registered=True
             launch=proc._rpt_native_launch
@@ -317,6 +467,9 @@ def runtime(cfg, require_model=True):
             launch['run_id']=cfg.get('_recovery_run_id')
             launch['runtime_generation']=cfg.get('_runtime_generation')
             launch['runtime_id']=selected_runtime or executable.parent.name
+            if device: launch['runtime_device']=dict(device)
+            if cfg.get('_amd_fallback_reason'):
+                launch['amd_fallback_reason']=cfg['_amd_fallback_reason']
             launch['cuda_diagnostic_mode']=diagnostic_mode
             launch['startup_timeout_seconds']=60 if diagnostic_mode=='blocking' else None
             launch['argv']=[str(executable),'serve']
@@ -344,19 +497,41 @@ def runtime(cfg, require_model=True):
             else: raise TimeoutError('Tool-local Ollama startup timed out')
             models = api(endpoint, '/api/tags').get('models', [])
             if require_model and not any(m['name'] == cfg['model'] for m in models):
-                raise RuntimeError('Model is not installed in the tool model store: '+cfg['model'])
+                from model_store import ModelRegistrationError,missing_runtime_model
+                raise ModelRegistrationError(missing_runtime_model(cfg['model'],api_version.get('version')))
             installed=next((m for m in models if m.get('name')==cfg['model']),{})
+            if require_model:
+                from model_store import ensure_registered_template
+                compatibility=ensure_registered_template(endpoint,cfg['model'],runtime_version=api_version.get('version'))
+                cfg['_model_registration_compatibility']=compatibility
+                launch['model_registration_compatibility']=compatibility
+                if compatibility.get('updated'):
+                    installed=next((m for m in api(endpoint,'/api/tags').get('models',[]) if m.get('name')==cfg['model']),installed)
             launch['api_version']=api_version.get('version')
             launch['model_identity']={'requested':cfg['model'],'name':installed.get('name'),
                                       'digest':installed.get('digest'),'size':installed.get('size')}
+            if require_model:
+                from model_diagnostics import collect
+                cfg['_runtime_model_metadata']=collect(endpoint,cfg['model'],installed)
+                launch['model_metadata']=cfg['_runtime_model_metadata']
+            if use_rocm:
+                launch['rocm_model_vram']=_load_rocm_model(endpoint, cfg)
+                print(f"GPU backend: {device.get('name', 'AMD GPU')} · ROCm", flush=True)
             _write_runtime_record(log,'RPT runtime ready: ',
                 {'timestamp_utc':_utc_now(),'server_pid':proc.pid,'run_id':cfg.get('_recovery_run_id'),
                  'runtime_generation':cfg.get('_runtime_generation'),
-                 'api_version':launch['api_version'],'model_identity':launch['model_identity']},exit_state)
+                  'api_version':launch['api_version'],'model_identity':launch['model_identity'],
+                  'model_metadata':cfg.get('_runtime_model_metadata'),
+                  'model_registration_compatibility':cfg.get('_model_registration_compatibility')},exit_state)
             save_json(descriptor,dict(pid=proc.pid,endpoint=endpoint,model=cfg['model'],
                       native_launch=launch,hardware_policy=cfg.get('_hardware_policy'),
                       policy={k:policy[k] for k in ('gpu_mode','gpu_ids')}))
-            with model_session():
+            # Pool workers can restart out of creation order. ContextVar tokens
+            # from nested model sessions must not be reset out of order; server
+            # shutdown itself releases each worker model.
+            from contextlib import nullcontext
+            with (nullcontext() if cfg.get('_runtime_pool_managed') else model_session()):
+                ready=True
                 yield dict(cfg, endpoint=endpoint,_runtime_log=str(log_path),_runtime_pid=proc.pid,
                            _runtime_launch=launch,
                            _runtime_exit=exit_state,
@@ -364,6 +539,11 @@ def runtime(cfg, require_model=True):
         except BaseException as exc:
             exc.native_launch=proc._rpt_native_launch
             exc.runtime_exit=exit_state
+            if use_rocm and not ready and isinstance(exc, (OSError, RuntimeError, ValueError)):
+                from model_store import ModelRegistrationError
+                if not isinstance(exc, ModelRegistrationError):
+                    _write_runtime_record(log, 'RPT ROCm startup failed: ', {'error': repr(exc)}, exit_state)
+                    raise RocmStartupError(str(exc)) from exc
             raise
         finally:
             # Stop only the process tree created above, even on Ctrl+C or HTTP failure.

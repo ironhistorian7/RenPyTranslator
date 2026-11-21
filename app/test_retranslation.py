@@ -12,6 +12,15 @@ from retranslation import comparison, complete, read
 
 
 class RetranslationTests(unittest.TestCase):
+    def setUp(self):
+        # CLI routing tests use invented projects and must not probe hardware or
+        # run the production-wide log-retention job.
+        cleanup=patch('log_retention.cleanup_logs');cleanup.start();self.addCleanup(cleanup.stop)
+        hardware=patch('gpu_policy.configure',side_effect=lambda cfg:cfg)
+        hardware.start();self.addCleanup(hardware.stop)
+        gate=patch('name_review_control.run',return_value={})
+        gate.start();self.addCleanup(gate.stop)
+
     def fixture(self, root):
         p = root / 'projects/Example'
         (p / 'staging/game').mkdir(parents=True)
@@ -81,7 +90,8 @@ class RetranslationTests(unittest.TestCase):
                 self.assertEqual(settings['model'],'new:model')
                 self.assertFalse((project/'data/translations.jsonl').exists())
                 called.append(project)
-            with patch('model_store.require_selected',return_value='new:model'), \
+            with patch('model_store.assigned_job_model',return_value=None), \
+                 patch('model_store.require_selected',return_value='new:model'), \
                  patch('translate_game.translate',side_effect=translated), \
                  patch('name_translation.run'),patch('failed_repair.run'), \
                  patch('translate_game.rebuild') as rebuild,patch('story_guides.run') as guides, \
@@ -96,7 +106,7 @@ class RetranslationTests(unittest.TestCase):
         from task_plan import plan,arguments
         from model_store import needs_model
         self.assertEqual(plan(['retranslate','names','font','routes']),['retranslate','routes'])
-        self.assertEqual(plan(['run','failed','answers']),['run','answers'])
+        self.assertEqual(plan(['run','failed','answers']),['run','failed','answers'])
         with self.assertRaises(ValueError):plan(['run','retranslate'])
         self.assertTrue(needs_model(['retranslate']))
         self.assertIn('retranslate',arguments(['retranslate'],'synthetic'))
@@ -118,7 +128,8 @@ class RetranslationTests(unittest.TestCase):
                 self.assertEqual(active['model'],'new:model')
                 self.assertFalse((target/'data/translations.jsonl').exists())
                 called.append(target)
-            with patch('automatic.ROOT',root),patch('model_store.require_selected',return_value='new:model'), \
+            with patch('automatic.ROOT',root),patch('model_store.assigned_job_model',return_value=None), \
+                 patch('model_store.require_selected',return_value='new:model'), \
                  patch('gpu_policy.configure',side_effect=lambda active:active), \
                  patch('translate_game.translate',side_effect=translated), \
                  patch('translate_game.prepare',side_effect=AssertionError('Prepared source should not prepare again')), \
@@ -138,7 +149,8 @@ class RetranslationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp);source=root/'NewInventedGame'
             (source/'game').mkdir(parents=True);(source/'renpy').mkdir()
-            with patch('automatic.ROOT',root),patch('model_store.require_selected',return_value='new:model'), \
+            with patch('automatic.ROOT',root),patch('model_store.assigned_job_model',return_value=None), \
+                 patch('model_store.require_selected',return_value='new:model'), \
                  patch('translate_game.translate',side_effect=AssertionError('No translation fallback')) as translate, \
                  patch('translate_game.prepare',side_effect=AssertionError('No preparation fallback')) as prepare, \
                  patch('name_translation.run',side_effect=AssertionError('No name model')) as names, \
@@ -153,7 +165,8 @@ class RetranslationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp);source=root/'NewInventedGame'
             (source/'game').mkdir(parents=True);(source/'renpy').mkdir()
-            with patch('model_store.require_selected',return_value='new:model'), \
+            with patch('model_store.assigned_job_model',return_value=None), \
+                 patch('model_store.require_selected',return_value='new:model'), \
                  patch('translate_game.resolve_project',side_effect=AssertionError('No project work')), \
                  patch('translate_game.translate',side_effect=AssertionError('No translation')), \
                  contextlib.redirect_stdout(io.StringIO()):
@@ -184,7 +197,8 @@ class RetranslationTests(unittest.TestCase):
         import translate_game as cli
         with tempfile.TemporaryDirectory() as t:
             p,cfg=self.fixture(Path(t))
-            with patch('model_store.require_selected',return_value='new:model'), \
+            with patch('model_store.assigned_job_model',return_value=None), \
+                 patch('model_store.require_selected',return_value='new:model'), \
                  patch('translate_game.translate',side_effect=RuntimeError('interrupted')), \
                  patch('name_translation.run'),contextlib.redirect_stdout(io.StringIO()):
                 with self.assertRaisesRegex(RuntimeError,'interrupted'):

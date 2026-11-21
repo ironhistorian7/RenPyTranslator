@@ -19,14 +19,14 @@
       <div class="wizard-body">
         <section data-step="0" class="wizard-pane">
           <h2>번역할 게임을 선택하세요</h2><p class="intro">게임 폴더나 기존 번역 결과를 불러올 수 있습니다.</p>
-          <div class="field-group"><label for="source-path">게임 또는 프로젝트 폴더</label><div class="path-row"><input id="source-path" placeholder="폴더를 선택하세요" spellcheck="false"><button id="browse-source" class="secondary">찾아보기</button></div><p id="engine-note" class="help" aria-live="polite">Ren’Py · RPG Maker MV/MZ</p></div>
+          <div class="field-group"><label for="source-path">게임 또는 프로젝트 폴더</label><div class="path-row"><input id="source-path" placeholder="폴더를 선택하세요" spellcheck="false"><button id="browse-source" class="secondary">찾아보기</button></div><p id="engine-note" class="help" aria-live="polite">Ren’Py · RPG Maker MV/MZ · KiriKiri · Unity</p></div>
           <div class="field-group"><label for="source-language">원문 언어</label><select id="source-language" class="short-field"><option value="english">영어</option><option value="japanese">일본어</option></select><p class="help">선택한 원문 언어에 맞춰 한국어로 번역합니다.</p></div>
           <div id="basic-tasks" class="check-grid"></div><p id="language-default-note" class="help" hidden>언어 전환 패널 포함</p>
           <details class="extra-settings" id="task-options"><summary>기타 설정 · 실행할 작업</summary><div id="tasks" class="check-grid"></div><div id="update-fields" class="field-group" hidden><label for="update-source">업데이트된 게임 폴더</label><div class="path-row"><input id="update-source" spellcheck="false" placeholder="새 버전 게임 폴더"><button id="browse-update" class="secondary">찾아보기</button></div></div><details id="repairs" class="nested-details"><summary>기존 번역 보정 <span id="repair-count"></span></summary><p class="help">기존 번역을 부분적으로 보정합니다.</p><div id="fixes" class="check-grid"></div></details><p id="selection-summary" class="selection-summary"></p></details>
         </section>
         <section data-step="1" class="wizard-pane" hidden>
           <h2>번역 모델을 확인하세요</h2><p class="intro">번역 모델과 실행 설정을 확인합니다.</p>
-          <div class="field-group"><label for="wizard-model">사용할 번역 모델</label><select id="wizard-model"><option value="">선택 안 함</option></select><p id="wizard-model-note" class="help">모델 목록을 불러오는 중입니다.</p><button id="manage-models" class="text-button">AI 모델에서 다운로드·설정 ↗</button></div>
+          <div class="field-group"><label id="wizard-model-label" for="wizard-model">사용할 번역 모델</label><select id="wizard-model"><option value="">선택 안 함</option></select><p id="wizard-device-models" class="help" hidden></p><p id="wizard-model-note" class="help">모델 목록을 불러오는 중입니다.</p><button id="manage-models" class="text-button">AI 모델에서 다운로드·설정 ↗</button></div>
           <div class="field-group"><h3>실행 환경</h3><p id="wizard-gpu" class="plain-value">확인 중</p><p id="wizard-preset" class="help"></p></div>
           <p id="wizard-model-warning" class="warning" hidden></p>
         </section>
@@ -42,7 +42,7 @@
           </details>
         </section>
         <section data-step="3" class="wizard-pane" hidden>
-          <h2>준비가 되었습니다</h2><p class="intro">아래 내용으로 작업을 시작합니다.</p><dl id="review" class="review-list"></dl><p id="apply-note" class="help"></p><p class="help">저장된 번역은 재사용합니다. 중단한 작업은 다시 실행해 이어갈 수 있습니다.</p>
+          <h2>준비가 되었습니다</h2><p class="intro">아래 내용으로 작업을 시작합니다.</p><dl id="review" class="review-list"></dl><p id="review-model-warning" class="warning" hidden></p><p id="apply-note" class="help"></p><p class="help">저장된 번역은 재사용합니다. 중단한 작업은 다시 실행해 이어갈 수 있습니다.</p>
         </section>
         <section id="issue-panel" class="issue-card" hidden aria-live="polite">
           <p id="issue-state" class="issue-state"></p><h3 id="issue-title"></h3>
@@ -55,6 +55,10 @@
           <h2 id="completion-title">작업이 완료되었습니다</h2><p id="completion-description" class="intro"></p>
           <p id="completion-counts" class="help"></p><p id="completion-notices" class="help"></p><p id="completion-time" class="help"></p>
           <p id="completion-path" class="path-text"></p><button id="completion-result" class="text-button" hidden>결과 폴더 열기 ↗</button>
+          <section id="warning-summary" class="warning-summary" hidden aria-labelledby="warning-title">
+            <div class="warning-summary-head"><h3 id="warning-title">주의 사항</h3><button id="copy-warnings" class="secondary">내용 복사</button></div>
+            <p id="warning-counts" class="help"></p><div id="warning-list" class="warning-list" role="list" tabindex="0" aria-label="주의 사항 요약"></div>
+          </section>
           <details id="completion-details"><summary>작업 기록 보기</summary><pre id="completion-log" tabindex="0"></pre></details>
         </section>
         <section id="job-pane" class="log-section" hidden><div class="log-header"><h2>작업 진행</h2><button id="open-result" class="text-button" disabled>결과 폴더 열기 ↗</button></div><div class="progress-heading"><p id="status" class="plain-value" aria-live="polite">대기 중</p><span id="progress-percent"></span></div><progress id="progress" max="100" value="0" aria-label="현재 단계 진행"></progress><div class="progress-timing"><span id="elapsed-time"></span><span id="remaining-time"></span></div><p id="job-counts" class="help"></p><details id="job-details" class="job-details"><summary>상세 기록</summary><pre id="log" role="log" aria-label="상세 작업 기록" tabindex="0">게임 폴더를 선택한 뒤 번역을 시작하세요.</pre></details></section>
@@ -62,19 +66,24 @@
       <footer class="wizard-footer"><span id="step-count">1 / 4</span><div class="actions"><button id="back" class="secondary" disabled>이전</button><button id="wizard-next" class="primary" disabled>다음</button><div id="run-actions" class="actions" hidden><button id="cancel" class="secondary" disabled>취소</button><button id="start" class="primary" disabled>번역 시작</button></div><button id="finish" class="primary" hidden>확인</button></div></footer>
     </section>
     <section id="models-page" class="info-page" hidden>
-      <section><h2>사용할 번역 모델</h2><div class="path-row"><select id="installed-model" aria-label="사용할 번역 모델"><option value="">선택 안 함</option></select><button class="primary" id="apply-model">적용</button><button class="secondary" id="delete-model">삭제</button></div><p id="model-selection" class="help">모델을 선택해 주세요.</p><p id="installed-warning" class="warning" hidden></p>
+      <section><h2 id="installed-model-heading">사용할 번역 모델</h2><div class="path-row"><select id="installed-model" aria-label="사용할 번역 모델"><option value="">선택 안 함</option></select><button class="primary" id="apply-model">적용</button><button class="secondary" id="delete-model">삭제</button></div><p id="model-selection" class="help">모델을 선택해 주세요.</p><p id="installed-warning" class="warning" hidden></p>
         <div class="model-toolbar"><button class="text-button" id="model-folder">모델 폴더 열기 ↗</button><button class="text-button" id="scan-models">목록 새로고침</button></div><p id="local-models-help" class="help">받은 GGUF 파일을 models 폴더에 넣고 목록을 새로고침하세요.</p></section>
       <details id="inference-advanced" class="separated model-description"><summary>고급 설정</summary>
+        <div id="inference-common">
         <p id="inference-capacity" class="help"></p>
         <div class="settings-row"><label for="inference-preset">실행 프리셋</label><select id="inference-preset"></select></div>
         <p id="inference-estimate" class="help" hidden>이 GPU의 동시 처리 설정은 추정값입니다. 짧은 구간의 실제 번역 속도를 비교해 조절하세요.</p>
         <p id="inference-support" class="help"></p>
         <div class="settings-row"><label for="inference-context">컨텍스트 창 (토큰)</label><input id="inference-context" type="number" min="512" max="262144" step="512"></div>
-        <div class="settings-row"><label for="inference-workers">동시 처리 (worker)</label><input id="inference-workers" type="number" min="1" max="32" step="1"></div>
-        <div class="settings-row"><label for="inference-kv">KV 캐시</label><select id="inference-kv"><option value="q8_0">q8_0 · 기본</option><option value="q4_0">q4_0</option><option value="f16">f16</option></select></div>
+        <div class="settings-row"><label for="inference-workers">동시 처리 (공통)</label><input id="inference-workers" type="number" min="1" max="32" step="1"></div>
+        <div class="settings-row"><label for="inference-kv">KV 캐시 (공통)</label><select id="inference-kv"><option value="q8_0">q8_0 · 기본</option><option value="q4_0">q4_0</option><option value="f16">f16</option></select></div>
+        <button id="inference-apply-common" class="secondary">표시값을 공통값으로 지정</button>
         <label class="inference-check"><input id="inference-txt" type="checkbox"> TXT 문맥 사용</label>
         <p id="inference-warning" class="warning" role="alert" hidden></p>
-        <div class="model-toolbar"><button id="inference-reset" class="secondary">자동 설정으로 복원</button><button id="inference-save" class="primary" disabled>설정 저장</button></div>
+        <button id="inference-reset" class="secondary">공통 설정 초기화</button>
+        </div>
+        <div id="inference-devices" class="inference-devices"></div>
+        <div class="model-toolbar"><button id="inference-save" class="primary" disabled>설정 저장</button></div>
       </details>
       <section class="separated"><h2>모델 다운로드</h2><div class="path-row"><input id="model-query" placeholder="모델 이름 또는 제작자 검색" aria-label="모델 검색"><button class="secondary" id="search-models">검색</button></div>
         <div class="model-picker"><button id="repo-toggle" class="picker-toggle" aria-expanded="false" aria-controls="repo-options">모델 선택 <span>⌄</span></button><div id="repo-options" class="picker-options" role="listbox" aria-label="다운로드할 모델" hidden></div></div>
@@ -100,4 +109,19 @@
       <section class="separated"><div class="section-head"><h2>프로그램 위치</h2><button id="open-logs" class="text-button">로그 폴더 열기 ↗</button></div><p id="tool-root" class="path-text"></p><p class="help">프로그램·설정·모델은 포터블 폴더에 보관합니다. 다른 PC로 옮길 때는 폴더 전체를 복사하세요.</p></section>
     </section>
   </main>
-</div><script src="renderer.js"></script></body></html>
+</div><dialog id="name-review" class="name-review-dialog" aria-labelledby="name-review-title"><div class="name-review-layout"><header class="name-review-header"><h2 id="name-review-title">이름 확인</h2><p class="help">번역에 사용할 이름을 확인하세요.</p></header><div class="name-review-body"><h3 id="name-review-needed-heading">확인할 이름</h3><div id="name-review-needed"></div><details id="name-review-details" class="name-review-details"><summary id="name-review-automatic-summary">자동 처리된 이름</summary><div id="name-review-automatic"></div></details></div><footer class="name-review-footer"><p id="name-review-error" class="name-review-error" role="alert" hidden></p><button id="name-review-cancel" class="secondary" type="button">작업 취소</button><button id="name-review-submit" class="primary" type="button">확인하고 번역 시작</button></footer></div></dialog><dialog id="translation-review" class="name-review-dialog" aria-labelledby="translation-review-title"><div class="name-review-layout"><header class="name-review-header"><h2 id="translation-review-title">미번역 항목 확인</h2><p class="help">직접 입력을 선택한 항목만 저장합니다. 선택하지 않은 항목은 현재 내용을 유지합니다.</p></header><div id="translation-review-body" class="name-review-body"></div><footer class="name-review-footer"><p id="translation-review-error" class="name-review-error" role="alert" hidden></p><button id="translation-review-cancel" class="secondary" type="button">작업 취소</button><button id="translation-review-submit" class="primary" type="button">확인하고 계속</button></footer></div></dialog><dialog id="error-report" class="name-review-dialog error-report-dialog" aria-labelledby="error-report-title" aria-describedby="error-report-instructions">
+  <div class="name-review-layout">
+    <header class="name-review-header">
+      <h2 id="error-report-title">오류 제보</h2>
+      <p id="error-report-summary"></p>
+    </header>
+    <div class="name-review-body">
+      <p id="error-report-instructions">오류를 제보할 때는 복사한 내용을 <strong>반드시 함께 붙여넣어 주세요.</strong> 이 내용이 있어야 오류 원인을 확인할 수 있습니다.</p>
+    </div>
+    <footer class="name-review-footer">
+      <p id="error-report-copy-error" class="name-review-error" role="alert" hidden>복사하지 못했습니다. 다시 시도해 주세요.</p>
+      <button id="error-report-copy" class="primary" type="button" autofocus>오류 내용 복사하고 닫기</button>
+    </footer>
+  </div>
+</dialog>
+<script src="renderer.js"></script></body></html>

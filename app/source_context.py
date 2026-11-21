@@ -1,4 +1,4 @@
-"""Bounded original-text context. No model analysis or game execution."""
+"""Bounded local context. No model analysis or game execution."""
 from bisect import bisect_right
 from collections import defaultdict
 import json
@@ -11,6 +11,10 @@ LABEL_HASH = re.compile(r'_[0-9a-f]{8}(?:_\d+)?$')
 # `scene` replaces an image; it does not by itself end a conversation.
 # Labels, control flow and explicit TXT state scopes still separate context.
 BOUNDARY = re.compile(r'^(?:label|jump|call|return|menu|if|elif|else|while|for|python|screen|init)\b')
+
+# Limits for optional dialogue outside the target span, independent of language,
+# model and GPU capacity. RPG Maker keeps its existing window allocation.
+NEARBY_PASSAGE = {'before': 8, 'after': 4, 'estimated_tokens': 2000}
 
 
 def token_estimate(text):
@@ -76,6 +80,8 @@ class SourceContext:
             note_rows.append(dict(row,source_file=location[0],source_line=location[1]) if all(location) else row)
             block = LABEL_HASH.sub('', row.get('block', ''))
             key = (file, row.get('kind'), row.get('usage',row.get('kind')), block)
+            if (cfg or {}).get('engine') == 'kirikiri' and row.get('context_scope') is not None:
+                key += ('native_scope', row['context_scope'])
             if row.get('kind') == 'dialogue' and all(location) and project is not None:
                 relative = relative_source(location[0])
                 if relative not in script_bounds:
@@ -105,12 +111,12 @@ class SourceContext:
         return (self.keys[left['id']] == self.keys[right['id']]
                 and (self.notes is None or self.notes.same_scope(left,right)))
 
-    def context(self, batch, cfg):
+    def context(self, batch, cfg, *, known=None):
         context = self.notes.context(batch,cfg) if self.notes is not None else {}
-        context.update(self._passage(batch,cfg,context))
+        context.update(self._passage(batch,cfg,context,known=known))
         return context
 
-    def _passage(self, batch, cfg, extra):
+    def _passage(self, batch, cfg, extra, *, known=None):
         if not batch or batch[0].get('kind') != 'dialogue':
             return {}
         group = self.groups[self.keys[batch[0]['id']]]
@@ -123,12 +129,24 @@ class SourceContext:
         budget = max(0, available-used)
         selected = {}; spent = 0
         target_ids = {r['id'] for r in batch}
+        from rpgmaker_output_policy import enabled
+        korean_history=enabled(cfg) and known is not None
+        def reference(pos):
+            row=group[pos]
+            item={'speaker':row.get('speaker','unknown'),'text':row['source']}
+            saved=known.get(row['id']) if korean_history and pos<start else None
+            if (saved and saved.get('source')==row['source'] and isinstance(saved.get('text'),str)
+                    and saved.get('status') not in ('source_fallback','partial_translation','ui_original')
+                    and not saved.get('_rpg_residual_language') and not saved.get('error')
+                    and re.search('[가-힣]',saved['text'])):
+                item.update(text=saved['text'],text_language='korean')
+            return item
         def add(pos):
             nonlocal spent
             row = group[pos]
             if row['id'] in target_ids:
                 return
-            item = {'speaker': row.get('speaker', 'unknown'), 'text': row['source']}
+            item = reference(pos)
             selected[pos] = item
             spent += token_estimate(json.dumps(item, ensure_ascii=False))
         # Never omit cached dialogue between pending targets. If it cannot fit,
@@ -136,26 +154,67 @@ class SourceContext:
         for pos in range(start,end+1):add(pos)
         audit=dict(extra.get('_context_audit',{}))
         dropped=list(audit.get('preselection_dropped',[]))
-        active={-1:True,1:True};distance=1
-        while any(active.values()):
-            for direction in (-1,1):
-                if not active[direction]:continue
-                pos=start-distance if direction<0 else end+distance
-                if not 0<=pos<len(group) or not self.same_scope(batch[0],group[pos]):
-                    active[direction]=False;continue
-                row=group[pos]
-                cost=token_estimate(json.dumps({'speaker':row.get('speaker','unknown'),'text':row['source']},ensure_ascii=False))
-                # Keep the nearest complete entry on each side as a candidate
-                # even when notes are large. Final fitting can reduce TXT first.
-                if distance>1 and spent+cost>budget:
-                    active[direction]=False
-                    dropped.append({'part':'source_passage','reason':'candidate_budget',
-                                    'direction':'before' if direction<0 else 'after',
-                                    'first_excluded_id':row['id'],'estimated_tokens':cost})
-                    continue
-                add(pos)
-            distance+=1
-        if not selected and not dropped:
+        engine = cfg.get('engine', 'renpy')
+        if engine in ('renpy', 'kirikiri'):
+            mandatory_spent = spent
+            selection = dict(policy='nearby_v1',stage='preselection',before_limit=NEARBY_PASSAGE['before'],
+                after_limit=NEARBY_PASSAGE['after'],estimated_token_limit=NEARBY_PASSAGE['estimated_tokens'],
+                selected_before=0,selected_after=0,estimated_surrounding_tokens=0,
+                mandatory_between=len(selected),stop_before=None,stop_after=None)
+            active={-1:True,1:True};distance=1
+            while any(active.values()):
+                for direction in (-1,1):
+                    if not active[direction]:continue
+                    side='before' if direction<0 else 'after'
+                    pos=start-distance if direction<0 else end+distance
+                    if not 0<=pos<len(group) or not self.same_scope(batch[0],group[pos]):
+                        selection['stop_'+side]='scope_boundary';active[direction]=False;continue
+                    row=group[pos]
+                    reason=limit=None
+                    if distance>NEARBY_PASSAGE[side]:
+                        reason='policy_cap';limit=side+'_items';cost=None
+                    else:
+                        cost=token_estimate(json.dumps(reference(pos),ensure_ascii=False))
+                        if spent-mandatory_spent+cost>NEARBY_PASSAGE['estimated_tokens']:
+                            reason='policy_cap';limit='estimated_tokens'
+                        # Keep Ren'Py's closest complete reference eligible even
+                        # with large TXT notes. The final tokenizer still checks it.
+                        elif spent+cost>budget and (distance>1 or engine=='kirikiri'):
+                            reason='candidate_budget'
+                    if reason:
+                        selection['stop_'+side]=limit or reason
+                        active[direction]=False
+                        dropped.append(dict(part='source_passage',reason=reason,direction=side,
+                            first_excluded_id=row['id'],**({'limit':limit} if limit else {}),
+                            **({'estimated_tokens':cost} if cost is not None else {})))
+                        continue
+                    # Keep complete entries only. An oversized nearest entry
+                    # ends this direction instead of selecting a distant one.
+                    add(pos);selection['selected_'+side]+=1
+                distance+=1
+            selection['estimated_surrounding_tokens']=spent-mandatory_spent
+            audit['surrounding_selection']=selection
+        else:
+            active={-1:True,1:True};distance=1
+            while any(active.values()):
+                for direction in (-1,1):
+                    if not active[direction]:continue
+                    pos=start-distance if direction<0 else end+distance
+                    if not 0<=pos<len(group) or not self.same_scope(batch[0],group[pos]):
+                        active[direction]=False;continue
+                    row=group[pos]
+                    cost=token_estimate(json.dumps(reference(pos),ensure_ascii=False))
+                    # Keep the nearest complete entry on each side as a candidate
+                    # even when notes are large. Final fitting can reduce TXT first.
+                    if distance>1 and spent+cost>budget:
+                        active[direction]=False
+                        dropped.append({'part':'source_passage','reason':'candidate_budget',
+                                        'direction':'before' if direction<0 else 'after',
+                                        'first_excluded_id':row['id'],'estimated_tokens':cost})
+                        continue
+                    add(pos)
+                distance+=1
+        if not selected and not dropped and engine != 'kirikiri':
             return {}
         # Mark where the requested items occur without duplicating their text.
         for index, row in enumerate(batch):

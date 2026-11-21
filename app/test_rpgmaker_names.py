@@ -76,8 +76,16 @@ class RPGMakerNameTests(unittest.TestCase):
             self.assertEqual(effective[uid]['status'],'name_alignment')
         self.assertEqual(report['updated_ids'],['failed','missing'])
 
-    def test_untranslated_or_failed_actor_is_not_an_authority(self):
-        for item in ({'text':'Mira'},{'text':'ミラ'},{'text':'미라','status':'source_fallback'}):
+    def test_original_and_non_korean_actor_names_can_align_labels(self):
+        for text in ('Mira','ミラ','美羅','미라 Mira'):
+            with self.subTest(text=text):
+                rows=[actor('actor','Mira'),speaker('literal','Mira')]
+                effective,report=align_names(rows,{'actor':{'text':text},'literal':{'text':'기존 값'}})
+                self.assertEqual(effective['literal']['text'],text)
+                self.assertEqual(report['untranslated_actor_ids'],[])
+
+    def test_failed_actor_is_not_an_authority(self):
+        for item in ({'text':'미라','status':'source_fallback'},):
             with self.subTest(item=item):
                 rows=[actor('actor','Mira'),speaker('literal','Mira')]
                 known={'actor':item,'literal':{'text':'기존 값'}}

@@ -1,0 +1,914 @@
+{
+  "version": 1,
+  "assets": [
+    {
+      "source_sha256": "517791564a0992f4c0f0553ff7366d1c503bc98ae61a2fa1d61e80d3daf2d117",
+      "width": 38,
+      "height": 37,
+      "file": "images/start-normal.png",
+      "label_ko": "시작",
+      "source_names": [
+        "uipsd/title@読む%button;normal.png",
+        "uipsd/title_he@読む%button;normal.png"
+      ],
+      "boot_probe": true
+    },
+    {
+      "source_sha256": "96bde5d287c51279cbcc10f8361f851c38433d3504833863a9984512f67dd19b",
+      "width": 38,
+      "height": 37,
+      "file": "images/start-over.png",
+      "label_ko": "시작",
+      "source_names": [
+        "uipsd/title@読む%button;over.png",
+        "uipsd/title_he@読む%button;over.png"
+      ],
+      "boot_probe": true
+    },
+    {
+      "source_sha256": "df716b486ec581529f01de04fb21b5b9a5c7bdbcec5736bd007fe332c1c97a72",
+      "width": 44,
+      "height": 43,
+      "file": "images/start-on.png",
+      "label_ko": "시작",
+      "source_names": [
+        "uipsd/title@読む%button;on.png",
+        "uipsd/title_he@読む%button;on.png"
+      ],
+      "boot_probe": true
+    },
+    {
+      "source_sha256": "36911f9d3a93abf9f1352bd47dcbb0d97cde4e4c733c9bac4041784fd6004f5b",
+      "width": 108,
+      "height": 57,
+      "file": "images/continue-normal.png",
+      "label_ko": "이어하기",
+      "source_names": [
+        "uipsd/title@続き%button;normal.png",
+        "uipsd/title_he@続き%button;normal.png"
+      ],
+      "boot_probe": true
+    },
+    {
+      "source_sha256": "c6754efebd13a1c185605e848b304d551ac0b2895e4c157fe25e17cd7b4e571a",
+      "width": 108,
+      "height": 57,
+      "file": "images/continue-over.png",
+      "label_ko": "이어하기",
+      "source_names": [
+        "uipsd/title@続き%button;over.png",
+        "uipsd/title_he@続き%button;over.png"
+      ],
+      "boot_probe": true
+    },
+    {
+      "source_sha256": "609467f88a1185209e271f65d5d4e6bce3fd007ea4232283024289028df410a9",
+      "width": 113,
+      "height": 63,
+      "file": "images/continue-on.png",
+      "label_ko": "이어하기",
+      "source_names": [
+        "uipsd/title@続き%button;on.png",
+        "uipsd/title_he@続き%button;on.png"
+      ],
+      "boot_probe": true
+    },
+    {
+      "source_sha256": "89c5868b2b1ea4aac3d94c25314ac536311a5ec920414761b15454a371563835",
+      "width": 79,
+      "height": 28,
+      "file": "images/scene-normal.png",
+      "label_ko": "장면선택",
+      "source_names": [
+        "uipsd/title@場面選択%button;normal.png",
+        "uipsd/title_he@場面選択%button;normal.png"
+      ],
+      "boot_probe": true
+    },
+    {
+      "source_sha256": "f67a53f8931502385f7205ef71aa26b435536a139e79e1c73ac36b17f2acb74c",
+      "width": 79,
+      "height": 28,
+      "file": "images/scene-over.png",
+      "label_ko": "장면선택",
+      "source_names": [
+        "uipsd/title@場面選択%button;over.png",
+        "uipsd/title_he@場面選択%button;over.png"
+      ],
+      "boot_probe": true
+    },
+    {
+      "source_sha256": "e4abde8455fd5bd2c37010d84d6154b0636e1d4e9762160e1e991c96e8d9d3d5",
+      "width": 85,
+      "height": 34,
+      "file": "images/scene-on.png",
+      "label_ko": "장면선택",
+      "source_names": [
+        "uipsd/title@場面選択%button;on.png",
+        "uipsd/title_he@場面選択%button;on.png"
+      ],
+      "boot_probe": true
+    },
+    {
+      "source_sha256": "14dfdf19e2a3acaa21391780f8cc556abf9bde8b81d1246f55fdcff79436d42a",
+      "width": 102,
+      "height": 64,
+      "file": "images/settings-normal.png",
+      "label_ko": "설정",
+      "source_names": [
+        "uipsd/title@システム%button;normal.png",
+        "uipsd/title_he@システム%button;normal.png"
+      ],
+      "boot_probe": true
+    },
+    {
+      "source_sha256": "b3fd7a7603f700f4ba86d9b35fb57ce6a94de57ce82c53861759ccfdd10fa510",
+      "width": 102,
+      "height": 64,
+      "file": "images/settings-over.png",
+      "label_ko": "설정",
+      "source_names": [
+        "uipsd/title@システム%button;over.png",
+        "uipsd/title_he@システム%button;over.png"
+      ],
+      "boot_probe": true
+    },
+    {
+      "source_sha256": "a0a454251d921dc9a719e73429ab428c902df30d523b5bcb15fab16d510aefe5",
+      "width": 108,
+      "height": 70,
+      "file": "images/settings-on.png",
+      "label_ko": "설정",
+      "source_names": [
+        "uipsd/title@システム%button;on.png",
+        "uipsd/title_he@システム%button;on.png"
+      ],
+      "boot_probe": true
+    },
+    {
+      "source_sha256": "3c61aa249fba8a873d71aaebea9ddcad96fb0526e8af2dfa9d2dbfe52528b70d",
+      "width": 56,
+      "height": 70,
+      "file": "images/gallery-normal.png",
+      "label_ko": "갤러리",
+      "source_names": [
+        "uipsd/title@鑑賞%button;normal.png",
+        "uipsd/title_he@鑑賞%button;normal.png"
+      ],
+      "boot_probe": true
+    },
+    {
+      "source_sha256": "3543b80c27d5b59a1e1d5550ee01c0388dab26b13eff2a916b1072d2e003195a",
+      "width": 56,
+      "height": 70,
+      "file": "images/gallery-over.png",
+      "label_ko": "갤러리",
+      "source_names": [
+        "uipsd/title@鑑賞%button;over.png",
+        "uipsd/title_he@鑑賞%button;over.png"
+      ],
+      "boot_probe": true
+    },
+    {
+      "source_sha256": "fd23e1893dcce9c62feb8713a40a76b85cd4feb829ed0cbfe25e3159311b93a1",
+      "width": 62,
+      "height": 76,
+      "file": "images/gallery-on.png",
+      "label_ko": "갤러리",
+      "source_names": [
+        "uipsd/title@鑑賞%button;on.png",
+        "uipsd/title_he@鑑賞%button;on.png"
+      ],
+      "boot_probe": true
+    },
+    {
+      "source_sha256": "34a2e21ebc6730aeb1af31d9441f0c89d699f833cb087101639e02d69015b266",
+      "width": 34,
+      "height": 75,
+      "file": "images/quit-normal.png",
+      "label_ko": "종료",
+      "source_names": [
+        "uipsd/title@終了%button;normal.png",
+        "uipsd/title_he@終了%button;normal.png"
+      ],
+      "boot_probe": true
+    },
+    {
+      "source_sha256": "7fcb1be544b5466b3e9d9f4e1144a3445293c3ec66d3d9973fb5aef7e7bb5ad8",
+      "width": 34,
+      "height": 75,
+      "file": "images/quit-over.png",
+      "label_ko": "종료",
+      "source_names": [
+        "uipsd/title@終了%button;over.png",
+        "uipsd/title_he@終了%button;over.png"
+      ],
+      "boot_probe": true
+    },
+    {
+      "source_sha256": "4216ff3be74c38d8eec1f4f2ceab1f72a07d3f611bd05df803195f175d572afd",
+      "width": 40,
+      "height": 81,
+      "file": "images/quit-on.png",
+      "label_ko": "종료",
+      "source_names": [
+        "uipsd/title@終了%button;on.png",
+        "uipsd/title_he@終了%button;on.png"
+      ],
+      "boot_probe": true
+    },
+    {
+      "source_sha256": "8a3f39e9feec0088ded6090d990b434f9d8057f59f8f8e44b798fbe83d89f014",
+      "width": 282,
+      "height": 467,
+      "file": "images/settings-tabs-off.png",
+      "label_ko": "설정 화면 탐색",
+      "source_names": [
+        "uipsd/opt_sys@tabs%cref;off.png",
+        "uipsd/opt_snd@tabs%cref;off.png",
+        "uipsd/opt_key@tabs%cref;off.png",
+        "uipsd/savedata@tabs%cref;off.png",
+        "uipsd/scnsel@tabs%cref;off.png",
+        "uipsd/backlog@tabs%cref;off.png"
+      ]
+    },
+    {
+      "source_sha256": "eaeee6c7a0c1fa0e198ff39bfcbf8200361f973faa8a420abd9dcadc8f7fc53b",
+      "width": 282,
+      "height": 467,
+      "file": "images/settings-tabs-on.png",
+      "label_ko": "설정 화면 탐색",
+      "source_names": [
+        "uipsd/opt_sys@tabs%cref;on.png",
+        "uipsd/opt_snd@tabs%cref;on.png",
+        "uipsd/opt_key@tabs%cref;on.png",
+        "uipsd/savedata@tabs%cref;on.png",
+        "uipsd/scnsel@tabs%cref;on.png",
+        "uipsd/backlog@tabs%cref;on.png"
+      ]
+    },
+    {
+      "source_sha256": "7ab23046c67da7d7391d01536e845053f2ca0f462ff6eeba3a5a1d12795097cd",
+      "width": 282,
+      "height": 467,
+      "file": "images/settings-tabs-over.png",
+      "label_ko": "설정 화면 탐색",
+      "source_names": [
+        "uipsd/opt_sys@tabs%cref;over.png",
+        "uipsd/opt_snd@tabs%cref;over.png",
+        "uipsd/opt_key@tabs%cref;over.png",
+        "uipsd/savedata@tabs%cref;over.png",
+        "uipsd/scnsel@tabs%cref;over.png",
+        "uipsd/backlog@tabs%cref;over.png"
+      ]
+    },
+    {
+      "source_sha256": "b8c673b56d7df48b89f42dc0f957f7a80d57efdc98e412086a22bf2e5ca713fe",
+      "width": 348,
+      "height": 38,
+      "file": "images/settings-screen-off.png",
+      "label_ko": "화면 모드",
+      "source_names": [
+        "uipsd/opt_sys@screen%cref;off.png"
+      ]
+    },
+    {
+      "source_sha256": "8b5dce85dae94acfadbd11ce6374132410a98b337410dfcd7f505d48b823a979",
+      "width": 348,
+      "height": 38,
+      "file": "images/settings-screen-on.png",
+      "label_ko": "화면 모드",
+      "source_names": [
+        "uipsd/opt_sys@screen%cref;on.png"
+      ]
+    },
+    {
+      "source_sha256": "1ac6e8e28a8177c13f6298437a2fd470c84d9d67f077f9a41af54812ae87f329",
+      "width": 348,
+      "height": 38,
+      "file": "images/settings-screen-over.png",
+      "label_ko": "화면 모드",
+      "source_names": [
+        "uipsd/opt_sys@screen%cref;over.png"
+      ]
+    },
+    {
+      "source_sha256": "b2375676e181244a53bc24089bc5544a5a4fe428c75eae0a2eaabf62dd1230e7",
+      "width": 82,
+      "height": 24,
+      "file": "images/settings-init-normal.png",
+      "label_ko": "초기화",
+      "source_names": [
+        "uipsd/opt_sys@init%button;normal.png",
+        "uipsd/opt_snd@init%button;normal.png",
+        "uipsd/opt_key@init%button;normal.png"
+      ]
+    },
+    {
+      "source_sha256": "e88d2933d0e93adcfe0dab69a750dcb5e7d77a8a1eff7aa950b5cd4e81d3c826",
+      "width": 82,
+      "height": 24,
+      "file": "images/settings-init-over.png",
+      "label_ko": "초기화",
+      "source_names": [
+        "uipsd/opt_sys@init%button;over.png",
+        "uipsd/opt_snd@init%button;over.png",
+        "uipsd/opt_key@init%button;over.png"
+      ]
+    },
+    {
+      "source_sha256": "ffb01844a6a39cb47068124a717857dc20bdb99d6630454d3d46f8d662c8ed78",
+      "width": 98,
+      "height": 33,
+      "file": "images/settings-rm-normal.png",
+      "label_ko": "할당 해제",
+      "source_names": [
+        "uipsd/opt_key@rm%sysbutton;normal.png"
+      ]
+    },
+    {
+      "source_sha256": "b1c8c48a8e59379878ca9cb778cf6de6d5a5a105b95d34775e630cd8770b9fd7",
+      "width": 98,
+      "height": 33,
+      "file": "images/settings-rm-on.png",
+      "label_ko": "할당 해제",
+      "source_names": [
+        "uipsd/opt_key@rm%sysbutton;on.png"
+      ]
+    },
+    {
+      "source_sha256": "5be805e0ff991349dd3af080db0ca7ae7d7554977d0d719c0e5cc415407a8254",
+      "width": 98,
+      "height": 33,
+      "file": "images/settings-rm-over.png",
+      "label_ko": "할당 해제",
+      "source_names": [
+        "uipsd/opt_key@rm%sysbutton;over.png"
+      ]
+    },
+    {
+      "source_sha256": "4e67806260d9a677a1c90f5863d17c3b850e9669eb17a312a8a2fbf36adfe1e6",
+      "width": 404,
+      "height": 320,
+      "file": "images/settings-chars-normal-off.png",
+      "label_ko": "남성 단역 여성 단역",
+      "source_names": [
+        "uipsd/opt_snd@chsels%cref;normal;off.png"
+      ]
+    },
+    {
+      "source_sha256": "b67eb3c251e8db6c00873aa22e484610a24696aadb0352dfb81dc8e871e6b808",
+      "width": 404,
+      "height": 320,
+      "file": "images/settings-chars-normal-on.png",
+      "label_ko": "남성 단역 여성 단역",
+      "source_names": [
+        "uipsd/opt_snd@chsels%cref;normal;on.png"
+      ]
+    },
+    {
+      "source_sha256": "d38ed8d6e4e664c2268fa5f9d4b5dbc21bf32178fe63eea9d50eb1cf22298f1d",
+      "width": 404,
+      "height": 320,
+      "file": "images/settings-chars-over-off.png",
+      "label_ko": "남성 단역 여성 단역",
+      "source_names": [
+        "uipsd/opt_snd@chsels%cref;over;off.png"
+      ]
+    },
+    {
+      "source_sha256": "6d66639ceb456b4b996e5f25bca50951e8acde344bd98abf4dfa09fedcbda50a",
+      "width": 404,
+      "height": 320,
+      "file": "images/settings-chars-over-on.png",
+      "label_ko": "남성 단역 여성 단역",
+      "source_names": [
+        "uipsd/opt_snd@chsels%cref;over;on.png"
+      ]
+    },
+    {
+      "source_sha256": "026206079eac9b09b463e5b9fd3427984875b7131041d2964e4ea6df8f3e23f2",
+      "width": 126,
+      "height": 396,
+      "file": "images/settings-unit.png",
+      "label_ko": "초",
+      "source_names": [
+        "uipsd/opt_sys@unitbase%layer.png"
+      ]
+    },
+    {
+      "source_sha256": "86f5cbba69f1935bfd95b6bda3ad67a3260024e8d9fefef8d5f68d5cb95d23a4",
+      "width": 756,
+      "height": 414,
+      "file": "images/settings-sys-caption.png",
+      "label_ko": "시스템 설정",
+      "source_names": [
+        "uipsd/opt_sys@caption%layer.png"
+      ]
+    },
+    {
+      "source_sha256": "a995d6617f640e841ee658745065841748b6123bbfa92e1869c6d057d87ee38c",
+      "width": 696,
+      "height": 416,
+      "file": "images/settings-snd-caption.png",
+      "label_ko": "사운드 설정",
+      "source_names": [
+        "uipsd/opt_snd@caption%layer.png"
+      ]
+    },
+    {
+      "source_sha256": "23c02c73b22a2a1ddd4a50ed64c81fcc6d036310d9872106b5e8f4c129eee2bc",
+      "width": 428,
+      "height": 44,
+      "file": "images/settings-snd-detail.png",
+      "label_ko": "개별 음량",
+      "source_names": [
+        "uipsd/opt_snd@chdetail%layer.png"
+      ]
+    },
+    {
+      "source_sha256": "ded589d414d6b47ee7458482b5f8394106e6869a87778899683fbf4a03c1f559",
+      "width": 128,
+      "height": 47,
+      "file": "images/ui-ded589d414d6b47ee7458482b5f8394106e6869a87778899683fbf4a03c1f559.png",
+      "label_ko": "아니요",
+      "source_names": [
+        "uipsd/dialog@いいえ%button;normal.png"
+      ],
+      "boot_probe": false
+    },
+    {
+      "source_sha256": "63134bf2591bbae33b3ccccc16e21fa00aa234e50ac437e8dfcebed911434a45",
+      "width": 128,
+      "height": 47,
+      "file": "images/ui-63134bf2591bbae33b3ccccc16e21fa00aa234e50ac437e8dfcebed911434a45.png",
+      "label_ko": "아니요",
+      "source_names": [
+        "uipsd/dialog@いいえ%button;on.png"
+      ],
+      "boot_probe": false
+    },
+    {
+      "source_sha256": "c79d5221a4343ba74c3b9a1d2d3e51420ee478ec48c765fa54b266ea726fcaf3",
+      "width": 128,
+      "height": 47,
+      "file": "images/ui-c79d5221a4343ba74c3b9a1d2d3e51420ee478ec48c765fa54b266ea726fcaf3.png",
+      "label_ko": "아니요",
+      "source_names": [
+        "uipsd/dialog@いいえ%button;over.png"
+      ],
+      "boot_probe": false
+    },
+    {
+      "source_sha256": "a100b0f775163f7dc2d08d62c554c1367df9084262df0a76bde0636d12234a61",
+      "width": 128,
+      "height": 47,
+      "file": "images/ui-a100b0f775163f7dc2d08d62c554c1367df9084262df0a76bde0636d12234a61.png",
+      "label_ko": "예",
+      "source_names": [
+        "uipsd/dialog@はい%button;normal.png"
+      ],
+      "boot_probe": false
+    },
+    {
+      "source_sha256": "306007a4f50fdb3555740285ad6a31144fdd5ea3f5b6ee2e1ad8c76cb5034ed7",
+      "width": 128,
+      "height": 47,
+      "file": "images/ui-306007a4f50fdb3555740285ad6a31144fdd5ea3f5b6ee2e1ad8c76cb5034ed7.png",
+      "label_ko": "예",
+      "source_names": [
+        "uipsd/dialog@はい%button;on.png"
+      ],
+      "boot_probe": false
+    },
+    {
+      "source_sha256": "3f93ba34f4c062b118c759aa4afed9ead7e08a97d4622c0289560dc6868c31de",
+      "width": 128,
+      "height": 47,
+      "file": "images/ui-3f93ba34f4c062b118c759aa4afed9ead7e08a97d4622c0289560dc6868c31de.png",
+      "label_ko": "예",
+      "source_names": [
+        "uipsd/dialog@はい%button;over.png"
+      ],
+      "boot_probe": false
+    },
+    {
+      "source_sha256": "f5bed9e7b63d93ee1aff208c54a18f20334bb22fc1e157dd0f6b86c5bc41601b",
+      "width": 367,
+      "height": 29,
+      "file": "images/ui-f5bed9e7b63d93ee1aff208c54a18f20334bb22fc1e157dd0f6b86c5bc41601b.png",
+      "label_ko": "모노베노를 플레이한 적이 있나요?",
+      "source_names": [
+        "uipsd/dialog@ものべのプレイ済み%layer.png"
+      ],
+      "boot_probe": false
+    },
+    {
+      "source_sha256": "04a6bd4bca7fe42502ae9f7f67604508296fd8fe45e93d6b26b96d477c23ae24",
+      "width": 189,
+      "height": 27,
+      "file": "images/ui-04a6bd4bca7fe42502ae9f7f67604508296fd8fe45e93d6b26b96d477c23ae24.png",
+      "label_ko": "저장하시겠습니까?",
+      "source_names": [
+        "uipsd/dialog@セーブしますか%layer.png"
+      ],
+      "boot_probe": false
+    },
+    {
+      "source_sha256": "abc27c5cca5d7c8087254d2d0313579d399d70226b2c3467c5711411c12169b2",
+      "width": 260,
+      "height": 28,
+      "file": "images/ui-abc27c5cca5d7c8087254d2d0313579d399d70226b2c3467c5711411c12169b2.png",
+      "label_ko": "타이틀로 돌아가시겠습니까?",
+      "source_names": [
+        "uipsd/dialog@タイトルに戻る%layer.png"
+      ],
+      "boot_probe": false
+    },
+    {
+      "source_sha256": "fc588797ac944a3f28c476af34f3220489f72a99d1f33eb9aadc3a0e0aca637e",
+      "width": 188,
+      "height": 27,
+      "file": "images/ui-fc588797ac944a3f28c476af34f3220489f72a99d1f33eb9aadc3a0e0aca637e.png",
+      "label_ko": "불러오시겠습니까?",
+      "source_names": [
+        "uipsd/dialog@ロードしますか%layer.png"
+      ],
+      "boot_probe": false
+    },
+    {
+      "source_sha256": "a471a6a15d9ae0f940ebe712f0a02a646bb9662b9c3fa50dbbc3a10279df6d7e",
+      "width": 191,
+      "height": 29,
+      "file": "images/ui-a471a6a15d9ae0f940ebe712f0a02a646bb9662b9c3fa50dbbc3a10279df6d7e.png",
+      "label_ko": "덮어쓰시겠습니까?",
+      "source_names": [
+        "uipsd/dialog@上書きしますか%layer.png"
+      ],
+      "boot_probe": false
+    },
+    {
+      "source_sha256": "73e6b3f30d19ac7e856004ee4beb13f09bfc0b42578e5761df27b9e80689b45b",
+      "width": 191,
+      "height": 29,
+      "file": "images/ui-73e6b3f30d19ac7e856004ee4beb13f09bfc0b42578e5761df27b9e80689b45b.png",
+      "label_ko": "초기화하시겠습니까?",
+      "source_names": [
+        "uipsd/dialog@初期化しますか%layer.png"
+      ],
+      "boot_probe": false
+    },
+    {
+      "source_sha256": "2cc9c7089d4b2326e6c15392722b844bf425d970264954e688292f92118ec535",
+      "width": 167,
+      "height": 29,
+      "file": "images/ui-2cc9c7089d4b2326e6c15392722b844bf425d970264954e688292f92118ec535.png",
+      "label_ko": "삭제하시겠습니까?",
+      "source_names": [
+        "uipsd/dialog@削除しますか%layer.png"
+      ],
+      "boot_probe": false
+    },
+    {
+      "source_sha256": "21097a6379edcc131b3fa108064839ed1236673726d288e2ce7391860eda0f08",
+      "width": 263,
+      "height": 29,
+      "file": "images/ui-21097a6379edcc131b3fa108064839ed1236673726d288e2ce7391860eda0f08.png",
+      "label_ko": "장면으로 이동하시겠습니까?",
+      "source_names": [
+        "uipsd/dialog@場面ジャンプしますか%layer.png"
+      ],
+      "boot_probe": false
+    },
+    {
+      "source_sha256": "557ea3d2c0771abca4de92014c9263ef2020842feab601ae0b18196f734ced4d",
+      "width": 263,
+      "height": 29,
+      "file": "images/ui-557ea3d2c0771abca4de92014c9263ef2020842feab601ae0b18196f734ced4d.png",
+      "label_ko": "연출을 건너뛰시겠습니까?",
+      "source_names": [
+        "uipsd/dialog@演出スキップしますか%layer.png"
+      ],
+      "boot_probe": false
+    },
+    {
+      "source_sha256": "ef6c412f75f63d080b2f70160a387cbbaf5b9308399c77b7383cec38bffed6e4",
+      "width": 167,
+      "height": 29,
+      "file": "images/ui-ef6c412f75f63d080b2f70160a387cbbaf5b9308399c77b7383cec38bffed6e4.png",
+      "label_ko": "종료하시겠습니까?",
+      "source_names": [
+        "uipsd/dialog@終了しますか%layer.png"
+      ],
+      "boot_probe": false
+    },
+    {
+      "source_sha256": "de8e28422abf91878d48731bc033564fbc227d7aabae1f206279aa4e40ab5c1b",
+      "width": 107,
+      "height": 32,
+      "file": "images/ui-de8e28422abf91878d48731bc033564fbc227d7aabae1f206279aa4e40ab5c1b.png",
+      "label_ko": "불러오기",
+      "source_names": [
+        "uipsd/savedata@lo%sysbutton;normal.png"
+      ],
+      "boot_probe": false
+    },
+    {
+      "source_sha256": "729f966f635a1b843dbfdc0b1c5cc1c2b5a4536b911940ff2f0dbe1d60a08a22",
+      "width": 107,
+      "height": 32,
+      "file": "images/ui-729f966f635a1b843dbfdc0b1c5cc1c2b5a4536b911940ff2f0dbe1d60a08a22.png",
+      "label_ko": "불러오기",
+      "source_names": [
+        "uipsd/savedata@lo%sysbutton;over.png"
+      ],
+      "boot_probe": false
+    },
+    {
+      "source_sha256": "900149b1cc822d9998fb0814504d9caa2e82d74b2d96c5f474b273737a0d15eb",
+      "width": 659,
+      "height": 12,
+      "file": "images/ui-900149b1cc822d9998fb0814504d9caa2e82d74b2d96c5f474b273737a0d15eb.png",
+      "label_ko": "불러오기",
+      "source_names": [
+        "uipsd/savedata@loadmark%layer.png"
+      ],
+      "boot_probe": false
+    },
+    {
+      "source_sha256": "41a7e1b5bf821bb4ee2d22e6f8121da7496c51c15ae03d07e1673fb872f2d24b",
+      "width": 107,
+      "height": 32,
+      "file": "images/ui-41a7e1b5bf821bb4ee2d22e6f8121da7496c51c15ae03d07e1673fb872f2d24b.png",
+      "label_ko": "저장",
+      "source_names": [
+        "uipsd/savedata@ow%sysbutton;normal.png"
+      ],
+      "boot_probe": false
+    },
+    {
+      "source_sha256": "3a9c68c0390ceaa5250bc28302ec1798b305705362429980b5e12e837bdb8bd3",
+      "width": 107,
+      "height": 32,
+      "file": "images/ui-3a9c68c0390ceaa5250bc28302ec1798b305705362429980b5e12e837bdb8bd3.png",
+      "label_ko": "저장",
+      "source_names": [
+        "uipsd/savedata@ow%systoggle;normal.png"
+      ],
+      "boot_probe": false
+    },
+    {
+      "source_sha256": "ceedf606cdb9cb3e858c4b288a6dc3091d7ffbf53f7074870c927d68716b443e",
+      "width": 107,
+      "height": 32,
+      "file": "images/ui-ceedf606cdb9cb3e858c4b288a6dc3091d7ffbf53f7074870c927d68716b443e.png",
+      "label_ko": "장면 선택",
+      "source_names": [
+        "uipsd/savedata@ow%systoggle;normal;on.png"
+      ],
+      "boot_probe": false
+    },
+    {
+      "source_sha256": "500eaae8b419fb89ec6066a5e4ba9fc18458b93894d75bfd2871f519e0bf933e",
+      "width": 107,
+      "height": 32,
+      "file": "images/ui-500eaae8b419fb89ec6066a5e4ba9fc18458b93894d75bfd2871f519e0bf933e.png",
+      "label_ko": "저장",
+      "source_names": [
+        "uipsd/savedata@ow%systoggle;over.png"
+      ],
+      "boot_probe": false
+    },
+    {
+      "source_sha256": "76f28d0902d60eb1e5549f478da1768d06e5c81bdf4f3e03c729d69d892bdfad",
+      "width": 107,
+      "height": 32,
+      "file": "images/ui-76f28d0902d60eb1e5549f478da1768d06e5c81bdf4f3e03c729d69d892bdfad.png",
+      "label_ko": "장면 선택",
+      "source_names": [
+        "uipsd/savedata@ow%systoggle;over;on.png"
+      ],
+      "boot_probe": false
+    },
+    {
+      "source_sha256": "36365b7271529c1a6b2772fcaece40640cf667cd9ed3abd510e7d743d7342ded",
+      "width": 107,
+      "height": 32,
+      "file": "images/ui-36365b7271529c1a6b2772fcaece40640cf667cd9ed3abd510e7d743d7342ded.png",
+      "label_ko": "삭제",
+      "source_names": [
+        "uipsd/savedata@rm%sysbutton;normal.png"
+      ],
+      "boot_probe": false
+    },
+    {
+      "source_sha256": "a62383b412e8001765bf288d5e0292d5a06264ef564d07d8b21e98a552c90c73",
+      "width": 65,
+      "height": 22,
+      "file": "images/ui-a62383b412e8001765bf288d5e0292d5a06264ef564d07d8b21e98a552c90c73.png",
+      "label_ko": "삭제",
+      "source_names": [
+        "uipsd/savedata@rm%sysbutton;on.png"
+      ],
+      "boot_probe": false
+    },
+    {
+      "source_sha256": "97ad22dbfcb0cbb2a51ed473d39304e55b8d19d8622f44cdf5bd339a19b1eefe",
+      "width": 107,
+      "height": 32,
+      "file": "images/ui-97ad22dbfcb0cbb2a51ed473d39304e55b8d19d8622f44cdf5bd339a19b1eefe.png",
+      "label_ko": "삭제",
+      "source_names": [
+        "uipsd/savedata@rm%sysbutton;over.png"
+      ],
+      "boot_probe": false
+    },
+    {
+      "source_sha256": "93fb71a79b92821a754b3547ad507989ad4819a41f81bcca5c10c2d92f2a7462",
+      "width": 123,
+      "height": 13,
+      "file": "images/ui-93fb71a79b92821a754b3547ad507989ad4819a41f81bcca5c10c2d92f2a7462.png",
+      "label_ko": "저장",
+      "source_names": [
+        "uipsd/savedata@savemark%layer.png"
+      ],
+      "boot_probe": false
+    },
+    {
+      "source_sha256": "d3a77d4a4de4a8d9d41856876dd340ce8a3733a7dee133d68d030e3ac60ac31c",
+      "width": 68,
+      "height": 23,
+      "file": "images/ui-d3a77d4a4de4a8d9d41856876dd340ce8a3733a7dee133d68d030e3ac60ac31c.png",
+      "label_ko": "줄이기",
+      "source_names": [
+        "uipsd/savedata@slotminus%button;normal.png"
+      ],
+      "boot_probe": false
+    },
+    {
+      "source_sha256": "7a46aa638e1158fa85dae053e8a1989ac6403132c79814d356debbac6f124a2d",
+      "width": 68,
+      "height": 23,
+      "file": "images/ui-7a46aa638e1158fa85dae053e8a1989ac6403132c79814d356debbac6f124a2d.png",
+      "label_ko": "줄이기",
+      "source_names": [
+        "uipsd/savedata@slotminus%button;over.png"
+      ],
+      "boot_probe": false
+    },
+    {
+      "source_sha256": "609e0463e0bd0426f9a30d1a703bf85ce2bd828302b59f504bbffdb8d6d30218",
+      "width": 71,
+      "height": 14,
+      "file": "images/ui-609e0463e0bd0426f9a30d1a703bf85ce2bd828302b59f504bbffdb8d6d30218.png",
+      "label_ko": "슬롯 수",
+      "source_names": [
+        "uipsd/savedata@slotnum%layer.png"
+      ],
+      "boot_probe": false
+    },
+    {
+      "source_sha256": "e2ea5c6ffbf69deb0be96a25f76e992c4036964c6dfd0b630be1b02a328401a2",
+      "width": 68,
+      "height": 23,
+      "file": "images/ui-e2ea5c6ffbf69deb0be96a25f76e992c4036964c6dfd0b630be1b02a328401a2.png",
+      "label_ko": "늘리기",
+      "source_names": [
+        "uipsd/savedata@slotplus%button;normal.png"
+      ],
+      "boot_probe": false
+    },
+    {
+      "source_sha256": "8754ed5ae82182dc9f0396a7aaa1ba4fbf3953a9f4c4a89ab5c42426f8aae743",
+      "width": 68,
+      "height": 23,
+      "file": "images/ui-8754ed5ae82182dc9f0396a7aaa1ba4fbf3953a9f4c4a89ab5c42426f8aae743.png",
+      "label_ko": "늘리기",
+      "source_names": [
+        "uipsd/savedata@slotplus%button;over.png"
+      ],
+      "boot_probe": false
+    },
+    {
+      "source_sha256": "aa13dfc54f8a69e67448fa05d2e6fc01aa10b9262a1c0ced07e37f8a78ef9d45",
+      "width": 949,
+      "height": 64,
+      "file": "images/ui-aa13dfc54f8a69e67448fa05d2e6fc01aa10b9262a1c0ced07e37f8a78ef9d45.png",
+      "label_ko": "데이터 정렬 순서",
+      "source_names": [
+        "uipsd/savedata@sortbase%layer.png"
+      ],
+      "boot_probe": false
+    },
+    {
+      "source_sha256": "bf7565d0c6f83228323639eb3d29f0b28db8042ea6a52b4e45c5f6e8a73e1c82",
+      "width": 659,
+      "height": 35,
+      "file": "images/ui-bf7565d0c6f83228323639eb3d29f0b28db8042ea6a52b4e45c5f6e8a73e1c82.png",
+      "label_ko": "최신순 / 오래된순 / 장면 내림차순 / 장면 오름차순 / 데이터 번호순",
+      "source_names": [
+        "uipsd/savedata@sorts%cref;normal.png"
+      ],
+      "boot_probe": false
+    },
+    {
+      "source_sha256": "d6e8f87cb14cac032fd443e1ec8cd51aa66e28607d867b26a06b93eedb0b6f7c",
+      "width": 659,
+      "height": 35,
+      "file": "images/ui-d6e8f87cb14cac032fd443e1ec8cd51aa66e28607d867b26a06b93eedb0b6f7c.png",
+      "label_ko": "최신순 / 오래된순 / 장면 내림차순 / 장면 오름차순 / 데이터 번호순",
+      "source_names": [
+        "uipsd/savedata@sorts%cref;on.png"
+      ],
+      "boot_probe": false
+    },
+    {
+      "source_sha256": "670006ed5e41b629bad8997fde021efb8e53da76553bc5086f35e00d472cbc66",
+      "width": 659,
+      "height": 35,
+      "file": "images/ui-670006ed5e41b629bad8997fde021efb8e53da76553bc5086f35e00d472cbc66.png",
+      "label_ko": "최신순 / 오래된순 / 장면 내림차순 / 장면 오름차순 / 데이터 번호순",
+      "source_names": [
+        "uipsd/savedata@sorts%cref;over.png"
+      ],
+      "boot_probe": false
+    },
+    {
+      "source_sha256": "9dce2f974e18a44c5ecef750f5e879c8f565e452fa5741b2adc64f3e2fdc9c63",
+      "width": 910,
+      "height": 71,
+      "file": "images/ui-9dce2f974e18a44c5ecef750f5e879c8f565e452fa5741b2adc64f3e2fdc9c63.png",
+      "label_ko": "공통 루트 / 스미 루트 / 아리스 루트 / 나츠하 루트",
+      "source_names": [
+        "uipsd/scnsel@chapter%cref;normal.png"
+      ],
+      "boot_probe": false
+    },
+    {
+      "source_sha256": "88c988720ba3946c2668be09725ad6add5c773b96568e78c51234daf8858c555",
+      "width": 910,
+      "height": 71,
+      "file": "images/ui-88c988720ba3946c2668be09725ad6add5c773b96568e78c51234daf8858c555.png",
+      "label_ko": "공통 루트 / 스미 루트 / 아리스 루트 / 나츠하 루트",
+      "source_names": [
+        "uipsd/scnsel@chapter%cref;on.png"
+      ],
+      "boot_probe": false
+    },
+    {
+      "source_sha256": "f00b74bcf18d206ac185104a959e9b438131e7bf869b771c8d5bf16bf8c69c96",
+      "width": 910,
+      "height": 71,
+      "file": "images/ui-f00b74bcf18d206ac185104a959e9b438131e7bf869b771c8d5bf16bf8c69c96.png",
+      "label_ko": "공통 루트 / 스미 루트 / 아리스 루트 / 나츠하 루트",
+      "source_names": [
+        "uipsd/scnsel@chapter%cref;over.png"
+      ],
+      "boot_probe": false
+    },
+    {
+      "source_sha256": "7aca27ccc18376c835bb401a2754da967e711ed002dbad030d1c2e6ee9a54e13",
+      "width": 189,
+      "height": 30,
+      "file": "images/ui-7aca27ccc18376c835bb401a2754da967e711ed002dbad030d1c2e6ee9a54e13.png",
+      "label_ko": "선택 위치로 이동",
+      "source_names": [
+        "uipsd/scnsel@lo%button;normal.png"
+      ],
+      "boot_probe": false
+    },
+    {
+      "source_sha256": "bcfda0cb9fe2a80f63a89d1c6cb3dead4b36c6512564a239dfb819dee3b95dbf",
+      "width": 189,
+      "height": 30,
+      "file": "images/ui-bcfda0cb9fe2a80f63a89d1c6cb3dead4b36c6512564a239dfb819dee3b95dbf.png",
+      "label_ko": "선택 위치로 이동",
+      "source_names": [
+        "uipsd/scnsel@lo%button;over.png"
+      ],
+      "boot_probe": false
+    },
+    {
+      "source_sha256": "329156f23cd8ec5c24f6fbb16ca35e76fd69328de26dc373d11cf475f4255acd",
+      "width": 189,
+      "height": 30,
+      "file": "images/ui-329156f23cd8ec5c24f6fbb16ca35e76fd69328de26dc373d11cf475f4255acd.png",
+      "label_ko": "이 장면의 처음부터",
+      "source_names": [
+        "uipsd/scnsel@start%button;normal.png"
+      ],
+      "boot_probe": false
+    },
+    {
+      "source_sha256": "0138bd542e7f6d733f3bc9f8446b224ca93de463a3aaf42edc0fed868172fe9d",
+      "width": 189,
+      "height": 30,
+      "file": "images/ui-0138bd542e7f6d733f3bc9f8446b224ca93de463a3aaf42edc0fed868172fe9d.png",
+      "label_ko": "이 장면의 처음부터",
+      "source_names": [
+        "uipsd/scnsel@start%button;over.png"
+      ],
+      "boot_probe": false
+    }
+  ]
+}

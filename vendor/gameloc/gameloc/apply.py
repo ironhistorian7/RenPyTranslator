@@ -208,6 +208,8 @@ def apply(
     game_root: Path | None = None,
     progress: Progress = _noop,
     reserved_names: set[str] | None = None,
+    allow_empty_ids: set[str] | None = None,
+    manual_ids: set[str] | None = None,
 ) -> ApplyReport:
     root = _resolve_root(proj, game_root)
     rep = ApplyReport(lang=lang)
@@ -222,38 +224,52 @@ def apply(
     # with validation without scanning previously generated output plugins.
     reserved = set(proj.identifiers) | (
         _reserved_names(root, proj) if reserved_names is None else reserved_names)
+    display_documents = {}
     _CATALOG_UNKNOWN.clear()
 
     plan: dict[str, dict] = defaultdict(lambda: defaultdict(dict))
     meta: dict[tuple[str, object], Location] = {}
 
     for e in proj.entries:
+        manual = e.id in (manual_ids or set())
         new = e.translations.get(lang, "")
-        if not new or new == e.text:
+        if (not new and e.id not in (allow_empty_ids or set())) or new == e.text:
             rep.skipped_untranslated += 1
             continue
         # 원문이 '무언가를 가리키는 이름' 이면 번역해서 넣으면 안 됩니다.
         # 모델·모션 이름을 바꾸면 플러그인이 대상을 못 찾아 게임이 죽습니다.
-        if e.text in reserved:
-            rep.risky.append(f"{e.text} → {new}  (게임이 이름으로 참조하는 문자열)")
-            continue
-        if heuristics.looks_like_identifier(e.text):
-            rep.risky.append(f"{e.text} → {new}  (이름 모양)")
-            continue
         # 덱 코드(``GD004=3,GD005=3,…``) 같은 코드 목록. 번역기가 글자 하나만
         # 건드려도 게임이 그 덱을 못 엽니다. 예전에 뽑은 목록에도 걸리게 여기서도 봅니다.
-        if heuristics.looks_like_kv_code(e.text):
+        if not manual and heuristics.looks_like_kv_code(e.text):
             rep.risky.append(f"{e.text[:40]} → …  (코드 목록)")
             continue
         # ``Apps.Masters.StatusMaster, Assembly-CSharp`` 같은 클래스 이름. 번역하면 게임이
         # 자기 자료 클래스를 못 찾아 검은 화면이 됩니다. 예전에 뽑은 목록도 여기서 막습니다.
-        if heuristics.looks_like_dotnet(e.text):
+        if not manual and heuristics.looks_like_dotnet(e.text):
             rep.risky.append(f"{e.text[:40]} → …  (클래스 이름)")
             continue
         for loc in e.locations:
+            from .engines.rpgmaker import is_display_location
+            display = proj.engine == "rpgmaker" and is_display_location(root, loc, display_documents)
+            if not manual and heuristics.looks_like_identifier(e.text) and not display:
+                rep.risky.append(f"{e.text} → {new}  (이름 모양)")
+                continue
+            if loc.kind == "jsliteral" and loc.ptr.startswith("jspos:"):
+                try:
+                    position, expected = json.loads(loc.ptr[6:])
+                    if (not isinstance(position, int) or isinstance(position, bool)
+                            or expected != e.text):
+                        raise ValueError("invalid JS location")
+                except (ValueError, TypeError):
+                    rep.risky.append(f"{e.text} → {new}  (잘못된 JS 위치)")
+                    continue
+            if not manual and e.text in reserved:
+                if not display and not (proj.engine == "rpgmaker" and loc.kind == "jsliteral"):
+                    rep.risky.append(f"{e.text} → {new}  (게임이 이름으로 참조하는 문자열)")
+                    continue
             # 예전 버전으로 뽑아 둔 목록에는 입력 시스템 값 같은 것이 섞여
             # 있을 수 있습니다. 다시 뽑지 않아도 막히도록 여기서도 봅니다.
-            if heuristics.is_denied_key(loc.ptr):
+            if not manual and heuristics.is_denied_key(loc.ptr):
                 rep.risky.append(f"{e.text} → {new}  ({loc.ptr.rsplit('.', 1)[-1]})")
                 continue
             if loc.fmt == "typetree" and heuristics.is_ref_field(loc.ptr, e.text):
@@ -607,8 +623,33 @@ def _patch_js(target: Path, root: Path, edits: dict, dry_run: bool) -> int:
     from . import jslex
 
     text = target.read_text("utf-8")
+    from .engines.rpgmaker import js_literal_is_key, _CJK
+
+    positions = {}
+    literals = jslex.literals(text)
+    by_start = {lit.start: lit for lit in literals}
+    for ptr, new in edits.items():
+        if ptr.startswith("jspos:"):
+            try:
+                start, expected = json.loads(ptr[6:])
+                if not isinstance(start, int) or isinstance(start, bool) or not isinstance(expected, str):
+                    continue
+            except (ValueError, TypeError):
+                continue
+            lit = by_start.get(start)
+            if lit and lit.text == expected and not lit.subst and not js_literal_is_key(text, lit):
+                positions[start] = (expected, new)
+        else:
+            # Legacy entries stored only the value: re-evaluate every occurrence
+            # with the same extraction guards before considering a replacement.
+            for lit in literals:
+                val = lit.text
+                if (val == ptr and not lit.subst and _CJK.search(val) and len(val) <= 400
+                        and not ("/" in val and "." in val.rsplit("/", 1)[-1])
+                        and not js_literal_is_key(text, lit)):
+                    positions.setdefault(lit.start, (val, new))
     try:
-        out, n = jslex.replace(text, edits)
+        out, n = jslex.replace(text, {}, positions=positions)
     except jslex.Unsafe as exc:
         raise RuntimeError(f"안전하지 않아 건너뜁니다 ({exc})") from None
     if out == text:

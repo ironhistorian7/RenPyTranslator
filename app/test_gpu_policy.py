@@ -26,6 +26,72 @@ def asset(digest=Q6):
                    'test.attention.head_count':32,'test.attention.head_count_kv':8})
 
 
+class AmdPolicyTests(unittest.TestCase):
+    def amd(self, total=16384):
+        return dict(id='DXGI-0000000000000001', name='AMD', vendor='amd', total=total)
+
+    def test_amd_profiles_are_estimates_and_never_use_nvidia_calibration(self):
+        for size, expected, parallel in [(6144,'6gb',2),(8192,'8gb',2),(12288,'12gb',2),
+                                        (16384,'16gb',3),(24576,'24gb',4),(32768,'32gb',6)]:
+            with redirect_stdout(io.StringIO()), patch.object(policy,'model_asset',side_effect=AssertionError('No NVIDIA calibration')):
+                result=policy.configure(CFG,devices=[self.amd(size)],preferences={'gpu_mode':'auto'},environment={})
+            self.assertEqual(result['_hardware_policy']['profile'],expected)
+            self.assertEqual(result['_hardware_policy']['support'],'estimated_not_measured')
+            self.assertEqual(result['parallel'],parallel)
+            self.assertNotIn('_hardware_cuda_device',result)
+
+    def test_amd_igpu_masks_and_mixed_gpu(self):
+        amd=self.amd(); igpu=dict(id='DXGI-0000000000000002',vendor='other',total=512,name='iGPU')
+        data=policy.rules(); pref={'gpu_mode':'auto'}
+        self.assertEqual(policy.capacity_profile([amd,igpu],pref,{},data)[1]['vendor'],'amd')
+        for mask in ('GGML_VK_VISIBLE_DEVICES','ROCR_VISIBLE_DEVICES','OLLAMA_VULKAN'):
+            self.assertEqual(policy.capacity_profile([amd],pref,{mask:'0'},data)[1]['status'],'unknown')
+        nvidia=device(12288)
+        self.assertNotEqual(policy.capacity_profile([amd,nvidia],pref,{},data)[1].get('vendor'),'amd')
+        self.assertEqual(policy.capacity_profile([amd,self.amd(8192)],pref,{},data)[1]['profile'],'16gb')
+
+    def test_preview_reports_only_verified_planned_amd_backend(self):
+        for backend in ('vulkan', 'rocm'):
+            gpu=dict(self.amd(),selectable=True,backend=backend,**{backend+'_index':0})
+            preview=policy.inference_preview([gpu],{'gpu_mode':'auto'},environment={})
+            self.assertEqual(preview['backend'],backend)
+            self.assertEqual(preview['devices'][0]['backend'],backend)
+        unverified=dict(self.amd(),selectable=True,backend='vulkan')
+        self.assertEqual(policy.inference_preview([unverified],{'gpu_mode':'auto'},environment={})['backend'],'unverified')
+
+    def test_amd_small_adapter_does_not_raise_hardware_error(self):
+        with redirect_stdout(io.StringIO()):
+            result=policy.configure(CFG,devices=[self.amd(4096)],preferences={'gpu_mode':'auto'},environment={})
+        self.assertNotIn('_hardware_error',result)
+
+    def test_enabled_vulkan_environment_keeps_amd_capacity_detection(self):
+        pref={'gpu_mode':'auto'}; data=policy.rules()
+        for value in ('1','true','TRUE'):
+            profile,audit=policy.capacity_profile([self.amd()],pref,{'OLLAMA_VULKAN':value},data)
+            self.assertEqual(profile['id'],'16gb')
+            self.assertEqual(audit['backend'],'unverified')
+        for value in ('0','false',''):
+            self.assertEqual(policy.capacity_profile([self.amd()],pref,{'OLLAMA_VULKAN':value},data)[1]['status'],'unknown')
+        self.assertEqual(policy.capacity_profile([device(12288)],pref,{'OLLAMA_VULKAN':'0'},data)[1]['status'],'preserved')
+
+    def test_mixed_auto_12gb_pins_nvidia_but_nvidia_only_is_unchanged(self):
+        pref={'gpu_mode':'auto'}; gpu=device(12288,id='GPU-0001')
+        with redirect_stdout(io.StringIO()):
+            mixed=policy.configure(CFG,devices=[dict(gpu,mixed_amd=True)],preferences=pref,environment={})
+            single=policy.configure(CFG,devices=[gpu],preferences=pref,environment={})
+        self.assertEqual(mixed['_hardware_cuda_device'],'GPU-0001')
+        self.assertTrue(mixed['_hardware_policy']['mixed_amd'])
+        self.assertNotIn('_hardware_cuda_device',single)
+        self.assertEqual((mixed['num_ctx'],mixed['parallel'],mixed['kv_cache_type']),(16384,2,'q8_0'))
+
+    def test_custom_amd_warning_does_not_claim_testing(self):
+        pref={'gpu_mode':'auto','inference_overrides':{'parallel':1}}
+        amd=policy.inference_preview([self.amd(8192)],pref,environment={})
+        nvidia=policy.inference_preview([device(8192)],pref,environment={})
+        self.assertIn('추정 프리셋',amd['warnings'][0])
+        self.assertIn('시험한 설정',nvidia['warnings'][0])
+
+
 class PolicyTests(unittest.TestCase):
     def configure(self,total,cfg=CFG,used=0,**kw):
         with redirect_stdout(io.StringIO()):
@@ -37,8 +103,8 @@ class PolicyTests(unittest.TestCase):
                 with patch.object(policy,'model_asset',side_effect=AssertionError('No model read on preserved path')):
                     result=self.configure(total,used=used)
                 self.assertEqual({k:result[k] for k in CFG},CFG)
-                self.assertNotIn('context_txt_enabled',result)
-                self.assertNotIn('kv_cache_type',result)
+                self.assertTrue(result['context_txt_enabled'])
+                self.assertEqual(result['kv_cache_type'],'q8_0')
                 self.assertEqual(result['_hardware_policy']['status'],'preserved')
 
     def test_6_and_8_use_same_family_local_q4_without_using_free_vram(self):
@@ -104,7 +170,7 @@ class PolicyTests(unittest.TestCase):
                     result=self.configure(total,used=used)
                 self.assertEqual(result['parallel'],workers)
                 self.assertEqual(result['num_ctx'],CFG['num_ctx']);self.assertEqual(result['model'],CFG['model'])
-                self.assertNotIn('context_txt_enabled',result);self.assertNotIn('kv_cache_type',result)
+                self.assertTrue(result['context_txt_enabled']);self.assertEqual(result['kv_cache_type'],'q8_0')
                 self.assertEqual(result['_hardware_policy']['status'],'estimated')
                 outcomes.append(result)
             self.assertEqual(outcomes[0],outcomes[1])
@@ -182,7 +248,71 @@ class PolicyTests(unittest.TestCase):
         with redirect_stdout(io.StringIO()):
             result=policy.configure(CFG,devices=[],preferences={},environment={})
         self.assertEqual(result['_hardware_policy']['status'],'unknown')
-        self.assertNotIn('context_txt_enabled',result)
+        self.assertTrue(result['context_txt_enabled'])
+
+    def test_saved_auto_preferences_replace_legacy_generic_defaults(self):
+        cfg=dict(model='generic:latest',num_ctx=8192)
+        prefs=dict(inference_preset='auto',inference_overrides={})
+        preview=policy.inference_preview([device(12282)],prefs,{})
+        with redirect_stdout(io.StringIO()),patch.object(policy,'model_asset',side_effect=AssertionError('No model load')):
+            result=policy.configure(cfg,devices=[device(12282)],preferences=prefs,environment={})
+        self.assertEqual({key:result[key] for key in policy.FIELDS},preview['effective'])
+        self.assertEqual(result['num_ctx'],16384);self.assertEqual(result['parallel'],2)
+        self.assertEqual(result['_hardware_policy']['effective_settings'],preview['effective'])
+        self.assertEqual(cfg,dict(model='generic:latest',num_ctx=8192))
+
+    def test_saved_generic_baseline_change_does_not_retranslate_completed_cache(self):
+        from automatic import settings
+        from engine import save_json
+        from translation import translate,fingerprint
+        with tempfile.TemporaryDirectory() as temp:
+            project=Path(temp)
+            row=dict(id='cached',source='Hello.',kind='dialogue',file='story.rpy',block='intro')
+            save_json(project/'data/catalog.json',[row])
+            previous=settings(project,dict(model='generic',language='korean',num_ctx=8192))
+            line=dict(id='cached',source=row['source'],text='안녕.',model='generic',fingerprint=fingerprint(previous))
+            path=project/'data/translations.jsonl';path.write_text(json.dumps(line)+'\n',encoding='utf-8')
+            before=path.read_bytes()
+            with redirect_stdout(io.StringIO()):
+                active=policy.configure(previous,devices=[device(12282)],
+                    preferences={'inference_preset':'auto','inference_overrides':{}},environment={})
+            self.assertNotEqual(fingerprint(previous),fingerprint(active))
+            with patch('runtime_recovery.run',side_effect=AssertionError('No model server for cached work')),\
+                 patch('translation.translate_batch',side_effect=AssertionError('No retranslation')),redirect_stdout(io.StringIO()):
+                translate(project,active)
+            self.assertEqual(path.read_bytes(),before)
+
+    def test_saved_overrides_and_direct_explicit_values_are_respected(self):
+        with redirect_stdout(io.StringIO()):
+            saved=policy.configure(dict(model='generic',num_ctx=8192),devices=[device(12282)],
+                 preferences={'inference_preset':'auto','inference_overrides':{'num_ctx':32768,'parallel':3}},environment={})
+            direct=self.configure(12282,dict(model='direct',num_ctx=6144,parallel=1))
+        self.assertEqual((saved['num_ctx'],saved['parallel']),(32768,3))
+        self.assertEqual((direct['num_ctx'],direct['parallel']),(6144,1))
+        for result in (saved,direct):
+            self.assertEqual(result['_hardware_policy']['effective_settings'],{k:result[k] for k in policy.FIELDS})
+
+    def test_missing_worker_is_resolved_in_config_and_audit(self):
+        result=self.configure(12282,dict(model='generic',num_ctx=8192))
+        self.assertEqual(result['parallel'],2)
+        self.assertEqual(result['_hardware_policy']['effective_settings']['parallel'],result['parallel'])
+
+    def test_saved_large_and_small_presets_apply_to_generic_models(self):
+        prefs=dict(inference_preset='auto',inference_overrides={})
+        small=asset('generic');small['bytes']=1024**3
+        for total,profile in ((6142,'6gb'),(8190,'8gb'),(16380,'16gb'),(24570,'24gb'),(32760,'32gb')):
+            with redirect_stdout(io.StringIO()),patch.object(policy,'model_asset',return_value=small):
+                result=policy.configure(dict(model='generic',num_ctx=8192),devices=[device(total)],preferences=prefs,environment={})
+            preview=policy.inference_preview([device(total)],prefs,{})
+            self.assertEqual(result['_hardware_policy']['profile'],profile)
+            self.assertEqual({k:result[k] for k in policy.FIELDS},preview['effective'])
+
+    def test_detection_failure_still_uses_saved_baseline_without_gpu_work(self):
+        prefs=dict(inference_preset='auto',inference_overrides={})
+        with redirect_stdout(io.StringIO()),patch('desktop_bridge.policy_devices',side_effect=OSError('synthetic')):
+            result=policy.configure(dict(model='generic',num_ctx=8192),preferences=prefs,environment={})
+        self.assertEqual((result['num_ctx'],result['parallel']),(16384,2))
+        self.assertEqual(result['_hardware_policy']['status'],'unknown')
 
     def test_txt_disabled_without_opening_notes_and_whole_nearby_dialogue_remains(self):
         with tempfile.TemporaryDirectory() as temp:

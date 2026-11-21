@@ -110,6 +110,22 @@ class RuntimeLaunchDiagnosticsTests(unittest.TestCase):
             self.assertIsNone(state['kill_returncode'])
             f.mocks['native_process.run'].assert_not_called()
 
+    def test_registered_template_is_repaired_before_model_ready_metadata(self):
+        with self.fixture() as f,patch('gpu_policy.configure',side_effect=lambda cfg:dict(cfg)),\
+             patch('gpu_policy.prepare_model',side_effect=lambda cfg:dict(cfg)),\
+             patch('model_store.ensure_registered_template',return_value={'status':'updated','updated':True,
+                 'renderer':'gemma4-large','alias_preserved':True}) as ensure,\
+             patch('model_diagnostics.collect',return_value={'available':True}):
+            f.mocks['hy_backend.api'].side_effect=[
+                {'version':'0.40.15'},
+                {'models':[{'name':'invented-model','digest':'before','size':42}]},
+                {'models':[{'name':'invented-model','digest':'after','size':42}]}]
+            with hy_backend.runtime(f.cfg,require_model=True) as active:
+                self.assertEqual(active['model'],'invented-model')
+                self.assertEqual(active['_runtime_launch']['model_identity']['digest'],'after')
+                self.assertEqual(active['_model_registration_compatibility']['renderer'],'gemma4-large')
+            ensure.assert_called_once_with('http://127.0.0.1:43210','invented-model',runtime_version='0.40.15')
+
     def test_operation_exception_keeps_same_state_until_cleanup_finishes(self):
         error=RuntimeError('invented operation error')
         with self.fixture() as f:
@@ -166,6 +182,15 @@ class RuntimeLaunchDiagnosticsTests(unittest.TestCase):
                 self.assertEqual(child['OLLAMA_NUM_PARALLEL'],'2')
                 self.assertEqual(child['OLLAMA_KV_CACHE_TYPE'],'q8_0')
                 self.assertIsNone(active['_runtime_launch']['startup_timeout_seconds'])
+
+    def test_custom_worker_and_kv_settings_reach_child_environment(self):
+        for workers,cache in ((4,'q4_0'),(1,'f16')):
+            with self.subTest(workers=workers,cache=cache),self.fixture() as f:
+                f.cfg.update(parallel=workers,kv_cache_type=cache)
+                with hy_backend.runtime(f.cfg,require_model=False):
+                    child=f.mocks['native_process.popen'].call_args.kwargs['env']
+                    self.assertEqual(child['OLLAMA_NUM_PARALLEL'],str(workers))
+                    self.assertEqual(child['OLLAMA_KV_CACHE_TYPE'],cache)
 
     def test_binary_identity_is_cached_and_does_not_hash_models(self):
         with tempfile.TemporaryDirectory() as directory:
