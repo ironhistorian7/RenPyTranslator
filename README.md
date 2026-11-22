@@ -7,6 +7,8 @@
 </p>
 <p align="center">
   <a href="https://github.com/ironhistorian7/RPT-ManyEngines.OneTranslator/releases"><img src="https://img.shields.io/github/v/release/ironhistorian7/RPT-ManyEngines.OneTranslator?include_prereleases&amp;label=release&amp;color=7057cd" alt="Latest release"></a>
+  <a href="https://github.com/ironhistorian7/RPT-ManyEngines.OneTranslator/stargazers"><img src="https://img.shields.io/github/stars/ironhistorian7/RPT-ManyEngines.OneTranslator?style=flat&amp;label=stars&amp;color=a36200" alt="GitHub stars"></a>
+  <img src="https://img.shields.io/github/languages/top/ironhistorian7/RPT-ManyEngines.OneTranslator?color=306998" alt="Primary implementation language">
   <a href="#지원-환경"><img src="https://img.shields.io/badge/Windows-x64-0969da" alt="Windows x64"></a>
   <a href="#주요-기능"><img src="https://img.shields.io/badge/Translation-Local%20AI-237249" alt="Local AI translation"></a>
   <a href="#지원-환경"><img src="https://img.shields.io/badge/Languages-EN%20%2F%20JA%20%E2%86%92%20KO-087785" alt="English or Japanese to Korean"></a>
