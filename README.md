@@ -1,4 +1,16 @@
-# RenPyTranslator
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/branding/rpt-logo-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="assets/branding/rpt-logo-light.png">
+    <img src="assets/branding/rpt-logo-light.png" alt="RPT — Many Engines. One Translator." width="480">
+  </picture>
+</p>
+<p align="center">
+  <a href="https://github.com/ironhistorian7/RPT-ManyEngines.OneTranslator/releases"><img src="https://img.shields.io/github/v/release/ironhistorian7/RPT-ManyEngines.OneTranslator?include_prereleases&amp;label=release&amp;color=7057cd" alt="Latest release"></a>
+  <a href="#지원-환경"><img src="https://img.shields.io/badge/Windows-x64-0969da" alt="Windows x64"></a>
+  <a href="#주요-기능"><img src="https://img.shields.io/badge/Translation-Local%20AI-237249" alt="Local AI translation"></a>
+  <a href="#지원-환경"><img src="https://img.shields.io/badge/Languages-EN%20%2F%20JA%20%E2%86%92%20KO-087785" alt="English or Japanese to Korean"></a>
+</p>
 
 ## 한국어
 
