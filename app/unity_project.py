@@ -209,7 +209,7 @@ def _verified(project):
 def _replacements(project, cfg, manifest, rows, known, *, rejected=None, rejected_manual=None):
     from unity_assets import capture_assets
     from unity_text_formats import extract, replace
-    from replacements import load_rules, replace_visible
+    from replacements import load_rules, replace_visible, rendered_symbols
     locale = {'english':'en','japanese':'ja','en':'en','ja':'ja'}.get(cfg.get('source_language','english'))
     if locale != manifest['source_language']: raise ValueError('기존 Unity 프로젝트의 원문 언어가 선택한 언어와 다릅니다. 기존 작업을 유지합니다.')
     missing = [r['id'] for r in rows if r['id'] not in known]
@@ -232,6 +232,7 @@ def _replacements(project, cfg, manifest, rows, known, *, rejected=None, rejecte
             entry = known[row['id']]; value = entry['text']
             manual = entry.get('status') == 'manual_translation'
             if not manual: value = replace_visible(value,rules)[0]
+            value = rendered_symbols(row,entry,cfg,text=value)
             if value == row['source']:
                 continue
             changes[idx] = value
@@ -413,7 +414,7 @@ def main(args,parser,info):
         rows=read_catalog(project);known=cache(project,cfg)
         if set(jobs)&{'run','translate','failed'}:
             from translation_review import run as review
-            review(project,cfg,rows=rows,known=known);known=cache(project,cfg)
+            review(project,cfg,rows=rows,known=known,review_sentences=True);known=cache(project,cfg)
         stage('Unity patch output',project,cfg)
         render(project,cfg,rows=rows,known=known)
         complete(project)

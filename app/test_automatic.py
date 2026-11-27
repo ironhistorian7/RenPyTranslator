@@ -4,9 +4,9 @@ import tempfile
 import unittest
 from unittest.mock import patch
 from engine import save_json
-from replacements import replace_visible, load_rules, effective_cache
+from replacements import replace_visible, load_rules, effective_cache, repair_heart_symbol, rendered_symbols
 from automatic import analyze, settings, merge_analysis, review, outline, add_literal_templates, DEFAULT_STYLE
-from translation import fingerprint, catalog, read_catalog
+from translation import fingerprint, catalog, read_catalog, translate_batch
 
 def row(uid,text,kind='dialogue',file='story.rpy'):
     return dict(id=uid,source=text,kind=kind,file=file,block='scene_'+uid,speaker='a')
@@ -42,6 +42,51 @@ class OfflineTests(unittest.TestCase):
         after,counts=replace_visible(before,{'해면동물':'해면'})
         self.assertEqual(counts,{'해면동물':2})
         self.assertEqual(after,'해면 {a=해면동물}해면{/a} [해면동물] %(해면동물)s images/해면동물.png https://x/해면동물 해면동물.ogg')
+
+    def test_heart_symbol_repair_preserves_engine_controls(self):
+        cases = (
+            ({'engine': 'rpgmaker'}, '<plugin:┻>'),
+            ({'engine': 'kirikiri', '_kirikiri_dialect': 'kagex_psb'}, '$command┻;'),
+            ({'engine': 'unity'}, '<sprite name="face┻">'),
+        )
+        for cfg, control in cases:
+            with self.subTest(engine=cfg['engine']):
+                self.assertEqual(repair_heart_symbol(f' ┻{control}┻♡♥ ', cfg),
+                                 f' ♡{control}♡♡♥ ')
+
+    def test_renpy_cached_heart_symbol_is_repaired_only_in_automatic_display(self):
+        from display_text import compose, rendered_value
+        record = row('heart', 'Hello ┻ [inventory["┻"]].')
+        target = '안녕 ┻┻ [inventory["┻"]].'
+        with tempfile.TemporaryDirectory() as temp:
+            project = Path(temp)
+            cfg = fixture(project, [record], [target])
+            path = project/'data/translations.jsonl'
+            original = path.read_bytes()
+            entry = effective_cache(project, cfg)['heart']
+            result = compose(record, entry, {'show_reference': True})
+            translated, reference = result.split('\n', 1)
+            self.assertEqual(translated, '안녕 ♡♡ [inventory["┻"]].')
+            self.assertIn(record['source'], reference)
+            self.assertEqual(entry['text'], target)
+            self.assertEqual(path.read_bytes(), original)
+
+        manual = dict(entry, status='manual_translation')
+        fallback = dict(entry, status='source_fallback', text=record['source'])
+        self.assertEqual(rendered_value(record, manual, {'show_reference': True}), target)
+        self.assertEqual(rendered_value(record, fallback, {'show_reference': True}), record['source'])
+        self.assertEqual(rendered_symbols(record, manual, cfg), target)
+        self.assertEqual(rendered_symbols(record, fallback, cfg, text=target), target)
+
+    def test_model_reply_repairs_visible_heart_symbol_after_control_restoration(self):
+        record = row('heart', 'Hello, friend {image=portrait┻.png}.')
+        cfg = {'model': 'fake', 'language': 'korean', 'endpoint': 'http://test.invalid'}
+        reply = {'message': {'content': json.dumps({'0': '안녕 ┻ <rpt000/>.'})}}
+        with patch('translation.request', return_value=reply) as request:
+            result, _ = translate_batch([record], {}, cfg)
+        request.assert_called_once()
+        self.assertEqual(result[0]['text'], '안녕 ♡ {image=portrait┻.png}.')
+
     def test_longest_match_once_no_cascade(self):
         after,counts=replace_visible('해면동물과 해면',{'해면동물':'해면','해면':'스펀지'})
         self.assertEqual(after,'해면과 스펀지')

@@ -100,6 +100,107 @@ class ProbeTemplateTests(unittest.TestCase):
         self.assertEqual(events[-1]['sampled_format_fields'], 2)
 
 
+class ProbeInterpolationTests(unittest.TestCase):
+    def setUp(self):
+        self.probe = probe_functions()
+        self.rendered = Mock(return_value=object())
+        self.probe.update(
+            _rpt_probe_engine=SimpleNamespace(text=SimpleNamespace(text=SimpleNamespace(Text=self.rendered))),
+            renpy=SimpleNamespace(render=Mock()),
+            config=SimpleNamespace(screen_width=1280, screen_height=720),
+        )
+
+    def test_frozen_values_quote_and_unresolved_are_inert(self):
+        row = {'kind': 'dialogue', 'text': '[hero] [points] [hero!q] [unknown.x]',
+               'interpolation': {'parts': [{'name': 'hero', 'quote': False}, ' ',
+                                            {'name': 'points', 'quote': False}, ' ',
+                                            {'name': 'hero', 'quote': True}, ' [unknown.x]'],
+                                 'values': {'hero': '{b}Alex{/b}[evil]', 'points': 3},
+                                 'unresolved': ['unknown.x']}}
+        self.probe['_rpt_probe_text'](row)
+        self.assertEqual(self.rendered.call_args.args[0],
+                         '{b}Alex{/b}[evil] 3 {{b}Alex{{/b}[evil] [unknown.x]')
+        self.assertFalse(self.rendered.call_args.kwargs['substitute'])
+        self.assertEqual(self.probe['_rpt_probe_interpolation_coverage'](row['interpolation']),
+                         {'scenario': 'initialized_literals', 'slots_total': 4,
+                          'slots_resolved': 3, 'slots_unresolved': 1,
+                          'comparable': False, 'names': ['hero', 'points']})
+
+    def test_template_sampling_does_not_modify_inserted_values(self):
+        row = {'kind': 'string', 'source': '{} [v]', 'text': '{} [v]',
+               'interpolation': {'parts': ['{} ', {'name': 'v', 'quote': False}],
+                                 'values': {'v': '{}'}, 'unresolved': []}}
+        result = self.probe['_rpt_probe_text'](row)
+        self.assertEqual(self.rendered.call_args.args[0], '0 {}')
+        self.assertEqual(result['sampled_format_fields'], 1)
+
+    def test_missing_slot_stays_literal_and_is_counted(self):
+        recipe = {'parts': [{'name': 'missing', 'quote': True}], 'values': {}, 'unresolved': []}
+        self.assertEqual(self.probe['_rpt_probe_interpolated_text'](
+            {'text': '[missing!q]', 'interpolation': recipe}), ('[missing!q]', 0))
+        self.assertEqual(self.probe['_rpt_probe_interpolation_coverage'](recipe)['slots_unresolved'], 1)
+
+    def test_failure_has_phase_and_never_logs_value_or_traceback(self):
+        events = []
+        self.probe.update(_rpt_probe_event=lambda event: events.append(dict(event)),
+                          _rpt_probe_time=SimpleNamespace(time=lambda: 0))
+        self.rendered.side_effect = ValueError('private synthetic value')
+        row = {'text': '[v]', 'interpolation': {'parts': [{'name': 'v', 'quote': False}],
+               'values': {'v': 'private synthetic value'}, 'unresolved': [], 'scenario': 'synthetic'}}
+        self.probe['_rpt_probe_attempt']('text', lambda: self.probe['_rpt_probe_text'](row), row)
+        self.assertEqual(events[-1]['phase'], 'render')
+        self.assertEqual(events[-1]['interpolation']['scenario'], 'synthetic')
+        self.assertNotIn('private synthetic value', repr(events))
+        self.assertNotIn('traceback', events[-1])
+
+    def test_invalid_slot_reports_interpolation_phase(self):
+        events = []
+        self.probe.update(_rpt_probe_event=lambda event: events.append(dict(event)),
+                          _rpt_probe_time=SimpleNamespace(time=lambda: 0))
+        row = {'text': '[x]', 'interpolation': {'parts': [{'name': 'x', 'quote': 'yes'}],
+                                                  'values': {}, 'unresolved': []}}
+        self.probe['_rpt_probe_attempt']('text', lambda: self.probe['_rpt_probe_text'](row), row)
+        self.assertEqual(events[-1]['phase'], 'interpolation')
+        self.assertEqual(events[-1]['status'], 'failed')
+
+    def test_unclosed_is_reported_without_slots(self):
+        events = []
+        self.probe.update(_rpt_probe_event=lambda event: events.append(dict(event)),
+                          _rpt_probe_time=SimpleNamespace(time=lambda: 0))
+        row = {'text': 'invented [', 'interpolation': {'parts': ['invented ['],
+               'values': {}, 'unresolved': [], 'unclosed': True}}
+        self.probe['_rpt_probe_attempt']('text', lambda: self.probe['_rpt_probe_text'](row), row)
+        self.assertEqual(events[-1]['phase'], 'interpolation')
+        self.assertEqual(events[-1]['diagnostic'], 'unclosed_interpolation')
+        self.assertFalse(events[-1]['interpolation']['comparable'])
+        self.assertEqual(events[-1]['interpolation']['slots_total'], 0)
+        self.rendered.assert_not_called()
+
+    def test_safe_diagnostics_match_whole_known_messages_only(self):
+        diagnostic = self.probe['_rpt_probe_diagnostic']
+        for message, expected in [("Unknown text tag 'shimmer'", 'unknown_text_tag'),
+                                  ("'/shimmer' closes a text tag that isn't open", 'unexpected_closing_tag'),
+                                  ("invalid conversion 'z'", 'invalid_conversion'),
+                                  ("Unknown text tag 'shimmer' private synthetic value", 'unknown'),
+                                  ("private synthetic value", 'unknown')]:
+            with self.subTest(message=message):
+                self.assertEqual(diagnostic(ValueError(message)), expected)
+
+    def test_tag_name_is_extracted_only_from_anchored_diagnostic(self):
+        tag = self.probe['_rpt_probe_diagnostic_tag']
+        self.assertEqual(tag(ValueError("Unknown text tag 'k'")), 'k')
+        self.assertEqual(tag(ValueError("'/other' closes a text tag that isn't open")), 'other')
+        self.assertIsNone(tag(ValueError("Unknown text tag 'k' private synthetic value")))
+
+    def test_comparable_and_unique_simple_names(self):
+        recipe = {'parts': [{'name': 'alpha', 'quote': False}, {'name': 'alpha', 'quote': True},
+                            {'name': 'beta_2', 'quote': False}],
+                  'values': {'alpha': True, 'beta_2': 1.5}, 'unresolved': []}
+        result = self.probe['_rpt_probe_interpolation_coverage'](recipe)
+        self.assertTrue(result['comparable'])
+        self.assertEqual(result['names'], ['alpha', 'beta_2'])
+
+
 class ProbeProgressTests(unittest.TestCase):
     def environment(self, count):
         probe = probe_functions()

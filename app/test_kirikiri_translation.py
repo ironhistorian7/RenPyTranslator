@@ -45,6 +45,41 @@ class KiriTranslationTests(unittest.TestCase):
                     self.assertIn('<rpt000/>',str(prompt))
                     self.assertNotIn('$actor;',str(prompt))
 
+    def test_approved_body_name_and_newline_restore_with_both_protocols(self):
+        from kirikiri_name_readings import collect
+        row=self.row('雪森さんが来た。\n待っていた。','kagex_psb')
+        index=collect([row],BASE,{'雪森':'유키모리'})
+        for model in ('synthetic-hy','synthetic-gemma'):
+            with self.subTest(model=model):
+                is_hy=model.endswith('hy')
+                cfg=dict(BASE,model=model,_kirikiri_name_index=index)
+                answer='<rpt000/> 씨가 왔다. 기다렸다.'
+                content='[0] '+answer if is_hy else json.dumps({'0':answer},ensure_ascii=False)
+                response={'message':{'content':content},'done_reason':'stop'}
+                with patch('hy_backend.is_hy',return_value=is_hy), \
+                     patch('translation.request',return_value=response) as request:
+                    result,_=translation.translate_batch([row],{},cfg)
+                self.assertEqual(result[0]['text'],'유키모리 씨가 왔다.\n 기다렸다.')
+                prompt=str(request.call_args.args[2])
+                self.assertIn('유키모리',prompt)
+                self.assertIn('<rpt000/>',prompt)
+                self.assertNotIn('雪森さん',prompt)
+
+    def test_missing_name_marker_is_not_recovered_as_a_linebreak(self):
+        from kirikiri_name_readings import collect
+        from kirikiri_tokens import NAME_ANCHOR_FORMAT
+        row=self.row('雪森さんが来た。\n待っていた。','kagex_psb')
+        index=collect([row],BASE,{'雪森':'유키모리'})
+        cfg=dict(BASE,model='synthetic-hy',_kirikiri_name_index=index)
+        answer='[0] 다른 이름이 왔다.<rpt001/>기다렸다.'
+        with patch('hy_backend.is_hy',return_value=True), \
+             patch('translation.request',return_value={'message':{'content':answer},'done_reason':'stop'}):
+            with self.assertRaises(translation.BatchTranslationError) as failed:
+                translation.translate_batch([row],{},cfg)
+        self.assertEqual(failed.exception.failures[0]['input_format'],NAME_ANCHOR_FORMAT)
+        self.assertIsNone(failed_repair.saved_output(row['source'],"failed; output='다른 이름이 왔다.'",
+                          row_config(cfg,row),'dialogue',input_format=NAME_ANCHOR_FORMAT))
+
     def test_normalize_marker_delimiters_once_and_trace_only_changes(self):
         examples=[('kag','Hello[font size=20]world[wait time=1]',
                    '안녕{first}세계{second}','안녕[font size=20]세계[wait time=1]'),

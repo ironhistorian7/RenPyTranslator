@@ -22,6 +22,17 @@ class NumberedProtocolTests(unittest.TestCase):
         self.assertEqual(protocol.parse('[0] 앞\n[9] 제목\n[1] 뒤',
                                         {'0': 'a\n[9] heading', '1': 'b'}), {'1': '뒤'})
 
+    def test_damaged_numbered_boundary_does_not_merge_two_translations(self):
+        sources = {'0': 'first', '1': 'second', '2': 'third'}
+        self.assertEqual(protocol.parse('[0] 첫 줄\n[1> 둘째 줄\n[2] 셋째 줄', sources),
+                         {'0': '첫 줄', '2': '셋째 줄'})
+        self.assertEqual(protocol.parse('[0] 첫 줄\n[1> 잘못된 줄\n[1] 재출력\n[2] 셋째 줄', sources),
+                         {'0': '첫 줄', '2': '셋째 줄'})
+        self.assertEqual(protocol.parse('[0] 첫 줄\n[9> 알 수 없는 줄\n[2] 셋째 줄', sources),
+                         {'2': '셋째 줄'})
+        self.assertEqual(protocol.parse('[0] 첫 줄\n[1> 원문에 있던 줄\n[2] 셋째 줄',
+                                        dict(sources, **{'0': 'first\n[1> literal'})), {'2': '셋째 줄'})
+
     def test_plain_fallback_is_explicit_and_conservative(self):
         self.assertEqual(protocol.parse('안녕 <custom>', {'4': 'hello'}, allow_headerless=True), {'4': '안녕 <custom>'})
         for value in ('[5] wrong', 'one\ntwo', '```x```', '[target_id=4]x[/target_id]'):

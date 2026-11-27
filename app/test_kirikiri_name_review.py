@@ -31,6 +31,25 @@ class KiriNames(unittest.TestCase):
         self.rows[1]['source']='different'
         output,_=name_review.overlay(self.p,self.rows,{})
         self.assertNotIn('b',output)
+
+    def test_generation_index_reuses_approved_spellings_and_reviewed_aliases(self):
+        cfg=dict(self.cfg,source_language='japanese')
+        self.rows[0]['source']='雪森'
+        self.rows.extend([
+            dict(id='ruby',source='[ゆきもり,1]雪森が来た。',kind='dialogue',usage='dialogue',dialect='kagex_psb'),
+            dict(id='alias',source='朔じぃが呼んだ。',kind='dialogue',usage='dialogue',dialect='kagex_psb'),
+        ])
+        review=name_review.build_review(self.p,cfg)
+        next(entry for entry in review['entries'] if entry['source']=='雪森')['value']='유키모리'
+        name_review.apply_review(self.p,cfg,review)
+        rules=[dict(source_literals=['朔じぃ','さくじぃ'],target_variants=['사쿠'],translation='사쿠지이'),
+               dict(source_literals=['春原','はるはら'],target_variants=['하루'],translation='하루하라',exclude_source_literals=['別人'])]
+        (self.p/'data/reviewed-terms.json').write_text(json.dumps({'rules':rules},ensure_ascii=False),encoding='utf8')
+        actual=name_review.configuration(self.p,cfg,self.rows,prepare_names=True)['_kirikiri_name_index']
+        self.assertEqual(actual.readings['雪森'],'ゆきもり')
+        self.assertEqual(actual.aliases,{'雪森':'유키모리','朔じぃ':'사쿠지이','さくじぃ':'사쿠지이'})
+        self.assertNotIn('_kirikiri_name_index',name_review.configuration(self.p,cfg,self.rows))
+        self.assertNotIn('_kirikiri_name_index',name_review.configuration(self.p,self.cfg,self.rows,prepare_names=True))
     def test_growth_retains_approved_value_and_only_new_group_is_proposed(self):
         review=name_review.build_review(self.p,self.cfg)
         review['entries'][0]['value']='앨리스'

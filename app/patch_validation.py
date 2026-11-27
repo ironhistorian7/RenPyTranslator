@@ -90,14 +90,14 @@ def _owned(relative, language):
 
 
 def _snapshot(project, cfg, target):
-    """Clone only prepared code/runtime, retaining original read-only asset links."""
-    from workspace_files import clone
+    """Clone prepared code and runtime without the original asset bridge."""
+    from workspace_files import clone_offline
     target.mkdir(parents=True, exist_ok=False)
     (target / 'data').mkdir()
-    clone(project, target)
+    clone_offline(project, target)
     # Runtime cfg can carry Events, callbacks and sets. This file describes only
     # the inspection project, never the live worker state or request payload.
-    public = {key: cfg[key] for key in ('source', 'language', 'source_language', 'engine',
+    public = {key: cfg[key] for key in ('language', 'source_language', 'engine',
                                        'model', 'textbox_scale', 'show_reference',
                                        'language_corner', 'language_margin') if key in cfg}
     save_json(target / 'project.json', public)
@@ -115,24 +115,23 @@ def _baseline(project, workspace, cfg):
             rel = path.relative_to(stage).as_posix()
             path.unlink()
             evidence['removed'].append(rel)
-    original_root = Path(cfg.get('source') or '')
+    from workspace_files import SCRIPT_ARCHIVE
+    compact_path = stage / 'game' / SCRIPT_ARCHIVE
+    try:
+        compact = _archive_code(compact_path) if compact_path.is_file() else {}
+    except Exception:
+        compact = {}
+        evidence['issues'].append({'kind': 'prepared_archive_unavailable'})
     for relative in manifest:
         if not _owned(relative, language):
             continue
-        # A translator support script present in the input is an already-patched
-        # baseline. It cannot establish who introduced a later exception.
         original_name = PurePosixPath(relative).name
         if original_name in OWNED_SCRIPTS or original_name.endswith('.rpyc') and original_name[:-1] in OWNED_SCRIPTS:
             evidence['issues'].append({'kind': 'source_already_patched', 'file': relative})
-            continue
-        source = _safe(original_root, relative)
-        if not source.is_file():
-            evidence['issues'].append({'kind': 'original_input_unavailable', 'file': relative})
-            continue
-        dest = _safe(stage, relative)
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source, dest)
-        evidence['restored'].append(relative)
+        elif relative.startswith('game/') and relative[5:] in compact:
+            evidence['restored'].append(relative + ' (prepared archive)')
+        else:
+            evidence['issues'].append({'kind': 'original_input_not_preserved', 'file': relative})
     evidence['confident'] = evidence['confident'] and not evidence['issues']
     return evidence
 
@@ -234,82 +233,70 @@ def _archive_code(path, targets=None):
 
 
 def _source_authenticity(project, cfg, menu_targets=None):
-    """Check input availability and code inventory, without hashing game files."""
-    from workspace_files import CODE, SCRIPTS, SCRIPT_ARCHIVE
-    source = Path(cfg.get('source') or '')
+    """Assess recorded preparation evidence without accessing the input game."""
+    from workspace_files import CODE, SCRIPTS, SCRIPT_ARCHIVE, metadata
     stage = project / 'staging'
     language = cfg.get('language', 'korean')
     manifest = _read(project / 'data/source-manifest.json', {})
+    record = metadata(project)
     issues = []
+    warnings = []
     expected = set()
-    archive_count = 0
     requested = {item['target'] for item in menu_targets or []}
     targets = dict(requested=requested | {name+'_screen' for name in requested}, present=set(), complete=True, dynamic=False)
     try:
+        if not manifest:
+            issues.append(dict(kind='source_manifest_missing'))
+        if not record or record.get('status') != 'ready':
+            issues.append(dict(kind='preparation_provenance_missing'))
+        record = record or {}
+        if record.get('loose_assets') or record.get('archives'):
+            warnings.append(dict(kind='external_assets_not_available_offline',
+                               loose_assets=len(record.get('loose_assets', [])), archives=len(record.get('archives', []))))
         compact_path = stage / 'game' / SCRIPT_ARCHIVE
-        compact = _archive_code(compact_path) if compact_path.is_file() else {}
-        code_suffixes = CODE | {'.exe', '.dll', '.pyd'}
-        for name in sorted(manifest, reverse=True):
-            if PurePosixPath(name).suffix.lower() != '.rpa':
-                continue
-            archive = _safe(source, name)
-            members = _archive_code(archive, targets)
-            if not members:
-                continue  # Index only; no media bytes/hash are read.
-            archive_count += 1
-            for member in members:
-                relative = 'game/' + member
-                basename = PurePosixPath(member).name
-                if basename in OWNED_SCRIPTS or basename.endswith('.rpyc') and basename[:-1] in OWNED_SCRIPTS:
-                    issues.append(dict(kind='source_archive_already_patched', file=relative))
-                # Same archive priority and loose-file override as preparation.
-                if relative not in manifest:
-                    expected.add(relative)
-        loose_count = 0
-        runtime_proof = False
+        compact = _archive_code(compact_path, targets) if compact_path.is_file() else {}
+        original_scripts = record.get('original_archive_scripts')
+        if record.get('archives') and original_scripts is None:
+            issues.append(dict(kind='archive_inventory_missing'))
+        archive_code = record.get('original_archive_code')
+        if record.get('archives') and archive_code is None:
+            warnings.append(dict(kind='archive_code_inventory_scope_limited'))
+            archive_code = list(original_scripts or [])
+            # Legacy preparation retained extracted non-script code as loose
+            # prepared files, but did not record their archive provenance.
+            for path in (stage/'game').rglob('*'):
+                if path.is_file() and path.suffix.lower() in CODE:
+                    relative = path.relative_to(stage).as_posix()
+                    if relative not in manifest and not _owned(relative, language):
+                        archive_code.append(relative[5:])
+        for member in original_scripts or []:
+            if member not in compact:
+                issues.append(dict(kind='prepared_original_code_missing', file='game/' + member, location='compact_archive'))
+            if record.get('original_archive_code') is not None and member not in archive_code:
+                issues.append(dict(kind='archive_inventory_conflict', file='game/' + member))
+        for member in set(archive_code or []) | set(original_scripts or []):
+            relative = 'game/' + member
+            basename = PurePosixPath(member).name
+            if basename in OWNED_SCRIPTS or basename.endswith('.rpyc') and basename[:-1] in OWNED_SCRIPTS:
+                issues.append(dict(kind='source_archive_already_patched', file=relative))
+            expected.add(relative)
         for name in manifest:
-            if PurePosixPath(name).suffix.lower() not in code_suffixes or _owned(name, language):
-                continue
             suffix = PurePosixPath(name).suffix.lower()
+            if suffix not in CODE | {'.exe', '.dll', '.pyd'} or _owned(name, language):
+                continue
             if suffix in ('.rpyc', '.rpymc', '.pyc', '.pyo') and name[:-1] in manifest:
-                continue  # Generated bytecode is checked through its source.
-            original = _safe(source, name)
-            if not original.is_file():
-                issues.append(dict(kind='source_code_unavailable', file=name))
-            elif name.startswith('game/'):
-                _target_hints(original.read_bytes(), suffix, targets)
+                continue
             expected.add(name)
-            loose_count += 1
-            runtime_proof = runtime_proof or name.startswith(('renpy/', 'lib/'))
-        # The manifest was written by our preparation code too. Independently
-        # inventory the explicit source's loose code names so a capture omission
-        # cannot be mistaken for an original missing definition.
-        source_game = source / 'game'
-        from workspace_files import SKIP_DIRS
-        for directory, dirs, files in os.walk(source_game, followlinks=False):
-            dirs[:] = [name for name in dirs if name.casefold() not in SKIP_DIRS]
-            for filename in files:
-                path = Path(directory) / filename
-                relative = 'game/' + path.relative_to(source_game).as_posix()
-                suffix = path.suffix.lower()
-                if suffix not in CODE | {'.rpa'} or _owned(relative, language):
-                    continue
-                if relative in manifest:
-                    continue
-                if suffix in ('.rpyc', '.rpymc', '.pyc', '.pyo') and relative[:-1] in manifest:
-                    continue
-                if suffix == '.rpa' and not _archive_code(path):
-                    continue
-                issues.append(dict(kind='source_code_missing_from_capture_manifest', file=relative))
-        if not runtime_proof:
+        if not any(name.startswith(('renpy/', 'lib/')) for name in expected):
             issues.append(dict(kind='runtime_manifest_missing'))
         for name in expected:
             target = _safe(stage, name)
-            archived = name[5:] in compact if name.startswith('game/') else False
+            archived = name.startswith('game/') and name[5:] in compact
             if not target.is_file() and not archived:
                 issues.append(dict(kind='prepared_original_code_missing', file=name))
-        allowed_compact = {name[5:] for name in expected
-                           if name.startswith('game/') and PurePosixPath(name).suffix.lower() in SCRIPTS}
+            elif target.is_file() and name.startswith('game/'):
+                _target_hints(target.read_bytes(), target.suffix.lower(), targets)
+        allowed_compact = {name[5:] for name in expected if name.startswith('game/') and PurePosixPath(name).suffix.lower() in SCRIPTS}
         for name in compact:
             if name not in allowed_compact:
                 issues.append(dict(kind='unexpected_prepared_archive_code', file='game/' + name))
@@ -321,10 +308,10 @@ def _source_authenticity(project, cfg, menu_targets=None):
                 continue
             if name not in expected and not (path.suffix.lower() in ('.rpyc', '.rpymc', '.pyc', '.pyo') and name[:-1] in expected):
                 issues.append(dict(kind='unexpected_prepared_loose_code', file=name))
-        return dict(verified=not issues and bool(expected), basis='file_inventory', hashes_checked=False, issues=issues,
-                    code_files=len(expected), loose_code_files=loose_count, code_archives=archive_count,
-                    target_hints_complete=targets['complete'], dynamic_targets=targets['dynamic'],
-                    targets_present=sorted(targets['present']))
+        return dict(verified=not issues and bool(expected), basis='recorded_preparation_inventory', hashes_checked=False,
+                    issues=issues, warnings=warnings, code_files=len(expected), loose_code_files=len(expected),
+                    code_archives=len(record.get('archives', [])), target_hints_complete=targets['complete'],
+                    dynamic_targets=targets['dynamic'], targets_present=sorted(targets['present']))
     except Exception as exc:
         return dict(verified=False, issues=issues+[dict(kind='source_proof_unavailable', error_type=type(exc).__name__, error=str(exc))])
 
@@ -508,6 +495,29 @@ def _patch_frame(failure, language):
                '/game/tl/' + language + '/' in '/' + path for path in paths)
 
 
+def _interpolation_key(event):
+    return event.get('id'), event.get('interpolation', {}).get('scenario')
+
+
+def _interpolation_attribution(failure, baseline, changed_ids):
+    if baseline is None:
+        return 'unknown', 'No matching interpolation probe completed without the patch'
+    diagnostic = failure.get('diagnostic')
+    if diagnostic == 'unclosed_interpolation' and baseline.get('status') == 'passed':
+        return 'ours', 'The rendered translation introduces an unclosed interpolation'
+    comparable = (failure['interpolation'].get('comparable') and baseline['interpolation'].get('comparable')
+                  and set(failure['interpolation'].get('names', [])) == set(baseline['interpolation'].get('names', [])))
+    if comparable and failure.get('phase') == 'render' and diagnostic in ('unknown_text_tag', 'unexpected_closing_tag'):
+        if (baseline.get('status') == 'failed' and baseline.get('phase') == 'render'
+                and baseline.get('diagnostic') == diagnostic
+                and failure.get('tag') and baseline.get('tag') == failure['tag']):
+            return 'original', 'The same tag fails under the same initialized variable values without the patch'
+        if (baseline.get('status') == 'passed' and failure.get('id') in changed_ids
+                and failure.get('tag')):
+            return 'ours', 'The original tag renders under the same values; the translated display fails'
+    return 'unknown', 'The sampled values or the engine diagnostic cannot establish the cause'
+
+
 def _lint_location(file, line):
     if not isinstance(file, str) or type(line) is not int or line <= 0:
         return None
@@ -572,6 +582,10 @@ def classify(baseline_checks, patched_checks, evidence, rows=()):
     successes = {(event.get('check'), event.get('id'), event.get('target'))
                  for check in baseline_checks for event in check.get('events', [])
                  if event.get('status') == 'passed'}
+    interpolation_baseline = {_interpolation_key(event): event for check in baseline_checks
+                              for event in check.get('events', []) if event.get('check') == 'text'
+                              and event.get('interpolation') and event.get('status') in ('passed', 'failed')}
+    changed_ids = set(evidence.get('changed_text_ids', []))
     lint_complete = any(event.get('check') == 'lint_capture' and event.get('status') == 'passed'
                         for check in baseline_checks for event in check.get('events', []))
     language = evidence.get('language', 'korean')
@@ -583,6 +597,9 @@ def classify(baseline_checks, patched_checks, evidence, rows=()):
         matched = _signature(failure) in original_signatures
         if not equivalent:
             owner, reason = 'unknown', 'Original input inventory or paired probe coverage was unavailable'
+        elif failure.get('check') == 'text' and failure.get('interpolation'):
+            owner, reason = _interpolation_attribution(
+                failure, interpolation_baseline.get(_interpolation_key(failure)), changed_ids)
         elif index in mapped_lint:
             owner, reason = 'original', 'The same say image diagnostic occurs at the mapped original line'
         elif matched:
@@ -607,7 +624,7 @@ def classify(baseline_checks, patched_checks, evidence, rows=()):
                or failure.get('operation') == 'lint' and lint_complete)
               and (_patch_frame(failure, language)
                    or failure.get('known_generated_rule')
-                   or failure.get('check') == 'text' and failure.get('id') in evidence.get('changed_text_ids', []))):
+                   or failure.get('check') == 'text' and failure.get('id') in changed_ids)):
             owner, reason = 'ours', 'The matching original check succeeds; only the tool-owned code or rendered text differs'
         else:
             owner, reason = 'unknown', 'Different outcomes require a causal check; no repair was inferred'
@@ -634,8 +651,24 @@ def _nonblocking_lint(item):
 
 
 def _blocking_failures(items):
-    """Shared baseline lint and the engine's priority advisory remain visible."""
-    return [item for item in items if not _nonblocking_lint(item)]
+    """Keep known original failures in diagnostics, not as patch blockers."""
+    return [item for item in items if not _nonblocking_diagnostic(item)]
+
+
+def _nonblocking_diagnostic(item):
+    return _nonblocking_lint(item) or (item.get('check') == 'text' and item.get('interpolation')
+                                      and item.get('attribution') == 'original')
+
+
+def _interpolation_coverage(rows, checks):
+    completed = [event['interpolation'] for check in checks if check['check'] == 'render'
+                 for event in check.get('events', []) if event.get('check') == 'text'
+                 and event.get('status') in ('passed', 'failed') and event.get('interpolation')]
+    candidates = sum('interpolation' in row for row in rows)
+    return dict(candidate_items=candidates, attempted_items=len(completed),
+                expanded_items=sum(case.get('slots_resolved', 0) > 0 for case in completed),
+                unresolved_items=sum(case.get('slots_unresolved', 0) > 0 for case in completed),
+                not_run_items=candidates - len(completed))
 
 
 def _font_path_repairs(workspace, cfg, message):
@@ -980,7 +1013,7 @@ def _rpg_check(project, cfg, artifact, mode='static', output_root=None):
             from gameloc.engines.rpgmaker import is_display_location
             from rpgmaker_paths import normalize_locations
             from translation import read_catalog, cache, validate_entry
-            from replacements import load_rules, replace_visible
+            from replacements import load_rules, replace_visible, rendered_symbols
             rows = read_catalog(project)
             known = cfg.get('_rpg_render_known')
             if known is None:
@@ -1023,6 +1056,7 @@ def _rpg_check(project, cfg, artifact, mode='static', output_root=None):
                               'Catalog location or cached translation is unavailable', id=row['id'])
                         continue
                     text = item['text'] if item.get('status')=='manual_translation' else replace_visible(item['text'], rules)[0]
+                    text = rendered_symbols(row,item,cfg,text=text)
                     pair = (row['source'], text)
                     validation_key = pair+(item.get('status') in ('source_fallback','ui_original') and text == row['source'],)
                     if validation_key not in validated:
@@ -1279,14 +1313,22 @@ def run(project, cfg, mode='render', auto_fix=True, output_root=None):
         evidence.update(code_inventory_equal=a == b, hashes_checked=False, language=language, original_code_files=len(a),
                         changed_text_ids=[row['id'] for row in rows if row['text'] != row['source']])
         original_rows = [dict(row, text=row['source']) for row in rows]
+        if mode == 'render':
+            from validation_interpolation import prepare_pair
+            prepare_pair(project, original_rows, rows)
         _install_probe(baseline, original_rows, menus, None)
         _install_probe(patched, rows, menus, language)
         original_input = _read(baseline / 'data/probe-input.json', {})
         translated_input = _read(patched / 'data/probe-input.json', {})
         def recipe(document):
+            def identity(row):
+                record = {key: row.get(key) for key in ('id', 'file', 'line', 'kind', 'source', 'literal_index')}
+                if 'interpolation' in row:
+                    record['interpolation'] = {key: row['interpolation'][key]
+                                               for key in ('scenario', 'values', 'comparable')}
+                return record
             return dict(menu_targets=document.get('menu_targets'),
-                        rows=[{key: row.get(key) for key in ('id', 'file', 'line', 'kind', 'source', 'literal_index')}
-                              for row in document.get('rows', [])])
+                        rows=[identity(row) for row in document.get('rows', [])])
         evidence.update(probe_equal=recipe(original_input) == recipe(translated_input),
                         allowed_variant_differences=['translation_language', 'rendered_text'])
         operations = ['compile', 'lint'] + (['render'] if mode == 'render' else [])
@@ -1308,7 +1350,7 @@ def run(project, cfg, mode='render', auto_fix=True, output_root=None):
         attribution = classify(baseline_checks, patched_checks, evidence, rows)
         result.update(attribution, baseline=baseline_checks, patched=patched_checks, evidence=evidence)
         failures = _blocking_failures(attribution['failures'])
-        result['diagnostics'] = [item for item in attribution['failures'] if _nonblocking_lint(item)]
+        result['diagnostics'] = [item for item in attribution['failures'] if _nonblocking_diagnostic(item)]
         result['failures'] = failures
         proof_ready = (evidence['confident'] and evidence['code_inventory_equal'] and evidence.get('probe_equal')
                        and evidence['source_authenticity']['verified'])
@@ -1329,7 +1371,7 @@ def run(project, cfg, mode='render', auto_fix=True, output_root=None):
                 result['patched'] = retry_checks
                 result.update(retry_attribution)
                 result['failures'] = retry_failures
-                result['diagnostics'] = [item for item in retry_attribution['failures'] if _nonblocking_lint(item)]
+                result['diagnostics'] = [item for item in retry_attribution['failures'] if _nonblocking_diagnostic(item)]
             else:
                 result['repairs'] = [dict(item, status='rejected') for item in proposals]
         selected_checks = result['patched']
@@ -1342,6 +1384,11 @@ def run(project, cfg, mode='render', auto_fix=True, output_root=None):
                                   lint=any(c['check'] == 'lint' for c in selected_checks),
                                   startup=any(e.get('check') == 'startup' and e.get('status') == 'passed' for c in selected_checks for e in c.get('events', [])),
                                   screens=[e['check'][7:] for c in selected_checks for e in c.get('events', []) if e.get('check', '').startswith('screen:') and e.get('status') == 'passed'])
+        if mode == 'render':
+            coverage = _interpolation_coverage(rows, selected_checks)
+            result['coverage']['interpolation'] = coverage
+            if coverage['expanded_items']:
+                result['coverage']['dynamic_interpolation'] = 'sampled_initialized_literals'
     except (KeyboardInterrupt, SystemExit) as exc:
         result.update(status='cancelled', attribution='unknown',
                       internal_error=dict(type=type(exc).__name__, message=str(exc)))

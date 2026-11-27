@@ -153,7 +153,8 @@ def direct_ui_profile(project,cfg):
     return profile,originals
 
 
-def direct_ui_overlay(raw,profile):
+def direct_ui_overlay(raw,profile, *, speaker_fonts=True):
     from kirikiri_font_layout import patch_direct_ui_font
     if not profile:return raw,0
-    return patch_direct_ui_font(raw,profile['unsupported_storages'],profile['unsupported_direct_faces'])
+    return patch_direct_ui_font(raw,profile['unsupported_storages'],profile['unsupported_direct_faces'],
+                                speaker_fonts=speaker_fonts)

@@ -3,6 +3,8 @@ import re
 from collections import Counter
 
 _MARKER = re.compile(r'<rpt\d{3,}/>')
+NAME_ANCHOR_FORMAT = 'kirikiri_name_anchors_v1'
+_TJS_PRINTF_FIELD = r'%(?:%|[-+0#]*(?:\d+|\*)?(?:\.(?:\d+|\*))?[diuoxXfFeEgGcsSp])'
 # KAGEX dynamic expressions and controls are opaque.
 _KAGEX = re.compile(r'\\[\s\S]?|\$[^;]*;?|#[^;]*;?|%(?:\d+|d\d*|[\s\S]?)|\[[^\]]*\]?|\r\n|\r|\n')
 
@@ -30,7 +32,8 @@ def spans(source, dialect='kag'):
     if dialect == 'kirikiri_tjs_ui':
         # UI captions are literal text, not KAG commands. Preserve only actual
         # TJS interpolation fields and physical line breaks in these strings.
-        pattern=_MARKER.pattern+r'|\$\{\.?[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*\}|\r\n|\r|\n'
+        pattern=(_MARKER.pattern+r'|\$\{\.?[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*\}|'
+                 +_TJS_PRINTF_FIELD+r'|\r\n|\r|\n')
         yield from ((m.start(),m.end()) for m in re.finditer(pattern,source))
         return
     if dialect == 'kagex_psb':
@@ -57,13 +60,31 @@ def spans(source, dialect='kag'):
         i += 1
 
 def protect(source, cfg=None):
-    dialect = _dialect(cfg)
+    return _protect_spans(source, spans(source, _dialect(cfg)))
+
+
+def _protect_spans(source, source_spans):
     tokens, pieces, pos = [], [], 0
-    for start, end in spans(source, dialect):
-        pieces.extend((source[pos:start], '<rpt%03d/>' % len(tokens)))
-        tokens.append(source[start:end]); pos = end
+    for index, (start, end) in enumerate(source_spans):
+        pieces.extend((source[pos:start], '<rpt%03d/>' % index))
+        tokens.append(source[start:end])
+        pos = end
     pieces.append(source[pos:])
     return ''.join(pieces), tokens
+
+
+def protect_names(source, cfg, name_spans):
+    """Combine disjoint visible name spans with opaque engine tokens."""
+    names = {(start, end): target for start, end, target in name_spans}
+    source_spans = sorted([*spans(source, _dialect(cfg)), *names])
+    text, tokens = _protect_spans(source, source_spans)
+    hints = {}
+    for index, span in enumerate(source_spans):
+        target = names.get(span)
+        if target is not None:
+            tokens[index] = target
+            hints['<rpt%03d/>' % index] = target
+    return text, tokens, source_spans, hints
 
 def restore(text, tokens, cfg=None):
     matches = _MARKER.findall(text)

@@ -7,7 +7,7 @@ _MARKER = re.compile(r'<rpt\d{3,}/>')
 _LINEBREAKS = {'\n', '\r', '\r\n'}
 
 
-def recover_linebreak_markers(source, raw_model_text, tokens):
+def recover_linebreak_markers(source, raw_model_text, tokens, *, source_spans=None):
     """Return (text, inserted token indices), or None if recovery is unsafe.
 
     Only omitted literal linebreak tokens can be inserted. Existing markers must
@@ -15,7 +15,8 @@ def recover_linebreak_markers(source, raw_model_text, tokens):
     linebreak is placed at a nearby whitespace/punctuation boundary within its
     surrounding surviving markers, or at that interval's end.
     """
-    source_spans = list(spans(source, 'kagex_psb'))
+    if source_spans is None:
+        source_spans = list(spans(source, 'kagex_psb'))
     if [source[a:b] for a, b in source_spans] != list(tokens):
         return None
     expected = ['<rpt%03d/>' % i for i in range(len(tokens))]

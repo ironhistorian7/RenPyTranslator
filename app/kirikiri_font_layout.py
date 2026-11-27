@@ -258,10 +258,8 @@ def patch_ui_font(original, kind, unsupported_storages=(), unsupported_direct_fa
     except UnicodeEncodeError as e:raise FontLayoutUnsupported('Unsupported source encoding') from e
 
 
-def patch_direct_ui_font(original, unsupported_storages=(), unsupported_direct_faces=()):
-    """Wrap direct draws inside simple with(layer) blocks; return unresolved count."""
-    if not isinstance(original,bytes):raise FontLayoutUnsupported('Expected original source bytes')
-    source=original.decode('latin1'); masked=list(_mask_comments(source));i=0
+def _mask_strings(source):
+    masked=list(source);i=0
     while i<len(masked):
         if masked[i] in ('"', "'"):
             quote=masked[i];masked[i]=' ';i+=1
@@ -271,7 +269,96 @@ def patch_direct_ui_font(original, unsupported_storages=(), unsupported_direct_f
                 elif c==quote:i+=1;break
                 i+=1
         else:i+=1
-    masked=''.join(masked);scope_at={};braces=[]
+    return ''.join(masked)
+
+
+_NAME_HAS_HANGUL = r'''
+function __rptSpeakerHasHangul(text) {
+    if (typeof text != "String") return false;
+    for (var i = 0; i < text.length; i++) {
+        var c = text.charAt(i);
+        if ((c >= "\xAC00" && c <= "\xD7A3") ||
+            (c >= "\x1100" && c <= "\x11FF") ||
+            (c >= "\x3130" && c <= "\x318F")) return true;
+    }
+    return false;
+}
+'''
+
+
+def _name_draw_override(forward):
+    fallback = _tjs_string('맑은 고딕,Malgun Gothic')
+    return (
+        f'\n        var __rptNameFace = font.face, __rptNameResult;\n'
+        f'        font.face = {fallback};\n'
+        f'        try {{ __rptNameResult = {forward}; }}\n'
+        '        catch(e) { font.face = __rptNameFace; throw e; }\n'
+        '        font.face = __rptNameFace;\n'
+        '        return __rptNameResult;\n'
+    )
+
+
+def _speaker_font_changes(source, uncommented, masked, unsupported_direct_faces):
+    """Keep a proven name-layer subclass from undoing Hangul font measurement."""
+    unsupported = set(unsupported_direct_faces)
+    if not unsupported:
+        return []
+    classes = re.finditer(r'\bclass\s+\w+\s+extends\s+(\w+)\s*\{', masked)
+    draw = re.compile(
+        r'\bfunction\s+draw\s*(?:\(\s*(?P<x>\w+)\s*,\s*(?P<y>\w+)\s*,\s*(?P<text>\w+)\s*\)\s*)?'
+        r'(?P<open>\{)\s*font\.face\s*=\s*(?P<quote>["\'])(?P<face>[^"\'\\\r\n]+)(?P=quote)\s*;\s*'
+        r'return\s+super\.draw\s*\(\s*(?P<forward>[^()]*)\)\s*;\s*\}'
+    )
+    changes = []
+    for decl in classes:
+        if not decl[1].endswith('NameLayer'):
+            continue
+        start = decl.end()
+        depth = 1
+        for brace in re.finditer(r'[{}]', masked[start:]):
+            depth += 1 if brace[0] == '{' else -1
+            if depth == 0:
+                end = start + brace.start()
+                break
+        else:
+            continue
+        body = masked[start:end]
+        # A subclass that already customizes measurement needs a separate profile.
+        if re.search(r'\bfunction\s+processNameText\b', body):
+            continue
+        methods = list(re.finditer(r'\bfunction\s+draw\b', body))
+        if len(methods) != 1:
+            continue
+        method = start + methods[0].start()
+        prefix = masked[start:method]
+        if prefix.count('{') != prefix.count('}'):
+            continue
+        match = draw.match(uncommented, method, end)
+        if not match or match['face'] not in unsupported:
+            continue
+        params = (match['x'], match['y'], match['text']) if match['text'] else ('x', 'y', '__rptSpeakerText')
+        x, y, text = params
+        forward = match['forward']
+        if re.sub(r'\s+', '', forward) not in ('...', ','.join(params)):
+            continue
+        original_body = source[match.end('open'):match.end()-1]
+        replacement = (
+            f'function draw({x}, {y}, {text}) {{\n'
+            f'        if (!__rptSpeakerHasHangul({text})) {{{original_body}}}'
+            + _name_draw_override(f'super.draw({forward})') + '    }\n'
+            '    function processNameText(__rptSpeakerText) {\n'
+            '        if (!__rptSpeakerHasHangul(__rptSpeakerText)) return super.processNameText(...);'
+            + _name_draw_override('super.processNameText(...)') + '    }'
+        )
+        changes.append((method, match.end(), replacement))
+    return changes
+
+
+def patch_direct_ui_font(original, unsupported_storages=(), unsupported_direct_faces=(), *, speaker_fonts=True):
+    """Wrap recognized direct draw and name-layer calls; return unresolved count."""
+    if not isinstance(original,bytes):raise FontLayoutUnsupported('Expected original source bytes')
+    source=original.decode('latin1');uncommented=_mask_comments(source);masked=_mask_strings(uncommented)
+    scope_at={};braces=[]
     for match in re.finditer(r'[{}]',masked):
         pos=match.start()
         if match.group()=='{':
@@ -304,9 +391,13 @@ def patch_direct_ui_font(original, unsupported_storages=(), unsupported_direct_f
         if target:changes.append((m.start(),m.end(),'__rptDirectDraw('+target+','))
         else:unresolved+=1
     unresolved+=len(list(re.finditer(r'\b[A-Za-z_]\w*\.drawText\s*\(',masked)))
-    if not changes:return original,unresolved
-    for start,end,replacement in reversed(sorted(changes)):
+    names=_speaker_font_changes(source,uncommented,masked,unsupported_direct_faces) if speaker_fonts else []
+    if not changes and not names:return original,unresolved
+    direct_changes=bool(changes)
+    for start,end,replacement in reversed(sorted(changes+names)):
         source=source[:start]+replacement+source[end:]
+    if not direct_changes:
+        return (_NAME_HAS_HANGUL+'\n'+source).encode('latin1'),unresolved
     helper=_ui_helper(unsupported_storages,unsupported_direct_faces).replace('__rptUiNeedsHangulFont','__rptCustomNeedsHangulFont')
     fallback=_tjs_string('맑은 고딕,Malgun Gothic')
     helper+='''
@@ -327,4 +418,5 @@ function __rptEdgeDraw(lay, x, y, text, *) {
     return result;
 }
 '''.replace('FALLBACK',fallback)
+    if names:helper+=_NAME_HAS_HANGUL
     return (helper+'\n'+source).encode('latin1'),unresolved

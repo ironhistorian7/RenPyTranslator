@@ -308,14 +308,17 @@ def snapshot():
 
 def run_request(data):
     settings = validate_settings(data.get('settings',{}))
-    args = arguments(data.get('tasks',[]),data.get('path',''),data.get('source',False),
+    from game_engine import require, saved_check_project
+    jobs = data.get('tasks',[])
+    path, source = data.get('path',''), data.get('source',False)
+    if set(jobs) == {'check'} and source:
+        path, source = str(saved_check_project(path)), False
+    args = arguments(jobs,path,source,
         settings['output'],settings['suffix'],settings['scale'],settings['language_corner'],settings['language_margin'],settings['source_language'],settings['show_reference'],data.get('update_source'))
-    from game_engine import require
-    format_info=require(data.get('path',''),data.get('source',False),data.get('tasks',[]))
-    if 'update' in data.get('tasks',[]):require(data['update_source'],True,data.get('tasks',[]))
+    format_info=require(path,source,jobs)
+    if 'update' in jobs:require(data['update_source'],True,jobs)
     if settings['runtime_id']:args+=['--runtime-id',settings['runtime_id']]
     from model_store import needs_model,require_job_model
-    jobs=data.get('tasks',[])
     if needs_model(jobs,format_info.get('engine')):args+=['--model',require_job_model(jobs,preferences=settings)]
     save_settings(settings)
     print('실행: '+subprocess.list2cmdline(args),flush=True)

@@ -81,23 +81,47 @@ function next() {}'''
 
     def test_refresh_preserves_finished_scenarios_and_never_loads_translation_cache(self):
         out=self.root/'out';out.mkdir();path=out/'patch.xp3'
-        write_xp3(path,{'intro.ks':b'preserved translated bytes','Config.tjs':b'old config'})
+        write_xp3(path,{'intro.ks':b'preserved translated bytes','Config.tjs':b'old config',
+                        'custom.tjs':b'preserved display code','unrelated.png':b'preserved unrelated image'})
+        route_map={'main/custom.tjs':{'source route':'translated route'}}
+        chapter_map={'main/custom.tjs':{'source chapter':'translated chapter'}}
+        button_path='ui/scene@jump%sysbutton;normal.png'
+        button=b'approved replacement image'
         ledger={'patch':str(path),'sha256':hashlib.sha256(path.read_bytes()).hexdigest(),
-                'layout':'flat','files':['Config.tjs','intro.ks'],
-                'member_map':{'Config.tjs':'main/Config.tjs','intro.ks':'scn/intro.ks'},'ui_assets':{}}
-        (self.data/'kirikiri-output.json').write_text(json.dumps(ledger),encoding='utf-8')
+                'layout':'flat','files':['Config.tjs','custom.tjs','intro.ks','unrelated.png'],
+                'member_map':{'Config.tjs':'main/Config.tjs','custom.tjs':'main/custom.tjs',
+                              'intro.ks':'scn/intro.ks','unrelated.png':'ui/unrelated.png'},
+                'ui_assets':{},'ui_route_map':route_map,'ui_chapter_map':chapter_map}
+        report=self.data/'kirikiri-output.json'
+        report.write_text(json.dumps(ledger),encoding='utf-8')
         with patch.object(kirikiri_project,'_verified',return_value={}), \
              patch.object(kirikiri_project,'_font_overlay',return_value=('main/Config.tjs',b'new config')), \
              patch.object(kirikiri_project,'font_layout_overrides',return_value={'system/MessageLayer.tjs':b'new renderer'}), \
              patch.object(kirikiri_project,'ensure_patch_layout',return_value={'layout':'flat','verified':True}), \
+             patch.object(kirikiri_project,'ui_overrides',return_value={button_path:button}) as images, \
              patch('translation.cache',side_effect=AssertionError('cache must not be loaded')):
             result=kirikiri_project.repack_output(self.project,{'source_language':'japanese'},refresh_support=True)
+            updated_archive=path.read_bytes()
+            updated_report=report.read_bytes()
+            no_change=kirikiri_project.repack_output(self.project,{'source_language':'japanese'},refresh_support=True)
+            self.assertEqual(no_change['status'],'unchanged')
+            images.return_value={'ui/unrelated.png':b'unapproved overwrite'}
+            with self.assertRaises(kirikiri_project.KiriError):
+                kirikiri_project.repack_output(self.project,{'source_language':'japanese'},refresh_support=True)
+            self.assertEqual(path.read_bytes(),updated_archive)
+            self.assertEqual(report.read_bytes(),updated_report)
         self.assertEqual(result['status'],'repacked')
         with DirectorySource(out) as source:
             packed=XP3Archive(source,'patch.xp3')
             self.assertEqual(packed.read('intro.ks'),b'preserved translated bytes')
             self.assertEqual(packed.read('Config.tjs'),b'new config')
             self.assertEqual(packed.read('MessageLayer.tjs'),b'new renderer')
+            self.assertEqual(packed.read('custom.tjs'),b'preserved display code')
+            self.assertEqual(packed.read(Path(button_path).name),button)
+        updated_ledger=json.loads(updated_report)
+        self.assertEqual(updated_ledger['ui_route_map'],route_map)
+        self.assertEqual(updated_ledger['ui_chapter_map'],chapter_map)
+        self.assertEqual(updated_ledger['ui_assets'],{button_path:hashlib.sha256(button).hexdigest()})
         self.assertEqual(self.cache.read_bytes(),b'preserve cache\n')
         self.assertTrue((Path(result['backup'])/'patch.xp3').is_file())
 

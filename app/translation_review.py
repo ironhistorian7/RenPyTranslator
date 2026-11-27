@@ -2,7 +2,9 @@
 import json
 import os
 from pathlib import Path
+import shutil
 import sys
+import tempfile
 import uuid
 
 from job_events import emit, set_phase
@@ -84,24 +86,37 @@ def apply_review(project, cfg, review, reply):
     rows = [{'id': uid, 'source': expected[uid]['source'], 'text': item['text'],
              'model': cfg['model'], 'fingerprint': fingerprint(cfg), 'status': 'manual_translation'}
             for uid, item in values.items() if item['apply']]
-    data = Path(project) / 'data'
-    if rows:
-        cache_path = data / 'translations.jsonl'
-        separator = False
-        if cache_path.is_file() and cache_path.stat().st_size:
-            with cache_path.open('rb') as previous:
-                previous.seek(-1, os.SEEK_END)
-                separator = previous.read(1) not in (b'\n', b'\r')
-        with cache_path.open('ab') as stream:
-            if separator:
-                stream.write(b'\n')
+    return _save_manual_rows(project, rows)
+
+
+def _save_manual_rows(project, rows):
+    if not rows:
+        return rows
+    from atomic_files import replace_cache_file
+    cache_path = Path(project) / 'data' / 'translations.jsonl'
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=cache_path.parent, prefix='.translation-review-', suffix='.tmp', delete=False) as stream:
+            temporary = Path(stream.name)
+            if cache_path.is_file() and cache_path.stat().st_size:
+                with cache_path.open('rb') as previous:
+                    previous.seek(-1, os.SEEK_END)
+                    separator = previous.read(1) not in (b'\n', b'\r')
+                    previous.seek(0)
+                    shutil.copyfileobj(previous, stream)
+                if separator:
+                    stream.write(b'\n')
             for row in rows:
                 stream.write((json.dumps(row, ensure_ascii=False) + '\n').encode('utf-8'))
             stream.flush()
             os.fsync(stream.fileno())
-        _remove_failures(project, {row['id'] for row in rows})
-        from job_events import resolve_item_warnings
-        resolve_item_warnings([row['id'] for row in rows])
+        replace_cache_file(temporary, cache_path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+    _remove_failures(project, {row['id'] for row in rows})
+    from job_events import resolve_item_warnings
+    resolve_item_warnings([row['id'] for row in rows])
     return rows
 
 
@@ -137,19 +152,36 @@ def _console_reply(review):
     return {'fingerprint': review['fingerprint'], 'entries': entries}
 
 
-def run(project, cfg, rows=None, known=None):
+def run(project, cfg, rows=None, known=None, *, review_sentences=False):
     from translation import read_catalog, cache
     rows = read_catalog(project) if rows is None else rows
     known = cache(project, cfg) if known is None else known
     # Reconcile after an interrupted write: the append-only cache is authoritative.
     _remove_failures(project, {row['id'] for row in rows
                                if known.get(row['id'], {}).get('status') == 'manual_translation'})
-    review = build_review(rows, known, cfg)
-    if not review['entries']: return []
-    set_phase('translation.manual_review', '미번역 항목 확인')
     path = os.environ.get('RPT_TRANSLATION_REVIEW_FILE')
-    if path and os.environ.get('RPT_DESKTOP_EVENTS') != '1':
-        raise ValueError('미번역 확인창의 연결 상태를 확인하세요.')
+    edited = []
+    review = build_review(rows, known, cfg)
+    if path and (review['entries'] or review_sentences) and os.environ.get('RPT_DESKTOP_EVENTS') != '1':
+        raise ValueError('번역 확인창의 연결 상태를 확인하세요.')
+    if review['entries']:
+        set_phase('translation.manual_review', '미번역 항목 확인')
+        edited = _wait_for_reply(review, path, lambda payload: apply_review(project, cfg, review, payload))
+    if not path or not review_sentences:
+        return edited
+
+    from sentence_review import build, selected_rows
+    if edited:
+        known = {**known, **{item['id']: item for item in edited}}
+    sentences, groups = build(project, cfg, rows, known)
+    if groups:
+        set_phase('translation.sentence_review', '문장 번역 검토')
+        selected = _wait_for_reply(sentences, path, lambda payload: selected_rows(cfg, sentences, groups, payload))
+        edited.extend(_save_manual_rows(project, selected))
+    return edited
+
+
+def _wait_for_reply(review, path, accept):
     while True:
         _cancelled()
         if path:
@@ -157,7 +189,7 @@ def run(project, cfg, rows=None, known=None):
             reply = _desktop_reply(review, Path(path))
         else:
             reply = _console_reply(review)
-        try: return apply_review(project, cfg, review, reply)
+        try: return accept(reply)
         except ValueError as exc:
             review = dict(review, error=str(exc))
             if not path: print(str(exc), flush=True)

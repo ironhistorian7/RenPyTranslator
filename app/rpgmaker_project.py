@@ -166,7 +166,8 @@ def review_render_inputs(project,cfg,prepared,jobs):
     """Review failed rows just before output, then reload accepted cache rows."""
     if set(jobs)&{'run','translate','rebuild','failed'} and not prepared['missing']:
         from translation_review import run as review_translations
-        review_translations(project,cfg,rows=prepared['rows'],known=prepared['known'])
+        review_translations(project,cfg,rows=prepared['rows'],known=prepared['known'],
+                            review_sentences=bool(set(jobs)&{'run','translate','failed'}))
         return render_inputs(project,cfg)
     return prepared
 
@@ -224,7 +225,7 @@ def render(project,cfg,*,prepared=None):
     from gameloc.treepath import parse_path,get_by_path,format_path
     from gameloc.overlay import rm_register
     from translation import validate_entry
-    from replacements import load_rules,replace_visible
+    from replacements import load_rules,replace_visible,rendered_symbols
     from output_paths import destination
     snapshot=project/'data/rpg-source'; stage=project/'staging'
     if not snapshot.is_dir():raise ValueError('RPG Maker 원문 작업 자료가 없습니다.')
@@ -248,6 +249,7 @@ def render(project,cfg,*,prepared=None):
     for row in rows:
         item=known.get(row['id'])
         text=item['text'] if item.get('status')=='manual_translation' else replace_visible(item['text'],rules)[0]
+        text=rendered_symbols(row,item,cfg,text=text)
         # cache() has validated unchanged text already. Only an actual user
         # replacement creates a new value requiring another check.
         errors=validate_entry(row['source'],dict(item,text=text),cfg,allow_partial=True) if text!=item['text'] else []

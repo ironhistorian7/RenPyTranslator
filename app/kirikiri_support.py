@@ -9,8 +9,8 @@ from pathlib import Path
 
 from app_paths import ROOT
 from engine import save_json
-from kirikiri_containers import open_source,XP3Archive
-from kirikiri_ui_assets import approved_source_names,localize_buttons
+from kirikiri_containers import ContainerError,open_source,XP3Archive
+from kirikiri_ui_assets import approved_source_names,image_coverage,localize_buttons
 
 
 def _game_executable(folder):
@@ -110,19 +110,34 @@ def ui_overrides(project,cfg=None):
             if hashlib.sha256(content).hexdigest()!=entry['sha256']:
                 raise ValueError('저장된 버튼 이미지가 변경되었습니다.')
             result[rel]=content
-    bank=ui_bank(); names=[name for name in approved_source_names(bank) if name not in result]
-    if not names:return result
+    bank=ui_bank(); bank_names=approved_source_names(bank)
+    names=[name for name in bank_names if name not in result]
+    previous_report=saved.get('report',{})
+    if not names and 'image_coverage' in previous_report:return result
     approved={name.casefold():name for name in names}
     manifest=_verified(project); info=manifest.get('source',{})
-    selected={}; originals={}
+    selected={}; originals={}; layouts={}; available=set()
+    layout_dirs=set()
     origin=info.get('container_path') or (cfg or {}).get('source')
     if not origin or not Path(origin).exists():return result
+
+    def observe_layout(rel, archive, physical):
+        key=rel.casefold()
+        if key.endswith('.csv'):
+            layouts[key]=rel,archive,physical
+        elif key.endswith('.png'):
+            available.add(key)
+            directory, _, filename=key.rpartition('/')
+            if '@' in filename and '%' in filename:
+                layout_dirs.add(directory)
+
     with open_source(origin) as source:
         archives,_=_archive_order(source,info.get('game_root',''))
         for archive_path in archives:
             archive=XP3Archive(source,archive_path)
             standard=bool(re.fullmatch(r'patch(?:\d+)?\.xp3',archive_path.rsplit('/',1)[-1],re.I))
             for physical in archive.entries:
+                observe_layout(physical,archive,physical)
                 canonical=approved.get(physical.casefold())
                 if canonical is None and standard and '/' not in physical:
                     possible=[n for n in names if n.rsplit('/',1)[-1].casefold()==physical.casefold()]
@@ -131,18 +146,27 @@ def ui_overrides(project,cfg=None):
         prefix=info.get('game_root',''); prefix=prefix+'/' if prefix else ''
         for physical in source.entries:
             if physical.startswith(prefix):
-                canonical=approved.get(physical[len(prefix):].casefold())
+                rel=physical[len(prefix):]
+                observe_layout(rel,source,physical)
+                canonical=approved.get(rel.casefold())
                 if canonical is not None:selected[canonical]=(None,physical)
         for canonical,(archive,physical) in selected.items():
             originals[canonical]=archive.read(physical) if archive else source.read(physical)
-    overrides,report=localize_buttons(originals,bank)
-    if overrides:
-        folder.mkdir(parents=True,exist_ok=True); files=dict(saved['files'])
+        overrides,report=localize_buttons(originals,bank)
+        result.update(overrides)
+        declarations={}
+        for key,(layout,container,physical) in layouts.items():
+            if key.rpartition('/')[0] in layout_dirs and container.entries[physical].size <= 1024 * 1024:
+                try:declarations[layout]=container.read(physical)
+                except ContainerError:continue
+        report['image_coverage']=image_coverage(declarations,available|result.keys(),result)
+    if overrides or report['image_coverage']!=previous_report.get('image_coverage'):
+        if overrides:folder.mkdir(parents=True,exist_ok=True)
+        files=dict(saved['files'])
         for rel,content in sorted(overrides.items()):
             filename=hashlib.sha256(content).hexdigest()+'.png'; (folder/filename).write_bytes(content)
             files[rel]={'file':filename,'sha256':hashlib.sha256(content).hexdigest()}
         save_json(record,{'version':1,'files':files,'report':report})
-    result.update(overrides)
     return result
 
 

@@ -25,8 +25,9 @@ export type JobRecovery = {state:'waiting'|'resuming';delay_seconds?:number;next
 export type NameReviewEntry = {key:string;source:string;proposed:string;value:string;needs_review:boolean;reason:string;reading?:string|null;basis?:string|null};
 export type NameReview = {version:number;fingerprint:string;entries:NameReviewEntry[];confirmed?:boolean;error?:string};
 export type NameReviewReply = {fingerprint:string;entries:{key:string;value:string}[]};
-export type TranslationReview = {fingerprint:string;entries:{id:string;source:string;current:string;location?:string;issue?:string}[];error?:string};
-export type TranslationReviewReply = {fingerprint:string;entries:{id:string;apply:boolean;text:string}[]};
+export type SentenceReviewGroup = {id:string;source:string;scope:string;speaker:string;listener?:string;variants:{id:string;text:string;count:number;location:string;manual?:boolean;editable_count?:number}[]};
+export type TranslationReview = {fingerprint:string;entries:{id:string;source:string;current:string;location?:string;issue?:string}[];error?:string;kind?:never} | {kind:'sentence';fingerprint:string;groups:SentenceReviewGroup[];error?:string};
+export type TranslationReviewReply = {fingerprint:string;entries:{id:string;apply:boolean;text:string}[];kind?:never} | {kind:'sentence';fingerprint:string;selections:({id:string;variant:string}|{id:string;text:string})[]};
 export type Job = {running:boolean;canceling:boolean;exitCode:number|null;result:string|null;stage:string;completed:number|null;total:number|null;started:number|null;
   phase?:string;phase_label?:string;unit?:string|null;eta_seconds?:number|null;elapsed_seconds?:number;updated?:number;finished?:number|null;
   successful?:number;partial?:number;original_kept?:number;cached?:number;issue?:JobIssue|null;recovery?:JobRecovery|null;notices?:string[];warnings?:JobWarning[];name_review?:NameReview|null;translation_review?:TranslationReview|null};

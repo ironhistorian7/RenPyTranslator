@@ -27,18 +27,25 @@ def readable(source,cfg):
     return separator.join(text.splitlines())
 
 
-def protect(source):
+def _protected_pattern():
     load()
     from gameloc.protect import CODE_RE
     # Literal numeric brackets in a game must not collide with wire anchors.
     from rpgmaker_protocol import WIRE
     from rpgmaker_layout import LAYOUT_RUN
-    pattern=re.compile('(?i:'+WIRE.pattern+')|(?i:'+LAYOUT_RUN.pattern+')|'+CODE_RE.pattern)
+    return re.compile('(?i:'+WIRE.pattern+')|(?i:'+LAYOUT_RUN.pattern+')|'+CODE_RE.pattern)
+
+
+def protected_matches(source):
+    return _protected_pattern().finditer(source)
+
+
+def protect(source):
     tokens=[]
     def substitute(match):
         tokens.append(match.group())
         return '<rpt%03d/>'%(len(tokens)-1)
-    return pattern.sub(substitute,source),tokens
+    return _protected_pattern().sub(substitute,source),tokens
 
 
 def language_errors(source,target,cfg):

@@ -123,6 +123,7 @@ def _uid(path, location, text):
 
 
 def _rows(raw, rel, name_aliases=None, include_defaults=True, *, japanese_ui=False):
+    from kirikiri_ui_csv import extract_ui_csv, is_gallery_list
     result = []
     if rel.lower().endswith('.tjs'):
         from kirikiri_menu_text import extract_ui_text
@@ -134,6 +135,10 @@ def _rows(raw, rel, name_aliases=None, include_defaults=True, *, japanese_ui=Fal
             line = raw_line(raw, item['location']['start'])
             result.append(dict(item, kind='dialogue' if item['usage'] == 'dialogue' else 'string',
                                speaker='unknown', block=rel, source_file=rel, source_line=line))
+    elif is_gallery_list(rel):
+        if japanese_ui:
+            result.extend(dict(item, kind='string', speaker='unknown', block=rel, source_file=rel)
+                          for item in extract_ui_csv(raw, rel))
     else:
         doc = loads(raw)
         if any(doc.resources):
@@ -416,12 +421,20 @@ def repack_output(project, cfg=None, *, refresh_support=False):
         original = {old_map[name]:archive.read(name) for name in archive.entries}
     support_changed=False
     font_layout={}
+    asset_hashes=dict(previous.get('ui_assets',{}))
     if refresh_support:
         cfg=cfg or json.loads((project/'project.json').read_text(encoding='utf-8-sig'))
         font=_font_overlay(project,_verified(project))
         overlays={} if font is None else {font[0]:font[1]}
         font_layout=font_layout_overrides(project,cfg)
         overlays.update(font_layout)
+        buttons=ui_overrides(project,cfg)
+        reserved=set(overlays) | set(previous.get('ui_text_edits',{})) | set(previous.get('font_layout',{}))
+        for name,raw in buttons.items():
+            if name in reserved or (name in original and asset_hashes.get(name)!=hashlib.sha256(original[name]).hexdigest()):
+                raise KiriError('기존 패치의 파일을 버튼 이미지로 덮어쓸 수 없습니다: '+name,'kirikiri_patch_conflict')
+            overlays[name]=raw
+            asset_hashes[name]=hashlib.sha256(raw).hexdigest()
         support_changed=any(original.get(name)!=raw for name,raw in overlays.items())
         original.update(overlays)
     profile = ensure_patch_layout(project,cfg)
@@ -429,7 +442,9 @@ def repack_output(project, cfg=None, *, refresh_support=False):
     if mapping == old_map and previous.get('layout') == profile['layout'] and not support_changed:
         return {'status':'unchanged','patch':str(patch),'layout':profile['layout'],'files':len(members)}
     record = dict(previous,layout=profile['layout'],member_map=mapping,patch_layout=profile)
-    if refresh_support:record['font_layout']={name:hashlib.sha256(raw).hexdigest() for name,raw in font_layout.items()}
+    if refresh_support:
+        record['font_layout']={name:hashlib.sha256(raw).hexdigest() for name,raw in font_layout.items()}
+        record['ui_assets']=asset_hashes
     backup = _store_patch(project,patch,members,record)
     return {'status':'repacked','patch':str(patch),'backup':str(backup) if backup else None,
             'layout':profile['layout'],'files':len(members)}
@@ -437,6 +452,8 @@ def repack_output(project, cfg=None, *, refresh_support=False):
 
 def render(project, cfg, *, rows=None, known=None):
     from translation import read_catalog, cache
+    from replacements import render_symbol_entries
+    from kirikiri_ui_csv import is_gallery_list, render_ui_csv
     from output_paths import destination
     project = Path(project)
     cfg = dict(cfg,show_reference=False)
@@ -445,6 +462,7 @@ def render(project, cfg, *, rows=None, known=None):
     known = cache(project, cfg) if known is None else known
     missing = [r['id'] for r in rows if r['id'] not in known]
     if missing: raise ValueError(f'아직 번역하지 않은 항목이 {len(missing)}개 있습니다. 기존 번역을 유지하고 이어서 번역하세요.')
+    known = render_symbol_entries(rows, known, cfg)
     from kirikiri_ui_text_support import native_map_bytes, canonical_native_rows, write_native_map, restore_native_map, map_record
     native_rows = canonical_native_rows(rows, known)
     native_map = native_map_bytes(native_rows)
@@ -511,7 +529,13 @@ def render(project, cfg, *, rows=None, known=None):
                     base_ui = patch_route_display(base_ui, route_map)
                     base_ui = patch_chapter_fallback(base_ui, chapter_map)
                 if rendered!=base_ui:
-                    ui_direct_font[rel]=dict(source_sha256=hashlib.sha256(raw).hexdigest(),unresolved=unresolved)
+                    ui_direct_font[rel]=dict(source_sha256=hashlib.sha256(raw).hexdigest(),unresolved=unresolved,
+                                             speaker_fonts=True)
+            if rendered != raw: ui_text_edits[rel] = edits
+        elif is_gallery_list(rel):
+            edits = [dict(row, translation=known[row['id']]['text']) for row in items
+                     if known[row['id']]['text'] != row['source']]
+            rendered = render_ui_csv(raw, rel, edits)
             if rendered != raw: ui_text_edits[rel] = edits
         elif rel.lower().endswith('.ks'):
             edits = []
@@ -694,7 +718,8 @@ def _check(project, cfg=None):
                     base = allowed.get(edit.get('id'))
                     if base is None or any(edit.get(k) != base.get(k) for k in ('source','location','ui_suffix','dialect','usage','native_menu','ui_readonly_volume')):
                         raise KiriError('UI 텍스트 위치가 원본과 다릅니다: '+name)
-                expected=render_ui_text(original, edits)
+                from kirikiri_ui_csv import is_gallery_list, render_ui_csv
+                expected=render_ui_csv(original, name, edits) if is_gallery_list(name) else render_ui_text(original, edits)
                 route_map=report.get('ui_route_map',{}).get(name)
                 if route_map:
                     from kirikiri_route_display import patch_route_display
@@ -705,7 +730,8 @@ def _check(project, cfg=None):
                     expected=patch_chapter_fallback(expected,chapter_map)
                 if direct:
                     from kirikiri_font_support import direct_ui_overlay
-                    expected,unresolved=direct_ui_overlay(expected,font_profile)
+                    expected,unresolved=direct_ui_overlay(expected,font_profile,
+                                                          speaker_fonts=bool(direct.get('speaker_fonts')))
                     if unresolved!=direct.get('unresolved'):raise KiriError('UI 글꼴 미확인 수가 일치하지 않습니다: '+name)
                 if expected != actual:
                     raise KiriError('UI 코드 또는 텍스트 구조 불일치: '+name)
@@ -842,7 +868,7 @@ def main(args, parser, info):
         rows = read_catalog(project); known = cache(project,cfg)
         from translation_review import run as review_translations
         if set(jobs) & {'run','translate','failed'}:
-            review_translations(project,cfg,rows=rows,known=known)
+            review_translations(project,cfg,rows=rows,known=known,review_sentences=True)
             known = cache(project,cfg)
         stage('KiriKiri patch output',project,cfg)
         if 'check' in jobs:ensure_locale_profile(project,cfg)

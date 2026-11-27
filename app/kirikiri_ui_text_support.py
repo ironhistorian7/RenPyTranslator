@@ -7,16 +7,18 @@ from collections import defaultdict
 from pathlib import Path, PurePosixPath
 
 from engine import save_json
+from kirikiri_ui_csv import is_gallery_list
 
 _UI_NAMES = {'menus.tjs', 'mainwindow.tjs', 'exmenuintf.tjs', 'option.tjs', 'default.tjs'}
 
 
 def is_ui_source(name):
     name = name.replace('\\', '/').casefold()
-    return (name.rsplit('/', 1)[-1] in _UI_NAMES or
+    return (is_gallery_list(name) or name.rsplit('/', 1)[-1] in _UI_NAMES or
             name.endswith(('sysscn/override.tjs', 'sysscn/movieqsel.tjs', 'sysscn/stayontop.tjs',
                            'sysscn/stopdeactive.tjs', 'main/custom.tjs', 'main/scnsel.tjs',
-                           'main/scnlist.tjs')))
+                           'main/scnlist.tjs', 'sysscn/browswindow.tjs', 'sysscn/speech.tjs',
+                           'sysscn/speech_dlg.tjs', 'system/yesnodialog.tjs', 'sysscn/myyesnodialog.tjs')))
 
 
 def _snapshot_path(root, rel):
@@ -44,15 +46,15 @@ def ensure_ui_catalog(project, cfg, *, dry_run=False):
     marker = json.loads(marker_path.read_text(encoding='utf-8-sig')) if marker_path.is_file() else {}
     from source_language import normalize
     japanese_ui = normalize(cfg.get('source_language')) == 'japanese'
-    target_version = 5 if japanese_ui else 3
+    target_version = 6 if japanese_ui else 3
     if marker.get('ui_text', 0) >= target_version:
         return {'added': 0, 'already_current': True}
     manifest = _verified(project)
     catalog = data/'catalog.json'
     rows = json.loads(catalog.read_text(encoding='utf-8-sig'))
     ids = {row['id'] for row in rows}
-    slots = {(r.get('file'), r.get('location', {}).get('start'), r.get('location', {}).get('end'))
-             for r in rows if r.get('dialect') == 'kirikiri_tjs_ui' and isinstance(r.get('location'), dict)}
+    slots = {(r['file'], r['location']['start'], r['location']['end']): r
+             for r in rows if r.get('usage') == 'ui_label' and is_ui_source(r['file']) and isinstance(r.get('location'), dict)}
     info = manifest.get('source', {})
     additions = []; snapshots = {}; updated = 0
     with open_source(info.get('container_path') or cfg['source']) as source:
@@ -81,7 +83,7 @@ def ensure_ui_catalog(project, cfg, *, dry_run=False):
             for row in entries:
                 slot = (rel, row['location']['start'], row['location']['end'])
                 if slot in slots:
-                    existing = next(r for r in rows if r.get('file') == rel and r.get('location') == row['location'] and r.get('dialect') == row['dialect'])
+                    existing = slots[slot]
                     if existing['id'] != row['id'] or existing['source'] != row['source']:
                         raise KiriError('UI 원문 항목이 변경되었습니다: '+rel)
                     for key in ('native_menu', 'ui_suffix'):
@@ -89,7 +91,7 @@ def ensure_ui_catalog(project, cfg, *, dry_run=False):
                             existing[key] = row[key]; updated += 1
                     continue
                 if row['id'] in ids: raise KiriError('UI 항목 ID가 중복되었습니다: '+rel)
-                additions.append(row); ids.add(row['id']); slots.add(slot)
+                additions.append(row); ids.add(row['id']); slots[slot] = row
     result = {'added':len(additions), 'updated':updated, 'files':len(snapshots), 'already_current':False}
     if dry_run: return dict(result, rows=rows+additions)
     # The marker is committed last. An interrupted run can safely resume using
@@ -118,6 +120,8 @@ def refresh_ui_output(project, cfg):
     from kirikiri_containers import DirectorySource, XP3Archive
     from kirikiri_patch_paths import validate_member_map, plan_patch_members
     from kirikiri_menu_text import render_ui_text
+    from kirikiri_ui_csv import DIALECT, render_ui_csv
+    from replacements import render_symbol_entries
     from translation import read_catalog, cache
     project = Path(project); _verified(project)
     ledger_path = project/'data/kirikiri-output.json'
@@ -135,18 +139,32 @@ def refresh_ui_output(project, cfg):
     from kirikiri_font_support import font_layout_overrides, direct_ui_profile, direct_ui_overlay
     layouts=font_layout_overrides(project,cfg)
     font_profile,direct_originals=direct_ui_profile(project,cfg)
-    ui_rows = [r for r in read_catalog(project) if r.get('dialect') == 'kirikiri_tjs_ui' and r.get('usage') == 'ui_label']
+    ui_rows = [r for r in read_catalog(project) if r.get('dialect') in ('kirikiri_tjs_ui', DIALECT) and r.get('usage') == 'ui_label']
     known = cache(project, cfg)
-    # A refresh must not discard display-only maps from the full renderer.
-    # Require that renderer until this path can rebuild both maps safely.
-    if (any(r.get('ui_readonly_volume') for r in ui_rows) or report.get('ui_route_map')
-            or report.get('ui_chapter_map')):
-        raise KiriError('표시 전용 경로와 장면 제목이 포함되어 전체 패치를 다시 생성해야 합니다.', 'kirikiri_ui_full_render_required')
     missing = [r['id'] for r in ui_rows if r['id'] not in known]
     if missing: raise KiriError('번역하지 않은 UI 항목이 있습니다: '+str(len(missing)))
+    known = render_symbol_entries(ui_rows, known, cfg)
+    route_maps = report.get('ui_route_map', {})
+    chapter_maps = report.get('ui_chapter_map', {})
+    route_text = defaultdict(set)
+    chapter_text = defaultdict(set)
+    for row in ui_rows:
+        if row.get('ui_readonly_volume'):
+            route_text[row['source']].add(known[row['id']]['text'])
+        elif row['file'].casefold().endswith('main/scnlist.tjs'):
+            chapter_text[row['source']].add(known[row['id']]['text'])
+    if route_text and not route_maps:
+        raise KiriError('표시 전용 경로의 기존 적용 위치를 확인할 수 없습니다.', 'kirikiri_ui_full_render_required')
+    for maps, replacements in ((route_maps, route_text), (chapter_maps, chapter_text)):
+        for labels in maps.values():
+            for source in labels.keys() & replacements.keys():
+                values = replacements[source]
+                if len(values) == 1:
+                    labels[source] = next(iter(values))
     grouped = defaultdict(list)
     for row in ui_rows: grouped[row['file']].append(row)
     for rel in direct_originals: grouped.setdefault(rel,[])
+    for rel in route_maps.keys() | chapter_maps.keys(): grouped.setdefault(rel, [])
     edits_by_file = {};direct_by_file={}
     for rel, rows in grouped.items():
         if rel in report.get('ui_assets', {}) or rel in report.get('font_layout', {}):
@@ -157,13 +175,19 @@ def refresh_ui_output(project, cfg):
         raw=snapshot.read_bytes() if snapshot.exists() else direct_originals[rel]
         if rel in direct_originals and raw!=direct_originals[rel]:raise KiriError('UI 글꼴 원본이 일치하지 않습니다: '+rel)
         edits = [dict(row, translation=known[row['id']]['text']) for row in rows if known[row['id']]['text'] != row['source'] and not row.get('native_menu')]
-        rendered = render_ui_text(raw, edits)
+        rendered = render_ui_csv(raw, rel, edits) if rel.lower().endswith('.csv') else render_ui_text(raw, edits)
+        if rel in route_maps:
+            from kirikiri_route_display import patch_route_display
+            rendered = patch_route_display(rendered, route_maps[rel])
+        if rel in chapter_maps:
+            from kirikiri_route_display import patch_chapter_fallback
+            rendered = patch_chapter_fallback(rendered, chapter_maps[rel])
         if rel in direct_originals:
             before=rendered;rendered,unresolved=direct_ui_overlay(rendered,font_profile)
             if unresolved:
                 from job_events import warning
                 warning('kirikiri_direct_font_unresolved','일부 화면 글꼴 경로를 확인하지 못했습니다.',count=unresolved)
-            if rendered!=before:direct_by_file[rel]=dict(source_sha256=hashlib.sha256(raw).hexdigest(),unresolved=unresolved)
+            if rendered!=before:direct_by_file[rel]=dict(source_sha256=hashlib.sha256(raw).hexdigest(),unresolved=unresolved,speaker_fonts=True)
         if rendered != raw:
             members[rel] = rendered; edits_by_file[rel] = edits
         elif rel in report.get('ui_text_edits', {}): members.pop(rel, None)
@@ -195,6 +219,7 @@ def refresh_ui_output(project, cfg):
     map_bytes = native_map_bytes(native_rows)
     map_path, old_map = write_native_map(patch.parent, report, map_bytes)
     record = dict(report, ui_text_edits=edits_by_file, ui_direct_font=direct_by_file, font_layout=layout_hashes, ui_assets=asset_hashes, layout=profile['layout'], member_map=new_mapping, patch_layout=profile,
+                  ui_route_map=route_maps, ui_chapter_map=chapter_maps,
                   ui_native_map=map_record(map_bytes))
     try:
         backup = _store_patch(project, patch, packed, record)

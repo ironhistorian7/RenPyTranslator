@@ -18,6 +18,11 @@ def residual_candidate(entry, cfg, result):
 
 
 def saved_output(source,error,cfg,usage=None,*,input_format=None):
+    if cfg.get('engine')=='kirikiri':
+        from kirikiri_tokens import NAME_ANCHOR_FORMAT
+        # Raw responses with name anchors cannot be replayed using the old
+        # control-only numbering, or using a later set of name approvals.
+        if input_format==NAME_ANCHOR_FORMAT:return None
     _,sep,value=error.partition('; output=')
     if not sep:return None
     try:text=literal_eval(value)
@@ -68,6 +73,9 @@ def saved_output(source,error,cfg,usage=None,*,input_format=None):
             text=prefix+restored+suffix
         else:text=restore_saved(source,text)
     except ValueError:return None
+    if '┻' in text and text != source:
+        from replacements import repair_heart_symbol
+        text=repair_heart_symbol(text,cfg)
     from label_policy import expansion_errors
     from failure_candidates import visible
     from rpgmaker_names import name_only
@@ -119,7 +127,7 @@ def run(project,cfg):
         cfg=input_configuration(cfg,catalog_rows,known)
     elif cfg.get('engine')=='kirikiri':
         from name_review import configuration as review_configuration
-        cfg=review_configuration(project,cfg,catalog_rows)
+        cfg=review_configuration(project,cfg,catalog_rows,prepare_names=True)
     from ui_policy import cached_policy
     ui=cached_policy(project)
     from failure_candidates import classify,names_from,visible

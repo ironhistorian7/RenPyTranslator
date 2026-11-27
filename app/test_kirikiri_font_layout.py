@@ -93,6 +93,40 @@ other.drawText(0,0,text,1);
         self.assertIn(b'with(obj.field) { .drawText(',out)
         self.assertEqual(out.count(b'if (change) lay.font.face = face;'),4)
 
+    def test_bitmap_speaker_subclass_uses_same_face_for_measurement_and_draw(self):
+        source=b'''class SpeakerOverlay extends StyledNameLayer {
+function draw {
+    font.face = "OldSpeakerFont";
+    return super.draw(...);
+}
+function restore() {}
+}
+class MenuOverlay extends ButtonLayer {
+function draw { font.face = "OldSpeakerFont"; return super.draw(...); }
+}'''
+        out,unresolved=patch_direct_ui_font(source,unsupported_direct_faces=['OldSpeakerFont'])
+        self.assertEqual(unresolved,0)
+        self.assertIn(b'function draw(x, y, __rptSpeakerText)',out)
+        self.assertIn(b'if (!__rptSpeakerHasHangul(__rptSpeakerText)) {\n    font.face = "OldSpeakerFont";',out)
+        self.assertIn(b'function processNameText(__rptSpeakerText)',out)
+        fallback=b'font.face = "\\xb9d1\\xc740'
+        self.assertEqual(out.count(fallback),2)
+        measurement=out.index(b'__rptNameResult = super.processNameText(...);')
+        self.assertLess(out.rindex(fallback),measurement)
+        self.assertIn(b'catch(e) { font.face = __rptNameFace; throw e; }',out)
+        self.assertIn(b'class MenuOverlay extends ButtonLayer {\nfunction draw { font.face = "OldSpeakerFont";',out)
+        self.assertEqual(patch_direct_ui_font(source,unsupported_direct_faces=['OldSpeakerFont'],speaker_fonts=False),
+                         (source,0))
+
+    def test_bitmap_speaker_rewrite_rejects_unproven_or_complex_renderer(self):
+        source=(b'class Different extends NameLayer { function draw(a,b,label) { '
+                b'font.face = "ExistingFont"; return super.draw(a,b,label); } }')
+        self.assertEqual(patch_direct_ui_font(source,unsupported_direct_faces=['OtherFont']), (source,0))
+        ambiguous=source.replace(b'function draw',b'function processNameText(label) { use(label); } function draw')
+        self.assertEqual(patch_direct_ui_font(ambiguous,unsupported_direct_faces=['ExistingFont']), (ambiguous,0))
+        patched,_=patch_direct_ui_font(source,unsupported_direct_faces=['ExistingFont'])
+        self.assertIn(b'__rptNameResult = super.draw(a,b,label);',patched)
+
     def test_deferred_mapping_is_rejected(self):
         deferred = PRE.replace(b'curInfo = value != "" ? fontInfo[value] : void;', b'checkUpdate = true;')
         with self.assertRaises(FontLayoutUnsupported):

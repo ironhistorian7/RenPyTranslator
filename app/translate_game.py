@@ -109,9 +109,9 @@ def project_lock(project):
         try:yield
         finally:f.seek(0);msvcrt.locking(f.fileno(),msvcrt.LK_UNLCK,1)
 
-def rebuild(project,cfg):
+def rebuild(project,cfg,*,review_sentences=False):
     from translation_review import run as review_translations
-    review_translations(project,cfg)
+    review_translations(project,cfg,review_sentences=review_sentences)
     from diagnostics import stage
     stage('presentation',project,cfg)
     # Entirely offline: no model, analysis, translation or source extraction.
@@ -396,7 +396,7 @@ Omit the command, or repair --fix, to display help.''')
             stage('translation',project,cfg);translate(project,cfg)
             stage('failed item repair',project,cfg);fix_failed(project,cfg)
             stage('name correction',project,cfg);fix_names(project,cfg)
-            rebuild(project,cfg)
+            rebuild(project,cfg,review_sentences=True)
         elif args.command=='rebuild':rebuild(project,cfg)
         elif args.command=='review':review(project,cfg)
         elif args.command=='catalog':catalog(project,cfg)

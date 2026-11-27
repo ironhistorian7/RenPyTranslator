@@ -189,6 +189,65 @@ class MenuTextTests(unittest.TestCase):
         self.assertEqual([r['source'] for r in rows], ['クイックセーブ'])
         self.assertTrue(rows[0]['native_menu'])
 
+    def test_gallery_button_draw_and_hint_preserve_other_properties(self):
+        raw = ('drawButtonText(target, "簡易", sz); '
+               'drawButtonText(target, 4, face, sz, "詳細"); '
+               'setItemProp("mode", "hint", "表示を切り替え"); '
+               'setItemProp("mode", "storage", "絵.png");').encode('utf-8')
+        rows = extract_ui_text(raw, 'main/custom.tjs', japanese_ui=True)
+        self.assertEqual([r['source'] for r in rows], ['簡易', '詳細', '表示を切り替え'])
+        for row, translated in zip(rows, ('간단히', '자세히', '표시 전환')):
+            row['translation'] = translated
+        self.assertIn('"storage", "絵.png"', render_ui_text(raw, rows).decode('utf-8'))
+        self.assertFalse(extract_ui_text(raw, 'main/custom.tjs'))
+
+    def test_skip_display_and_save_dialog_keep_format_arguments(self):
+        from kirikiri_tokens import protect
+        raw = ('if (win) {var title = "選択肢まで %s".sprintf(value()); '
+               'win.fillRect(0, 0, x, y, color); win.drawText(1, 2, title, color); } '
+               'var _errorInformMessageMap = %[savefail:"保存できません", '
+               'load:%[exp:function(mes){return @"読み込み失敗 (${mes})";}, '
+               'caption:"Warning", storage:"画像.png"]]; '
+               'var elsewhere=%[message:"対象外"]; '
+               'if (win) { var tag = "表示内部"; win.drawText(1, 2, tag, c); routes[tag](); }').encode('utf-8')
+        rows = extract_ui_text(raw, 'system/MainWindow.tjs', japanese_ui=True)
+        self.assertEqual([r['source'] for r in rows], [
+            '選択肢まで %s', '保存できません', '読み込み失敗 (${mes})', 'Warning'])
+        self.assertEqual(protect(rows[0]['source'], 'kirikiri_tjs_ui')[1], ['%s'])
+        rows[0]['translation'] = '선택지까지 %s'
+        self.assertIn(b'%s".sprintf(value())', render_ui_text(raw, rows))
+        rows[0]['translation'] = '선택지까지'
+        with self.assertRaises(ValueError): render_ui_text(raw, rows)
+
+    def test_browser_hints_and_confirmation_ignore_navigation_data(self):
+        raw = ('new KAGMenuItem(w, "RightClick", callback); '
+               'System.inform("ファイルがありません"); '
+               'link(%[exp:"exec()", hint:"無効", storage:"記録.ks"]); '
+               'lookup(%[ hint:"内部設定", key:"識別子" ]);').encode('utf-8')
+        self.assertEqual([r['source'] for r in extract_ui_text(raw, 'sysscn/browswindow.tjs', japanese_ui=True)],
+                         ['ファイルがありません', '無効'])
+        raw = ('function askYesNo(message, caption="確認", yes, no) { '
+               'createButton("はい", 0, 0); call("保存しますか"); }').encode('utf-8')
+        self.assertEqual([r['source'] for r in extract_ui_text(raw, 'system/YesNoDialog.tjs', japanese_ui=True)],
+                         ['確認', 'はい'])
+
+    def test_speech_dialog_localizes_text_without_changing_native_map(self):
+        raw = ('var items=[%[name:"speech", caption:"読み上げ(&S)", exp:"run()"]];').encode('utf-8')
+        rows = extract_ui_text(raw, 'sysscn/speech.tjs', japanese_ui=True)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['ui_suffix'], '(&S)')
+        rows[0]['translation'] = '읽기'
+        self.assertIn(b'(&S)", exp:"run()"', render_ui_text(raw, rows))
+        self.assertEqual(native_caption_pairs(rows), [])
+        raw = ('var dialog=%[title:"音声設定", filter:["実行ファイル|*.exe"], '
+               'name:filename]; var children=%[Speed:%[text:"速さ", cmd:"Handler"], '
+               'Header:"音量", Sample:%[ini:"こんにちは"]];').encode('utf-8')
+        rows = extract_ui_text(raw, 'sysscn/speech_dlg.tjs', japanese_ui=True)
+        self.assertEqual([r['source'] for r in rows], ['音声設定', '実行ファイル', '速さ', '音量'])
+        self.assertEqual(rows[1]['ui_suffix'], '|*.exe')
+        rows[1]['translation'] = '실행 파일'
+        self.assertIn(b'|*.exe', render_ui_text(raw, rows))
+
     def test_utf16_and_changed_source_guard(self):
         raw = b'\xff\xfe' + 'add(PushButton("戻る(&B)", 0));'.encode('utf-16-le')
         rows = extract_ui_text(raw, 'sysscn/exmenuintf.tjs'); rows[0]['translation'] = '뒤로'

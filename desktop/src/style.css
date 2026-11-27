@@ -31,3 +31,19 @@ main{border-radius:0;padding:28px 34px 0}.page-header{border:0;padding-bottom:0;
 .translation-review-source{white-space:pre-wrap;overflow-wrap:anywhere}.translation-review-row{padding:14px 0;border-top:1px solid var(--line)}.translation-review-row textarea{box-sizing:border-box;width:100%;min-height:90px;white-space:pre-wrap}.translation-review-row label{display:block;margin:8px 0}
 
 .inference-devices:empty{display:none}.inference-devices{margin-top:18px}.inference-device{border-top:1px solid var(--line);padding:12px 0}.inference-device h4{margin:0 0 8px;font-size:13px;overflow-wrap:anywhere}.inference-device .settings-row{margin:8px 0!important}.inference-device .help{margin:4px 0}.inference-device button{margin-top:4px}
+.sentence-review-navigation{display:flex;align-items:center;justify-content:flex-end;gap:12px;padding:3px 0 15px;color:var(--muted);font-size:13px}
+.sentence-review-navigation button{min-height:32px;padding:0 12px}
+.sentence-review-navigation span{min-width:65px;text-align:center;font-variant-numeric:tabular-nums}
+.sentence-review-meta{color:var(--muted);font-size:12px;line-height:1.6;overflow-wrap:anywhere}
+.sentence-review-source{margin:10px 0 19px;padding:14px 16px;background:var(--soft);border:1px solid var(--line);border-radius:10px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.65}
+.sentence-review-source>span{display:block;color:var(--muted);font-size:12px;margin-bottom:5px}
+.sentence-review-options{border:0;padding:0;margin:0;min-width:0}
+.sentence-review-options legend{font-size:13px;font-weight:600;margin-bottom:10px}
+.sentence-review-option{display:flex;align-items:flex-start;gap:10px;padding:12px 14px;margin:8px 0;border:1px solid var(--line);border-radius:10px;cursor:pointer;flex-wrap:wrap}
+.sentence-review-option:has(input:checked){border-color:var(--focus);background:var(--selection)}
+.sentence-review-option input{margin:4px 0 0;flex:none}
+.sentence-review-option-content{min-width:0;flex:1;line-height:1.6;overflow-wrap:anywhere;white-space:pre-wrap}
+.sentence-review-option-content small{display:block;margin-top:3px;color:var(--muted);font-size:11px}
+.sentence-review-option textarea{flex:0 0 100%;min-height:75px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--field);color:var(--text);font:inherit;line-height:1.5;white-space:pre-wrap;resize:vertical}
+.sentence-review-option textarea:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
+.sentence-review-count{margin-right:auto;color:var(--muted);font-size:13px}

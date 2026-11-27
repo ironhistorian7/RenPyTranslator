@@ -357,7 +357,7 @@ def kirikiri_terms(project, rows):
     terms = {source: next(iter(values)) for source, values in candidates.items() if len(values) == 1}
     return dict(terms=terms, ambiguous_sources=sorted(s for s in candidates if s not in terms))
 
-def configuration(project, cfg, rows):
+def configuration(project, cfg, rows, *, prepare_names=False):
     """Supply approved, anchored names to translation validation without cache access."""
     is_kirikiri = cfg.get('engine') == 'kirikiri'
     result = kirikiri_terms(project, rows) if is_kirikiri else rpg_terms(project, rows)
@@ -365,7 +365,24 @@ def configuration(project, cfg, rows):
     for source in result['ambiguous_sources']:
         terms.pop(source, None)
     terms.update(result['terms'])
-    if is_kirikiri: return dict(cfg, _person_names=terms)
+    if is_kirikiri:
+        cfg = dict(cfg, _person_names=terms)
+        if prepare_names and not cfg.get('_name_preparation') and not cfg.get('_skip_name_review'):
+            from source_language import normalize
+            if normalize(cfg.get('source_language')) == 'japanese':
+                from kirikiri_name_readings import collect
+                from kirikiri_reviewed_terms import approved_aliases
+                aliases = approved_aliases(project)
+                nameplates = dict(result['terms'])
+                for source in result['ambiguous_sources']:
+                    aliases.pop(source, None)
+                for source in aliases.keys() & nameplates.keys():
+                    if aliases[source] != nameplates[source]:
+                        aliases.pop(source)
+                        nameplates.pop(source)
+                cfg['_kirikiri_name_index'] = collect(rows, cfg, approved_names=aliases,
+                                                      nameplate_names=nameplates)
+        return cfg
     groups = list(cfg.get('_rpg_name_groups', ()))
     groups.extend(result['groups'])
     return dict(cfg, _person_names=terms, _rpg_name_groups=tuple(groups))

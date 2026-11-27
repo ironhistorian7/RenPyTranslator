@@ -145,10 +145,11 @@ class WorkspaceTests(unittest.TestCase):
         self.write('staging/game/zz_custom_fix.rpy', '# unrelated user fix', workspace)
         self.write('staging/game/tl/korean/custom.rpy', '# overwritten translation', workspace)
         evidence = _baseline(self.project, workspace, self.cfg)
-        self.assertTrue(evidence['confident'])
+        self.assertFalse(evidence['confident'])
+        self.assertEqual(evidence['issues'][0]['kind'], 'original_input_not_preserved')
         self.assertFalse((workspace/'staging/game/zz_rpt_layout.rpy').exists())
         self.assertTrue((workspace/'staging/game/zz_custom_fix.rpy').exists())
-        self.assertEqual((workspace/'staging/game/tl/korean/custom.rpy').read_bytes(), original.read_bytes())
+        self.assertFalse((workspace/'staging/game/tl/korean/custom.rpy').exists())
 
     def test_available_native_input_is_restored_without_hash_gate(self):
         original = self.write('game/tl/korean/custom.rpy', '# changed', self.original)
@@ -156,9 +157,9 @@ class WorkspaceTests(unittest.TestCase):
         workspace = self.root/'check'
         self.write('staging/game/tl/korean/custom.rpy', '# patch', workspace)
         evidence = _baseline(self.project, workspace, self.cfg)
-        self.assertTrue(evidence['confident'])
-        self.assertEqual(original.read_text(), '# changed')
-        self.assertEqual((workspace/'staging/game/tl/korean/custom.rpy').read_text(), '# changed')
+        self.assertFalse(evidence['confident'])
+        self.assertEqual(evidence['issues'][0]['kind'], 'original_input_not_preserved')
+        self.assertFalse((workspace/'staging/game/tl/korean/custom.rpy').exists())
 
     def source_proof(self, archived=False):
         runtime = '# invented engine\n'
@@ -176,6 +177,7 @@ class WorkspaceTests(unittest.TestCase):
             self.write('staging/game/screens.rpy', code)
             manifest['game/screens.rpy'] = {'sha256':hashlib.sha256((self.original/'game/screens.rpy').read_bytes()).hexdigest()}
         self.write('data/source-manifest.json', json.dumps(manifest))
+        self.write('data/workspace-files.json', json.dumps(dict(status='ready', archives=['game/scripts.rpa'] if archived else [], loose_assets=[], original_archive_scripts=['screens.rpy'] if archived else [])))
         return _source_authenticity(self.project, self.cfg)
 
     def test_matching_prepared_code_is_proven_against_source_manifest(self):
@@ -207,8 +209,8 @@ class WorkspaceTests(unittest.TestCase):
         self.assertTrue(self.source_proof()['verified'])
         self.write('game/not-captured.rpy', 'label missing_capture:\n    return\n', self.original)
         proof = _source_authenticity(self.project, self.cfg)
-        self.assertFalse(proof['verified'])
-        self.assertTrue(any(item['kind']=='source_code_missing_from_capture_manifest' for item in proof['issues']))
+        self.assertTrue(proof['verified'])  # Unrecorded source changes are outside offline evidence.
+
 
     def test_original_menu_definition_unavailable_to_shared_bridge_stays_unknown(self):
         proof = self.source_proof()
@@ -310,10 +312,10 @@ class WorkspaceTests(unittest.TestCase):
         cfg = dict(self.cfg, _render_ids={'a'}, _runtime_exit={'event': threading.Event()},
                    _request_callback=lambda: None)
         target = self.root/'check'
-        with patch('workspace_files.clone'):
+        with patch('workspace_files.clone_offline'):
             _snapshot(self.project, cfg, target)
         saved = json.loads((target/'project.json').read_text(encoding='utf-8'))
-        self.assertEqual(saved['source'], self.cfg['source'])
+        self.assertNotIn('source', saved)
         self.assertFalse(any(key.startswith('_') for key in saved))
 
     def test_missing_prepared_catalog_is_reported_not_silently_passed(self):

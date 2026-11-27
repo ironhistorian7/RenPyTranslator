@@ -11,6 +11,57 @@ PROTECTED = re.compile(
     r'(?:[A-Za-z]:)?(?:[^\s{}\[\]"<>]+[/\\])+[^\s{}\[\]"<>]*|'
     r'[^\s{}\[\]"<>/\\]+\.(?:png|jpg|jpeg|webp|ogg|mp3|wav|rpyc?|ttf|otf|webm|mp4)\b', re.I)
 
+# Temporary translation-output correction while the reported substitution is investigated.
+def repair_heart_symbol(text, cfg):
+    if '┻' not in text:
+        return text
+    engine = cfg.get('engine', 'renpy')
+    if engine == 'kirikiri':
+        from kirikiri_tokens import spans
+        protected = spans(text, cfg.get('_kirikiri_dialect', 'kag'))
+    elif engine == 'rpgmaker':
+        from rpgmaker_tokens import protected_matches
+        protected = (match.span() for match in protected_matches(text))
+    elif engine == 'unity':
+        from unity_text_formats import protected_tokens
+        protected = (match.span() for match in protected_tokens(text, include_numbers=False))
+    else:
+        from renpy_text_syntax import TOKENS
+        protected = (match.span() for match in TOKENS.finditer(text))
+    ranges = sorted([*protected, *(match.span() for match in PROTECTED.finditer(text))])
+    pieces, position = [], 0
+    for start, end in ranges:
+        if start > position:
+            pieces.append(text[position:start].replace('┻', '♡'))
+        if end > position:
+            pieces.append(text[max(position, start):end])
+            position = end
+    pieces.append(text[position:].replace('┻', '♡'))
+    return ''.join(pieces)
+
+
+def rendered_symbols(row, entry, cfg, *, text=None):
+    """Apply the temporary rule to the translated projection of saved work."""
+    text = entry['text'] if text is None else text
+    if ('┻' not in text or text == row['source'] or
+            entry.get('status') in ('manual_translation', 'name_review', 'ui_original', 'ui_fixed', 'source_fallback', 'literal') or
+            entry.get('model') == 'reviewed override'):
+        return text
+    if cfg.get('engine') == 'kirikiri':
+        from kirikiri_translation import row_config
+        cfg = row_config(cfg, row)
+    return repair_heart_symbol(text, cfg)
+
+
+def render_symbol_entries(rows, known, cfg):
+    repaired = {}
+    for row in rows:
+        entry = known[row['id']]
+        value = rendered_symbols(row, entry, cfg)
+        if value != entry['text']:
+            repaired[row['id']] = dict(entry, text=value)
+    return {**known, **repaired} if repaired else known
+
 def load_rules(path):
     if not path.exists():
         return {}

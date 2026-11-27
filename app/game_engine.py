@@ -1,6 +1,8 @@
 """Cheap structural routing. Unsupported engines never create work or load AI."""
 import json
+import os
 from pathlib import Path
+import re
 from gameloc_vendor import load
 
 RPG_TASKS = ('run', 'retranslate', 'update', 'font', 'names', 'failed', 'display', 'layout', 'check')
@@ -65,6 +67,31 @@ def project_config(path):
     return path, json.loads(path.read_text(encoding='utf-8-sig'))
 
 
+def saved_check_project(source):
+    """Find a check-only project using its registry, without probing the game."""
+    from app_paths import ROOT
+    from automatic import source_key
+
+    source = Path(os.path.abspath(source))
+    key = source_key(source)
+    fallback = re.sub(r'[^\w. -]+', '_', source.name)
+    for parent in (ROOT/'projects', ROOT/'data/projects'):
+        registry = parent/'index.json'
+        entries = json.loads(registry.read_text(encoding='utf-8-sig')) if registry.is_file() else {}
+        relative = Path(entries.get(key, fallback))
+        if relative.is_absolute() or '..' in relative.parts or not relative.parts:
+            continue
+        directory = (parent/relative).resolve()
+        if not directory.is_relative_to(parent.resolve()):
+            continue
+        config = directory/'project.json'
+        if not config.is_symlink() and config.is_file():
+            _, saved = project_config(config)
+            if saved.get('source') and Path(os.path.abspath(saved['source'])) == source:
+                return config
+    raise ValueError('패치 검사를 할 기존 프로젝트나 번역 결과 폴더를 선택하세요.')
+
+
 def inspect(path, source=True, tasks=()):
     if source:
         result = detect(path)
@@ -102,6 +129,8 @@ def dispatch(args, parser):
     if not args.source and not args.project:
         return False
     jobs = args.tasks if args.command=='tasks' else [args.command]
+    if set(jobs or ()) == {'check'} and args.source and not args.project:
+        args.project, args.source = saved_check_project(args.source), None
     info = require(args.source or args.project, bool(args.source), jobs)
     print('Game engine: '+info['engine_label'], flush=True)
     if info['engine']=='renpy':

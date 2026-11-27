@@ -49,9 +49,10 @@ class PortableTests(unittest.TestCase):
         class Text:
             @staticmethod
             def apply_custom_tags(tokens):
-                return [(k,{'India':'인디아'}.get(v,v)) for k,v in tokens]
+                return [(k,config.replace_text(v) if k==0 else v) for k,v in tokens]
         fake=SimpleNamespace(TEXT_TAG=1,text=SimpleNamespace(text=SimpleNamespace(Text=Text)))
-        ns={'renpy':fake,'config':SimpleNamespace(custom_text_tags={})}
+        config=SimpleNamespace(custom_text_tags={},replace_text=lambda v:{'India':'인디아'}.get(v,v))
+        ns=dict(renpy=fake,config=config,_rpt_has_replace_text=True,_rpt_previous_replace=None)
         exec(Path(__file__).with_name('reference_runtime.py').read_text(encoding='utf-8'),ns)
         self.assertEqual(Text.apply_custom_tags([(0,'India'),(1,'rpt_ref'),(0,'India'),(1,'/rpt_ref')]),[(0,'인디아'),(0,'India')])
         text=compose({'kind':'dialogue','source':'Hello [hero!t].'},{'text':'안녕 [hero].'},

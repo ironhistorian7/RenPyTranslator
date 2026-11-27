@@ -88,6 +88,51 @@ class KiriSupportTests(unittest.TestCase):
         self.assertIn(second,saved)
         self.assertEqual(self.cache.read_bytes(),b'cache must remain unchanged')
 
+    def test_layout_reports_omitted_states_and_wholly_unlocalized_screens(self):
+        sprite = 'ui/title@jump%sysbutton;'
+        states = {sprite + state + '.png': png(8, 4, state.encode())
+                  for state in ('normal', 'on', 'over')}
+        declarations = ('type,jump,sysbutton,0,0,8,4\n' + ''.join(
+            f'file,jump,{Path(name).stem},0,0,8,4,{state}\n'
+            for name, state in zip(states, ('normal', 'on', 'over'))))
+        extra_layout = (
+            b'type,tabs,cref,0,0,8,4\n'
+            b'file,tabs,extras@tabs%cref;on,0,0,8,4,on\n'
+            b'type,panel,base,0,0,8,4\n'
+            b'file,panel,extras@panel%base.png,0,0,8,4,\n'
+        )
+        unreviewed = {
+            'gallery/extras@tabs%cref;on.png': png(8, 4, b'unapproved tabs'),
+            'gallery/extras@panel%base.png': png(8, 4, b'unapproved panel'),
+        }
+        updated = self.game / 'updated.xp3'
+        write_xp3(updated, {
+            self.button: self.original, 'ui/title.csv': declarations.encode(), **states,
+            'gallery/extras.csv': extra_layout, **unreviewed,
+        })
+        updated.replace(self.game / 'data.xp3')
+        manifest_file = self.bank / 'manifest.json'
+        manifest = json.loads(manifest_file.read_text(encoding='utf-8'))
+        record = self.data / 'kirikiri-ui-overrides.json'
+        for expected, addition in [('unreviewed', 0), ('partial', 1), ('localized', 3)]:
+            manifest['assets'] = manifest['assets'][:1] + [
+                {'source_sha256': sha(states[name]), 'width': 8, 'height': 4,
+                 'file': 'replacement.png', 'source_names': [name]}
+                for name in list(states)[:addition]
+            ]
+            put_json(manifest_file, manifest)
+            self.assertEqual(set(self.overrides()), {self.button, *list(states)[:addition]})
+            coverage = json.loads(record.read_text(encoding='utf-8'))['report']['image_coverage']
+            self.assertEqual(coverage['screens'], ['gallery/extras.csv', 'ui/title.csv'])
+            self.assertEqual(coverage['controls'], [
+                {'layout': 'gallery/extras.csv', 'control': 'panel', 'type': 'base',
+                 'status': 'unreviewed', 'pending': ['gallery/extras@panel%base.png']},
+                {'layout': 'gallery/extras.csv', 'control': 'tabs', 'type': 'cref',
+                 'status': 'unreviewed', 'pending': ['gallery/extras@tabs%cref;on.png']},
+                {'layout': 'ui/title.csv', 'control': 'jump', 'type': 'sysbutton',
+                 'status': expected, 'pending': sorted(list(states)[addition:])},
+            ])
+
     def test_unknown_locale_writes_nothing(self):
         out = self.root / 'output'
         result = kirikiri_support.locale_output(self.project, out)

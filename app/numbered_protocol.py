@@ -3,7 +3,7 @@ import re
 import json
 from collections import Counter
 
-_HEADER = re.compile(r'(?m)^\[([0-9]+)\][ \t]*')
+_HEADER = re.compile(r'(?m)^\[([0-9]+)(\]|>(?=[ \t\r\n]|$))[ \t]*')
 _ALIASED_HEADER = re.compile(r'(?m)^\[(?:[^\W\d_][^\W_]*_)+([0-9]+)\][ \t]*')
 _PROTOCOL_LIKE = re.compile(r'(?m)^\s*\[[^\]\r\n]*\]|</?target_id\b|```', re.I)
 
@@ -41,8 +41,9 @@ def parse(content, expected_inputs, *, allow_headerless=False, allow_multiline=F
     expected_inputs is a mapping of exact numeric string IDs to source text.
     A numeric line present in any source is ambiguous as a response delimiter;
     both the item before it and the item bearing that ID are rejected. Unknown
-    headers similarly invalidate the preceding item. Output order follows the
-    response. With truncated=True the last numbered record is always discarded;
+    headers similarly invalidate the preceding item. An expected, uniquely
+    numbered [ID> line separates items but its own translation is retried.
+    Output order follows the response. With truncated=True the last numbered record is always discarded;
     JSON and headerless responses are rejected as a whole on truncation.
     """
     expected = set(expected_inputs)
@@ -87,6 +88,8 @@ def parse(content, expected_inputs, *, allow_headerless=False, allow_multiline=F
     for index, header in enumerate(headers):
         key = header.group(1)
         next_header = headers[index + 1] if index + 1 < len(headers) else None
+        if header.group(2) != ']':
+            invalid.add(key)
         # A possible literal source heading cannot establish either boundary.
         if key in source_headers:
             invalid.add(key)

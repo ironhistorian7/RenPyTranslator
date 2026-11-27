@@ -104,6 +104,9 @@ def display_percents(text):
 def compose(row, entry, metadata):
     source = row['source']; target = entry['text']
     if entry.get('status') == 'source_fallback': return target
+    if '┻' in target:
+        from replacements import rendered_symbols
+        target=rendered_symbols(row,entry,{'engine':'renpy'})
     from fixed_names import apply as fixed_names
     target=fixed_names(target,metadata.get('fixed_names',{}))
     if target == source:return target
@@ -122,7 +125,10 @@ def compose(row, entry, metadata):
             terminal.append(match.group()); return ''
         return match.group()
     target = TAG.sub(controls, target)
-    target = close_styles(target)
+    # Guarded references close styles after the engine expands custom tags.
+    # Offline we cannot know whether a built-in name is shadowed by a game tag.
+    if not metadata.get('reference_guard'):
+        target = close_styles(target)
     reference=display_percents(reference_text(source,metadata.get('names',{}) if metadata.get('reference_guard') else {}))
     if metadata.get('reference_guard'):
         return target + '\n{rpt_ref=0.55}{cps=0}' + reference + '{/cps}{/rpt_ref}' + ''.join(terminal)

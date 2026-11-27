@@ -31,11 +31,12 @@ class CompatibilityTests(unittest.TestCase):
     def test_old_instance_reference_hook_keeps_original_english(self):
         class Text:
             def apply_custom_tags(self,tokens):
-                return [(k,v.replace('India',self.name)) for k,v in tokens]
-        fake=SimpleNamespace(TEXT_TAG=1,text=SimpleNamespace(text=SimpleNamespace(Text=Text)))
-        ns=dict(renpy=fake,config=SimpleNamespace(custom_text_tags={}))
+                return tokens
+        fake=SimpleNamespace(TEXT_TAG=1,TEXT_TEXT=0,text=SimpleNamespace(text=SimpleNamespace(Text=Text)))
+        ns=dict(renpy=fake,config=SimpleNamespace(custom_text_tags={}),
+                _rpt_text_replacer=lambda value:value.replace('India','인디아'))
         exec(Path(__file__).with_name('reference_runtime.py').read_text(encoding='utf-8'),ns)
-        text=Text();text.name='인디아'
+        text=Text()
         self.assertEqual(text.apply_custom_tags([(0,'India'),(1,'rpt_ref'),(0,'India'),(1,'/rpt_ref')]),
                          [(0,'인디아'),(0,'India')])
 

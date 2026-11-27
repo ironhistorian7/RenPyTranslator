@@ -135,8 +135,8 @@ async function start(r:Request){
         if(event.event!=='translation_review')addLog(line+'\n',false);
         if(event.event==='translation_review'){
           const review=event.review as TranslationReview;
-          if(review&&typeof review.fingerprint==='string'&&Array.isArray(review.entries))
-            updateJob({translation_review:review,stage:'미번역 항목 확인',eta_seconds:null});
+          if(review&&typeof review.fingerprint==='string'&&((review.kind==='sentence'&&Array.isArray(review.groups))||(!review.kind&&Array.isArray(review.entries))))
+            updateJob({translation_review:review,stage:review.kind==='sentence'?'문장 번역 확인':'미번역 항목 확인',eta_seconds:null});
           return;
         }
         if(event.event==='name_review'){
@@ -250,19 +250,34 @@ route('translationReview',(reply:TranslationReviewReply)=>{
   const review=job.translation_review;
   if(!worker||job.canceling||!translationReviewFile||!review||reply?.fingerprint!==review.fingerprint)
     throw new Error('현재 검토 목록을 다시 확인하세요.');
-  if(!Array.isArray(reply.entries)||reply.entries.length!==review.entries.length)
-    throw new Error('검토 목록이 변경되었습니다.');
-  const values=new Map<string,{id:string;apply:boolean;text:string}>();
-  for(const entry of reply.entries){
-    if(!entry||typeof entry.id!=='string'||typeof entry.apply!=='boolean'||typeof entry.text!=='string'||values.has(entry.id))
-      throw new Error('검토 항목을 확인하세요.');
-    values.set(entry.id,entry);
+  let payload:TranslationReviewReply;
+  if(review.kind==='sentence'){
+    if(reply.kind!=='sentence'||!Array.isArray(reply.selections))throw new Error('검토 항목을 확인하세요.');
+    const groups=new Map(review.groups.map(group=>[group.id,group]));
+    const seen=new Set<string>();
+    for(const item of reply.selections){
+      if(!item||typeof item.id!=='string'||seen.has(item.id))throw new Error('검토 항목을 확인하세요.');
+      const group=groups.get(item.id);
+      if(!group||(('variant' in item)===('text' in item)))throw new Error('검토 항목을 확인하세요.');
+      if('variant' in item){if(typeof item.variant!=='string'||!group.variants.some(variant=>variant.id===item.variant))throw new Error('번역 선택을 확인하세요.');}
+      else if(typeof item.text!=='string')throw new Error('직접 입력을 확인하세요.');
+      seen.add(item.id);
+    }
+    payload={kind:'sentence',fingerprint:review.fingerprint,selections:reply.selections.map(item=>'variant' in item?{id:item.id,variant:item.variant}:{id:item.id,text:item.text})};
+  }else{
+    if(reply.kind==='sentence'||!Array.isArray(reply.entries)||reply.entries.length!==review.entries.length)throw new Error('검토 목록이 변경되었습니다.');
+    const values=new Map<string,{id:string;apply:boolean;text:string}>();
+    for(const entry of reply.entries){
+      if(!entry||typeof entry.id!=='string'||typeof entry.apply!=='boolean'||typeof entry.text!=='string'||values.has(entry.id))throw new Error('검토 항목을 확인하세요.');
+      values.set(entry.id,entry);
+    }
+    if(review.entries.some(entry=>!values.has(entry.id)))throw new Error('검토 항목을 확인하세요.');
+    payload={fingerprint:review.fingerprint,entries:review.entries.map(entry=>values.get(entry.id)!)};
   }
-  if(review.entries.some(entry=>!values.has(entry.id)))throw new Error('검토 항목을 확인하세요.');
   const temporary=translationReviewFile+'.tmp';
-  writeFileSync(temporary,JSON.stringify({fingerprint:review.fingerprint,entries:review.entries.map(entry=>values.get(entry.id)!)}),'utf8');
+  writeFileSync(temporary,JSON.stringify(payload),'utf8');
   renameSync(temporary,translationReviewFile);
-  updateJob({translation_review:null,stage:'직접 입력 저장 중'});
+  updateJob({translation_review:null,stage:review.kind==='sentence'?'문장 번역 저장 중':'직접 입력 저장 중'});
   return job;
 });
 route('reset',()=>{

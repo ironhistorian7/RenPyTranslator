@@ -3,6 +3,7 @@
 The caller selects source members; this module never scans a game or archive.
 """
 
+import csv
 import hashlib
 import json
 import re
@@ -17,7 +18,46 @@ class KiriUIAssetError(ValueError):
 def is_button_asset(rel):
     """Recognize KiriKiri's percent-button PNG naming convention."""
     name = str(rel).replace("\\", "/").rsplit("/", 1)[-1].casefold()
-    return "%button;" in name and name.endswith(".png")
+    return ("%button;" in name or "%sysbutton;" in name) and name.endswith(".png")
+
+
+def image_coverage(layouts, available, localized):
+    """Inventory display layers from layout CSVs, including unlocalized screens."""
+    from kirikiri_text import _decode
+
+    available = {name.casefold() for name in available}
+    localized = {name.casefold() for name in localized}
+    screens = []
+    groups = []
+    for layout, raw in sorted(layouts.items()):
+        try:
+            text, _, _ = _decode(raw)
+            rows = list(csv.reader(text.splitlines(), strict=True))
+        except (ValueError, csv.Error):
+            continue
+        screen = PurePosixPath(layout)
+        controls = {row[1]: row[2] for row in rows if len(row) >= 3 and row[0].casefold() == 'type'}
+        if not controls:
+            continue
+        screens.append(layout)
+        paths = {}
+        for row in rows:
+            if len(row) < 3 or row[0].casefold() != 'file' or row[1] not in controls:
+                continue
+            filename = row[2]
+            if not filename.casefold().endswith('.png'):
+                filename += '.png'
+            if not row[2] or any(c in filename for c in '/\\:\0'):
+                continue
+            path = str(screen.with_name(filename))
+            if path.casefold() in available:
+                paths.setdefault(row[1], set()).add(path)
+        for control, members in sorted(paths.items()):
+            pending = sorted(name for name in members if name.casefold() not in localized)
+            status = 'localized' if not pending else 'unreviewed' if len(pending) == len(members) else 'partial'
+            groups.append({'layout': layout, 'control': control, 'type': controls[control],
+                           'status': status, 'pending': pending})
+    return {'screens': screens, 'controls': groups}
 
 
 def _dimensions(data):

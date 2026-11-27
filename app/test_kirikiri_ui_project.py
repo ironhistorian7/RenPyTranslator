@@ -1,4 +1,6 @@
+import csv
 import hashlib
+import io
 import json
 import tempfile
 import unittest
@@ -100,6 +102,68 @@ class UIProjectTests(unittest.TestCase):
             rows=json.loads((project/'data/catalog.json').read_text(encoding='utf-8-sig'))
             self.assertEqual([r['source'] for r in rows if r.get('usage')=='ui_label'],['Start'])
             self.assertTrue((project/'data/kirikiri-source/system/Menus.tjs').is_file())
+
+    def test_existing_project_adds_gallery_display_fields_and_preserves_csv_structure(self):
+        from kirikiri_text import _decode
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            game = root / 'game'
+            game.mkdir()
+            (game / 'game.exe').touch()
+            scene = '窓の外に雨が降ります。\r\n'.encode('cp932')
+            write_xp3(game / 'data.xp3', {'start.ks': scene})
+            project = root / 'project'
+            cfg = {'source': str(game), 'source_language': 'japanese',
+                   'language': 'korean', 'engine': 'kirikiri'}
+            prepare(project, cfg)
+            catalog = project / 'data/catalog.json'
+            existing = json.loads(catalog.read_text(encoding='utf-8-sig'))
+            cache_file = project / 'data/translations.jsonl'
+            cache_file.write_bytes(b'previous cache bytes\n')
+            known = {row['id']: {'text': '창밖에 비가 내립니다.'} for row in existing}
+            first = render(project, cfg, rows=existing, known=known)
+            with DirectorySource(first.parent) as source:
+                old_scene = XP3Archive(source, first.name).read('start.ks')
+
+            lists = {
+                'main/soundlist.csv': ('# Keep this header\r\n'
+                                       'music_01.ogg,090,"曲名, ""朝""","説明, 種類"\r\n'),
+                'main/scenelist.csv': 'chapter00,scene01,0040,thumb01,"回想, 一覧",route0\r\n',
+                'main/movielist.csv': 'intro,opening.mpg,0030,thumb02,紹介映像\r\n',
+            }
+            write_xp3(game / 'patch.xp3', {
+                name: text.encode('cp932') for name, text in lists.items()
+            })
+            marker_file = project / 'data/catalog-format.json'
+            marker = json.loads(marker_file.read_text(encoding='utf-8-sig'))
+            marker_file.write_text(json.dumps(dict(marker, ui_text=5)), encoding='utf-8')
+            self.assertEqual(ensure_ui_catalog(project, cfg, dry_run=True)['added'], 4)
+            self.assertEqual(ensure_ui_catalog(project, cfg)['added'], 4)
+            self.assertTrue(ensure_ui_catalog(project, cfg)['already_current'])
+            rows = json.loads(catalog.read_text(encoding='utf-8-sig'))
+            self.assertEqual(rows[:len(existing)], existing)
+            self.assertEqual(cache_file.read_bytes(), b'previous cache bytes\n')
+            display = {'曲名, "朝"': '곡명, "아침"', '説明, 種類': '설명, 종류',
+                       '回想, 一覧': '회상, 목록', '紹介映像': '소개 영상'}
+            ui = [row for row in rows if row['usage'] == 'ui_label']
+            self.assertEqual({row['source'] for row in ui}, set(display))
+            known.update({row['id']: {'text': display[row['source']]} for row in ui})
+            with patch('translation.cache', return_value=known):
+                packed = render(project, cfg, rows=rows)
+            self.assertEqual(static_check(project, cfg)['status'], 'passed')
+            report = json.loads((project / 'data/kirikiri-output.json').read_text(encoding='utf-8'))
+            inverse = {logical: member for member, logical in report['member_map'].items()}
+            with DirectorySource(packed.parent) as source:
+                archive = XP3Archive(source, packed.name)
+                self.assertEqual(archive.read(inverse['start.ks']), old_scene)
+                for name, original in lists.items():
+                    actual = _decode(archive.read(inverse[name]))[0]
+                    old_fields = list(csv.reader(io.StringIO(original)))
+                    new_fields = list(csv.reader(io.StringIO(actual)))
+                    expected = [[display.get(field, field) for field in row] for row in old_fields]
+                    self.assertEqual(new_fields, expected)
+                    self.assertEqual(actual.count('\r\n'), original.count('\r\n'))
+            self.assertEqual(cache_file.read_bytes(), b'previous cache bytes\n')
 
     def test_upgrade_marker_one_and_native_conflict(self):
         from kirikiri_ui_text_support import native_map_bytes

@@ -128,6 +128,8 @@ def create(project, source, selection=None):
     original_scripts = script_archive(extracted, game)
     # Reference inputs are assets only. Runtime bridge excludes external code.
     selection.update(status='ready', original_archive_scripts=original_scripts,
+                     original_archive_code=sorted(path.relative_to(game).as_posix() for path in extracted
+                                                  if path.suffix.lower() in CODE),
                      script_archive_bytes=(game / SCRIPT_ARCHIVE).stat().st_size)
     save_json(project / 'data' / RECORD, selection)
     print('Workspace: %d files copied; %d assets/archives not copied (%.2f GiB); script archive %.2f MiB' %
@@ -140,6 +142,8 @@ def command(project, launcher, args):
     """Legacy full workspaces keep their existing command unchanged."""
     data = metadata(project)
     if data is None:
+        return [str(launcher), str(project / 'staging'), *args]
+    if data.get('validation_offline'):
         return [str(launcher), str(project / 'staging'), *args]
     assets = Path(data['source_game'])
     if (data['loose_assets'] or data['archives']) and not assets.is_dir():
@@ -161,6 +165,10 @@ def clone(project, target):
         current.update(source_root=existing['source_root'], source_game=existing['source_game'],
                        loose_assets=existing['loose_assets'], archives=existing['archives'],
                        original_archive_scripts=existing['original_archive_scripts'])
+        if 'original_archive_code' in existing:
+            current['original_archive_code'] = existing['original_archive_code']
+        else:
+            current.pop('original_archive_code', None)
         save_json(target / 'data' / RECORD, current)
         # No recovered source is needed for compiled original archive entries.
         # Reuse the input project's exact compact archive, not its generated nodes.
@@ -168,6 +176,31 @@ def clone(project, target):
         for path in extracted:
             if path.suffix.lower() in SCRIPTS and path.exists():
                 path.unlink()
+
+
+
+def clone_offline(project, target):
+    """Copy prepared inputs only, without resolving or opening the input game."""
+    source = project / 'staging'
+    for path in (project, source):
+        if path.is_symlink() or path.is_junction():
+            raise ValueError('Linked validation workspace: ' + str(path))
+    selection = plan(source, require_runtime=False)
+    target_stage = target / 'staging'
+    for name in selection['copied_files']:
+        dest = target_stage / name
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source / name, dest)
+    compact = source / 'game' / SCRIPT_ARCHIVE
+    if compact.is_file():
+        dest = target_stage / 'game' / SCRIPT_ARCHIVE
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(compact, dest)
+    original = metadata(project) or {}
+    data = {key: original[key] for key in ('status', 'loose_assets', 'archives',
+            'original_archive_scripts', 'original_archive_code') if key in original}
+    data['validation_offline'] = True
+    save_json(target / 'data' / RECORD, data)
 
 
 def external_archives(project):

@@ -270,6 +270,10 @@ def validate_text(source, target, cfg, *, check_link_content=False, language_det
         return tokens,''.join(visible),named_formats
     source_tokens,source_visible,source_named=token_view(source)
     target_tokens,target_visible,target_named=token_view(target)
+    # Escaped brackets and complete interpolations were removed by token_view.
+    # A new bare '[' still reaches Ren'Py's interpolation parser at runtime.
+    if target_visible.count('[') > source_visible.count('['):
+        errors.append('unclosed interpolation')
     if token_signature(source_tokens) != token_signature(target_tokens):
         errors.append('markup mismatch')
     if check_link_content and populated_links(source) - populated_links(target):
@@ -612,7 +616,13 @@ def translate_batch(rows, context, cfg, retry_note=''):
     from token_recovery import prepare_renpy_source, strip_visual_styles, restore_output, restore_prepared_renpy_output
     from label_policy import context_for, label_batch, expansion_errors
     inputs = []; protected = {}; wrappers = {}; source_cores = {}; style_plans = {}; rpg_plans = {}; rpg_styles = {}
+    kirikiri_source_spans = {}
+    kirikiri = cfg.get('engine') == 'kirikiri'
+    name_index = cfg.get('_kirikiri_name_index') if kirikiri and japanese_policy and not cfg.get('_name_preparation') else None
     for index, row in enumerate(rows):
+        row_cfg = cfg
+        names = []
+        name_hints = {}
         if cfg.get('engine')=='rpgmaker':
             from rpgmaker_tokens import split_outer_controls
             prefix,core,suffix=split_outer_controls(row['source'])
@@ -621,10 +631,15 @@ def translate_batch(rows, context, cfg, retry_note=''):
             core=rpg_plans[row['id']]['text']
             from rpgmaker_preprocessing import prepare as prepare_rpg_styles
             core,rpg_styles[row['id']]=prepare_rpg_styles(core)
-        elif cfg.get('engine')=='kirikiri':
+        elif kirikiri:
             from kirikiri_ruby import prepare as prepare_ruby, REVISION as RUBY_REVISION
             from kirikiri_translation import row_config
-            core,ruby_readings,ruby_plan=prepare_ruby(row['source'],row_config(cfg,row))
+            row_cfg=row_config(cfg,row)
+            core,ruby_readings,ruby_plan=prepare_ruby(row['source'],row_cfg)
+            if name_index:
+                from kirikiri_name_readings import evidence_and_names
+                ruby_readings,names=evidence_and_names(row['source'],row_cfg,name_index,
+                                                       prepared=(core,ruby_readings,ruby_plan))
             prefix=suffix=''
         elif unity:
             core=row['source']
@@ -634,20 +649,21 @@ def translate_batch(rows, context, cfg, retry_note=''):
             prefix=suffix=''
         wrappers[row['id']]=(prefix,suffix)
         source_cores[row['id']]=core
-        if cfg.get('engine') in ('rpgmaker','kirikiri','unity'):
-            row_cfg=cfg
-            if cfg.get('engine')=='kirikiri':
-                from kirikiri_translation import row_config
-                row_cfg=row_config(cfg,row)
-            text,tokens=protect(core,row_cfg,unity_visible_digits=unity)
+        if rpg or kirikiri or unity:
+            if names:
+                from kirikiri_tokens import protect_names
+                text,tokens,source_spans,name_hints=protect_names(core,row_cfg,names)
+                kirikiri_source_spans[row['id']]=source_spans
+            else:text,tokens=protect(core,row_cfg,unity_visible_digits=unity)
             markers=['<rpt%03d/>'%i for i in range(len(tokens))]
         else:
             plan=style_plans[row['id']]
             text,tokens=plan['protected_text'],plan['functional_tokens'];markers=plan['wire_markers']
         protected[row['id']] = tokens
         hint_markers={'<rpt%03d/>'%i:marker for i,marker in enumerate(markers)}
+        variable_hints={hint_markers[key]:value for key,value in placeholder_hints(tokens,cfg.get('_names',{})).items()}
         inputs.append({'id': str(index), 'kind': row['kind'], 'usage':row.get('usage',row['kind']), 'speaker':row.get('speaker','unknown'), 'text':text,
-                       'name_hints':{hint_markers[key]:value for key,value in placeholder_hints(tokens,cfg.get('_names',{})).items()},
+                       'name_hints':{**variable_hints,**name_hints},
                        'movable_placeholders':[markers[i] for i,t in enumerate(tokens) if movable_token(t)]})
         if cfg.get('engine')=='kirikiri' or unity:inputs[-1]['movable_placeholders']=[]
         if cfg.get('engine')=='kirikiri' and ruby_readings:
@@ -738,7 +754,7 @@ def translate_batch(rows, context, cfg, retry_note=''):
     for plain_plan in plain_retries.values():
         relevant_glossary.update(plain_plan['glossary'])
     from name_translation import occurrences
-    person_names={k:v for k,v in cfg.get('_person_names',{}).items() if any(occurrences(r['source'],k) for r in rows)}
+    person_names={k:v for k,v in cfg.get('_person_names',{}).items() if any(occurrences(r['source'],k) for r in rows)} if name_index is None else {}
     from generic_protocol import INSTRUCTION as json_instruction
     system = (language_instruction(cfg)+'You translate game text into Korean from its original language. Translate EVERY input item fully. '
         +('Return only numbered [ID] translations. IDs must be copied exactly. Never merge or omit items. ' if hy_model else json_instruction+' ')+
@@ -770,6 +786,8 @@ def translate_batch(rows, context, cfg, retry_note=''):
                    'Keep each input item separate even when the background explains a later event.')
     if any(protected[row['id']] for row in rows if row['id'] not in plain_retries):
         system+='\nPreserve each input placeholder exactly once. IDs in movable_placeholders represent named variables and may move for Korean word order. Keep all other placeholders in their original relative order. Never invent a placeholder or copy one from another item.'
+    if kirikiri_source_spans:
+        system+='\nname_hints gives the Korean reading of a placeholder for context and particles. Preserve the placeholder itself exactly; do not write its reading separately.'
     if plain_retries:
         system+='\nKeep these readable name/number values spelled exactly as supplied, allowing Korean word order and particles: '+json.dumps(cfg['_rpg_plain_values'],ensure_ascii=False)
     if correction and not plain_correction:
@@ -840,6 +858,8 @@ def translate_batch(rows, context, cfg, retry_note=''):
                           'Return only [ID] followed by the translation, using the exact input ID.\n'))
                 if person_names:prompt+='Personal name spellings: '+json.dumps(person_names,ensure_ascii=False)+'\n'
                 if relevant_glossary:prompt+='Applicable terms: '+json.dumps(relevant_glossary,ensure_ascii=False)+'\n'
+                if kirikiri_source_spans and active_inputs[0].get('name_hints'):
+                    prompt+='Name placeholder readings for context and particles (preserve each placeholder itself exactly; do not write the reading separately): '+json.dumps(active_inputs[0]['name_hints'],ensure_ascii=False)+'\n'
                 if japanese_policy:
                     from hy_backend import japanese_general_instruction
                     prompt+=japanese_general_instruction(dict(cfg,_japanese_retry_attempt=max(
@@ -1114,7 +1134,10 @@ def translate_batch(rows, context, cfg, retry_note=''):
                     value=escaped
                 if japanese_policy and row.get('dialect')=='kagex_psb':
                     from kirikiri_layout import recover_linebreak_markers
-                    recovered=recover_linebreak_markers(source_cores[row['id']],value,protected[row['id']])
+                    core=source_cores[row['id']]
+                    source_spans=kirikiri_source_spans.get(row['id'])
+                    source_tokens=protected[row['id']] if source_spans is None else [core[a:b] for a,b in source_spans]
+                    recovered=recover_linebreak_markers(core,value,source_tokens,source_spans=source_spans)
                     if recovered is not None:
                         value,inserted=recovered
                         if inserted:
@@ -1144,6 +1167,9 @@ def translate_batch(rows, context, cfg, retry_note=''):
                 validation_cfg=row_config(validation_cfg,row)
             if unity:
                 validation_cfg=dict(validation_cfg,_unity_text_kind=row.get('unity_format'))
+            if '┻' in text and text != row['source']:
+                from replacements import repair_heart_symbol
+                text=repair_heart_symbol(text,validation_cfg)
             if japanese_policy:
                 from japanese_output_policy import prepare_output
                 cleaned,residue=prepare_output(row['source'],text,validation_cfg)
@@ -1194,7 +1220,12 @@ def translate_batch(rows, context, cfg, retry_note=''):
                 if candidate is not None:failure['candidate']=candidate
             if correction:failure['correction_failure']=correction_failure or 'structure'
             failure['retry_attempt']=summary['attempts'].get(row['id'],cfg.get('_item_retry_attempt',0))
-            if cfg.get('engine')=='kirikiri':failure['input_format']='kirikiri_reading_v2' if japanese_policy else 'kirikiri_protected_v1'
+            if kirikiri:
+                if text is None and row['id'] in kirikiri_source_spans:
+                    from kirikiri_tokens import NAME_ANCHOR_FORMAT
+                    failure['input_format']=NAME_ANCHOR_FORMAT
+                else:
+                    failure['input_format']='kirikiri_reading_v2' if japanese_policy else 'kirikiri_protected_v1'
             elif unity:failure['input_format']=INPUT_FORMAT
             elif cfg.get('engine')!='rpgmaker':failure['input_format']='renpy_visual_stripped_v1'
             elif any(wrappers[row['id']]):failure['error']='Wrapper-stripped: '+error
@@ -1294,13 +1325,13 @@ def translate(project, cfg, sample=False):
         from ui_policy import apply_policy
         known=apply_policy(project,rows,known,preserve_choices=True)
     if all(row['id'] in known for row in rows if selection is None or row['id'] in selection):
-        return _translate(project,cfg,sample,rows,known)
+        return _translate(project,cfg,sample,rows,known,all_rows=rows)
     from runtime_recovery import run
-    return run(project,cfg,lambda active:_translate(project,active,sample,rows,known),
+    return run(project,cfg,lambda active:_translate(project,active,sample,rows,known,all_rows=rows),
                lambda:len(known))
 
 
-def _translate(project, cfg, sample=False, rows=None, known=None):
+def _translate(project, cfg, sample=False, rows=None, known=None, *, all_rows=None):
     from term_memory import TermMemory
     from name_hints import ensure_metadata
     from job_events import translation_tracker
@@ -1310,9 +1341,13 @@ def _translate(project, cfg, sample=False, rows=None, known=None):
     stage('translation',project,cfg)
     from name_translation import mapping
     cfg['_person_names']=mapping(project) if cfg.get('engine') not in ('rpgmaker','kirikiri','unity') else {}
-    if rows is None:rows=read_catalog(project)
+    if rows is None:
+        rows=read_catalog(project)
+        if all_rows is None:all_rows=rows
     if known is None:known=cache(project,cfg)
-    all_rows=read_catalog(project) if cfg.get('engine')=='rpgmaker' else rows
+    if all_rows is None:
+        all_rows=read_catalog(project) if cfg.get('engine') in ('rpgmaker','kirikiri') else rows
+    selection=set(cfg['_translation_selection']) if '_translation_selection' in cfg else None
     if cfg.get('engine')=='rpgmaker':
         from name_review import configuration
         cfg=configuration(project,cfg,all_rows)
@@ -1324,7 +1359,8 @@ def _translate(project, cfg, sample=False, rows=None, known=None):
         cfg['_rpg_representatives']=representatives(project,cfg,all_rows,known)
     elif cfg.get('engine')=='kirikiri':
         from name_review import configuration
-        cfg=configuration(project,cfg,all_rows)
+        has_pending=any(row['id'] not in known and (selection is None or row['id'] in selection) for row in rows)
+        cfg=configuration(project,cfg,all_rows,prepare_names=has_pending)
     actor_ids={r['id'] for r in rows if Path(r.get('file','')).name=='Actors.json'} if cfg.get('engine')=='rpgmaker' else set()
     cfg['_names']=ensure_metadata(project,rows)['names'] if cfg.get('engine') not in ('rpgmaker','kirikiri','unity') else {}
     memory=TermMemory(rows,known)
@@ -1334,7 +1370,6 @@ def _translate(project, cfg, sample=False, rows=None, known=None):
         # Beginning, later scenes, hyperlinks and UI all represented.
         chosen=dialogue[:12]+dialogue[len(dialogue)//2:len(dialogue)//2+8]+[r for r in dialogue if '{a=' in r['source']][:4]+[r for r in rows if r['kind']=='string'][:12]
         ids={r['id'] for r in chosen}; rows=[r for r in rows if r['id'] in ids]
-    selection=set(cfg['_translation_selection']) if '_translation_selection' in cfg else None
     pending=[r for r in rows if r['id'] not in known and (selection is None or r['id'] in selection)]
     units={row['id']:max(1,source_units(row['source'])) for row in pending} if tracker.units is None else None
     tracker.begin(rows,pending,known,units)

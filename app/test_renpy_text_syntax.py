@@ -64,6 +64,13 @@ class RenpyTextSyntaxTests(unittest.TestCase):
         self.assertEqual(TOKENS.findall('〖missing|close'), [])
         self.assertEqual(TOKENS.findall('〖base{b}tag{/b}|reading〗'), ['{b}', '{/b}'])
 
+    def test_translation_rejects_new_unclosed_interpolation(self):
+        from translation import validate_text
+        cfg = {'engine': 'renpy'}
+        self.assertIn('unclosed interpolation', validate_text('Example.', '예시 [4> 잘못된 줄!', cfg))
+        self.assertEqual(validate_text('Example [[4> literal.', '예시 [[4> 문자.', cfg), [])
+        self.assertEqual(validate_text('Example [names[0]].', '예시 [names[0]].', cfg), [])
+
     def test_match_records_and_pattern_like_operations(self):
         text = 'x [names[0]] y {w}'
         match = TOKENS.search(text)

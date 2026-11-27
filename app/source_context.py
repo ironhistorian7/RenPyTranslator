@@ -55,7 +55,7 @@ def relative_source(name):
 
 
 class SourceContext:
-    def __init__(self, rows, project=None, cfg=None):
+    def __init__(self, rows, project=None, cfg=None, *, load_notes=True):
         self.groups = defaultdict(list); self.positions = {}; self.keys = {}
         template_locations = {}; script_bounds = {}; note_rows = []
         for row in rows:
@@ -77,7 +77,8 @@ class SourceContext:
                 index = bisect_right(headers, row.get('line', -1)) - 1
                 if index >= 0:
                     location = locations[index]
-            note_rows.append(dict(row,source_file=location[0],source_line=location[1]) if all(location) else row)
+            if load_notes:
+                note_rows.append(dict(row,source_file=location[0],source_line=location[1]) if all(location) else row)
             block = LABEL_HASH.sub('', row.get('block', ''))
             key = (file, row.get('kind'), row.get('usage',row.get('kind')), block)
             if (cfg or {}).get('engine') == 'kirikiri' and row.get('context_scope') is not None:
@@ -103,7 +104,7 @@ class SourceContext:
             self.positions[row['id']] = len(self.groups[key])
             self.groups[key].append(row)
         self.notes = None
-        if project is not None:
+        if project is not None and load_notes:
             from context_notes import ContextNotes
             self.notes = ContextNotes(project, cfg or {}, note_rows)
 

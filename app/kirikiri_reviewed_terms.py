@@ -4,11 +4,9 @@ import re
 from pathlib import Path
 
 
-def apply(project, rows, known, cfg):
-    from source_language import normalize
-    if cfg.get('engine') != 'kirikiri' or normalize(cfg.get('source_language')) != 'japanese': return known
+def _load_rules(project):
     path=Path(project)/'data/reviewed-terms.json'
-    if not path.is_file(): return known
+    if not path.is_file(): return []
     data=json.loads(path.read_text(encoding='utf-8-sig'))
     if not isinstance(data,dict) or not isinstance(data.get('rules'),list):
         raise ValueError('검토 용어 파일의 rules 형식이 올바르지 않습니다.')
@@ -22,6 +20,28 @@ def apply(project, rows, known, cfg):
             or any(c in target for c in '{}[]%\r\n')):
             raise ValueError('검토 용어의 원문, 번역 또는 제외어가 올바르지 않습니다.')
         rules.append((source,variants,target,exclude))
+    return rules
+
+
+def approved_aliases(project):
+    """Reuse explicitly grouped kana and kanji spellings with no exclusions."""
+    from collections import defaultdict
+    candidates = defaultdict(set)
+    for sources, _, target, exclusions in _load_rules(project):
+        if exclusions:
+            continue
+        readings = [source for source in sources if re.fullmatch(r'[ぁ-ゖァ-ヺーｦ-ﾟ]+', source)]
+        originals = [source for source in sources if re.search(r'[㐀-鿿]', source)]
+        if readings and originals:
+            for source in readings + originals:
+                candidates[source].add(target)
+    return {source: next(iter(targets)) for source, targets in candidates.items() if len(targets) == 1}
+
+
+def apply(project, rows, known, cfg):
+    from source_language import normalize
+    if cfg.get('engine') != 'kirikiri' or normalize(cfg.get('source_language')) != 'japanese': return known
+    rules = _load_rules(project)
     if not rules:return known
     from kirikiri_ruby import prepare
     from kirikiri_tokens import readable, spans

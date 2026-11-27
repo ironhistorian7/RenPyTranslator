@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import os
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -121,6 +122,75 @@ class TranslationReviewTests(unittest.TestCase):
     def test_noninteractive_fails_explicitly(self):
         with patch('translation_review.sys.stdin.isatty',return_value=False):
             with self.assertRaisesRegex(ValueError,'GUI'):review._console_reply(self.review)
+
+    def test_sentence_selection_after_manual_review_reaches_rendered_patch(self):
+        from translation import cache, catalog, fingerprint, render, rendered_text
+
+        cfg = dict(self.cfg, engine='renpy', language='korean', source_language='english')
+        data = self.project / 'data'
+        template = data / 'templates' / 'chapter.rpy'
+        template.parent.mkdir()
+        source = 'Wait here for [name].'
+        speeches = [('room_00000001', 'mira', source), ('room_00000002', 'mira', source),
+                    ('room_00000003', 'mira', source), ('room_00000004', 'noah', source),
+                    ('room_00000005', 'mira', 'Wait here for [name]. It is late.'),
+                    ('room_00000006', 'mira', 'Wait here for [name]. It is late.'),
+                    ('exit_00000007', 'mira', source)]
+        template.write_text(''.join(f'translate korean {block}:\n    # {speaker} "{line}"\n'
+                                    f'    {speaker} ""\n\n' for block, speaker, line in speeches), encoding='utf-8')
+        rows = catalog(self.project, cfg)
+        texts = [source, '여기서 [name]을 기다려.', '여기에서 [name]을 기다리세요.',
+                 '여기서 [name]을 기다리십시오.', '[name]을 기다려. 시간이 늦었어.',
+                 '[name]을 기다리세요. 늦었어요.', '여기서 [name]을 기다려요.']
+        records = [dict(id=row['id'], source=row['source'], text=text, fingerprint=fingerprint(cfg),
+                        model='test', status='source_fallback' if i == 0 else 'translated', context_scope='room')
+                   for i, (row, text) in enumerate(zip(rows, texts))]
+        cache_file = data / 'translations.jsonl'
+        initial = ''.join(json.dumps(row, ensure_ascii=False) + '\n' for row in records).encode('utf-8')
+        cache_file.write_bytes(initial)
+        reply_path = data / 'reply.json'
+        pending = []
+        manual = '[name]을 여기서 기다려 줘.'
+
+        def reply(request):
+            pending.append(request)
+            key = request['fingerprint']
+            if 'entries' in request:
+                self.assertEqual([entry['id'] for entry in request['entries']], [rows[0]['id']])
+                return dict(fingerprint=key, entries=[dict(id=rows[0]['id'], apply=True, text=manual)])
+            self.assertEqual(cache(self.project, cfg)[rows[0]['id']]['text'], manual)
+            self.assertEqual(len(request['groups']), 1)
+            group = request['groups'][0]
+            self.assertEqual(group['source'], source)
+            self.assertEqual([item['text'] for item in group['variants']], [manual, texts[1], texts[2]])
+            self.assertEqual(group['variants'][0]['editable_count'], 0)
+            if len(pending) == 2:
+                return dict(kind='sentence', fingerprint=key,
+                            selections=[dict(id=group['id'], text='여기서 기다려.')])
+            self.assertEqual(key, pending[1]['fingerprint'])
+            self.assertIn('형식', request['error'])
+            return dict(kind='sentence', fingerprint=key,
+                        selections=[dict(id=group['id'], variant=group['variants'][1]['id'])])
+
+        def submit(event, review):
+            self.assertEqual(event, 'translation_review')
+            payload = reply(review)
+            reply_path.write_text(json.dumps(payload, ensure_ascii=False), encoding='utf-8')
+
+        with patch.dict(os.environ, RPT_TRANSLATION_REVIEW_FILE=str(reply_path), RPT_DESKTOP_EVENTS='1'), \
+                patch('translation_review.emit', side_effect=submit):
+            changes = review.run(self.project, cfg, review_sentences=True)
+
+        self.assertEqual([row['id'] for row in changes], [rows[0]['id'], rows[2]['id']])
+        self.assertFalse(reply_path.exists())
+        self.assertTrue(cache_file.read_bytes().startswith(initial))
+        self.assertEqual(len(cache_file.read_bytes().splitlines()), len(rows) + 2)
+        saved = cache(self.project, cfg)
+        self.assertEqual([saved[row['id']]['text'] for row in rows], [manual, texts[1], texts[1], *texts[3:]])
+        render(self.project, cfg)
+        translated = (self.project/'staging/game/tl/korean/chapter.rpy').read_text(encoding='utf-8').splitlines()
+        self.assertEqual(rendered_text(translated[rows[0]['line']], rows[0]), manual)
+        self.assertEqual(rendered_text(translated[rows[2]['line']], rows[2]), texts[1])
 
 
 if __name__=='__main__':unittest.main()

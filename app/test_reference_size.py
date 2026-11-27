@@ -10,16 +10,43 @@ from translation import catalog,render,fingerprint
 from test_story_hints import runtime as hint_runtime
 
 
-def runtime(version,legacy=False):
+def runtime(version,legacy=False,game_replace=None):
     class Layout:
         def segment(self,tokens,text_style,renders,text):return list(tokens)
     if legacy:
         Layout.segment=lambda self,tokens,text_style,renders:list(tokens)
+    config=SimpleNamespace(custom_text_tags={},self_closing_custom_text_tags={})
+    modern=version[:2] > (6,99)
+    if modern:
+        def replace(value):
+            value=game_replace(value) if game_replace is not None else value
+            return {'India':'인디아'}.get(value,value)
+        config.replace_text=replace
+
+    def apply_custom_tags(tokens):
+        result=[]
+        while tokens:
+            kind,value=tokens.pop(0)
+            if kind==0 and modern:
+                result.append((kind,config.replace_text(value)))
+            elif kind==1 and value in config.custom_text_tags:
+                closing=tokens.index((1,'/'+value))
+                tokens[:closing+1]=config.custom_text_tags[value](value,'',tokens[:closing])
+            elif kind==1 and value in config.self_closing_custom_text_tags:
+                tokens[:0]=config.self_closing_custom_text_tags[value](value,'')
+            else:
+                result.append((kind,value))
+        return result
+
     class Text:
-        @staticmethod
-        def apply_custom_tags(tokens):return [(k,{'India':'인디아'}.get(v,v)) for k,v in tokens]
+        pass
+    if legacy:
+        Text.apply_custom_tags=lambda self,tokens:apply_custom_tags(tokens)
+    else:
+        Text.apply_custom_tags=staticmethod(apply_custom_tags)
     engine=SimpleNamespace(version_tuple=version,text=SimpleNamespace(text=SimpleNamespace(Layout=Layout,Text=Text)))
-    ns=dict(renpy=SimpleNamespace(TEXT_TAG=1),config=SimpleNamespace(custom_text_tags={}))
+    ns=dict(renpy=SimpleNamespace(TEXT_TAG=1),config=config,
+            _rpt_has_replace_text=modern,_rpt_previous_replace=game_replace)
     helper=Path(__file__).with_name('size_runtime.py').read_text(encoding='utf-8')
     with patch.dict('sys.modules',renpy=engine):exec(helper,ns)
     ns['renpy'].text=engine.text
@@ -33,7 +60,7 @@ class ReferenceSizeTests(unittest.TestCase):
         ns['renpy'].TEXT_TEXT=0
         ns['_rpt_text_replacer']=lambda value:{'Help':'도움말'}.get(value,value)
         tokens=[(0,'Help'),(1,'rpt_ref=0.55'),(0,'Help'),(1,'/rpt_ref')]
-        result=engine.text.text.Text.apply_custom_tags(tokens)
+        result=engine.text.text.Text().apply_custom_tags(tokens)
         self.assertEqual([v for k,v in result if k==0],['도움말','Help'])
         self.assertEqual(tokens[0],(0,'Help'))
 
@@ -67,6 +94,64 @@ class ReferenceSizeTests(unittest.TestCase):
             self.assertIn((1,'size=22'),out)
             self.assertEqual([v for k,v in out if k==0],['인디아','India'])
             self.assertEqual(sum(k==1 and v=='/size' for k,v in out),1)
+
+    def test_interpolated_custom_tags_render_with_reference_on_or_off(self):
+        # Text hands the hook tokens after interpolation expands the variable.
+        for version,legacy in (((6,99,0),True),((7,3,5),True),((8,5,0),False)):
+            with self.subTest(version=version):
+                engine,ns=runtime(version,legacy)
+                config=ns['config']
+                config.custom_text_tags['emotion']=lambda _,__,contents:[(1,'i')]+contents+[(1,'/i')]
+                config.self_closing_custom_text_tags['tiny_icon']=lambda _,__:[(0,'★')]
+                expanded=[(1,'emotion'),(0,'India'),(1,'/emotion'),(1,'tiny_icon')]
+                native=engine.text.text.Text().apply_custom_tags
+                normal=native(expanded[:])
+                reference=native(expanded+[(1,'rpt_ref=0.55')]+expanded+[(1,'/rpt_ref')])
+                self.assertEqual(normal,[(1,'i'),(0,'India' if version[0]==6 else '인디아'),(1,'/i'),(0,'★')])
+                self.assertEqual(reference,normal+[(1,'size=_rpt_reference_55'),(1,'i'),(0,'India'),
+                                                   (1,'/i'),(0,'★'),(1,'/size')])
+
+    def test_runtime_closes_only_styles_after_custom_expansion(self):
+        for version,legacy in (((6,99,0),True),((7,3,5),True),((8,5,0),False)):
+            with self.subTest(version=version):
+                engine,ns=runtime(version,legacy)
+                ns['config'].self_closing_custom_text_tags['k']=lambda _,__:[(0,'icon')]
+                ns['config'].self_closing_custom_text_tags['unknown']=lambda _,__:[(0,'other')]
+                ns['config'].custom_text_tags['b']=lambda _,__,contents:[(1,'i')]+contents+[(1,'/i')]
+                native=engine.text.text.Text().apply_custom_tags
+                tokens=[(1,'color=red'),(1,'k'),(1,'unknown'),(1,'b'),(0,'x'),(1,'/b'),
+                        (0,'{k}'),(1,'rpt_ref=0.55'),(0,'reference'),(1,'/rpt_ref')]
+                result=native(tokens)
+                self.assertEqual(result,[(1,'color=red'),(0,'icon'),(0,'other'),(1,'i'),(0,'x'),
+                                         (1,'/i'),(0,'{k}'),(1,'/color'),(1,'size=_rpt_reference_55'),
+                                         (0,'reference'),(1,'/size')])
+
+    def test_guarded_composition_defers_style_closing_to_runtime(self):
+        from display_text import compose
+        row={'source':'Original', 'kind':'dialogue'}
+        result=compose(row,{'text':'{k}번역 {color=red}강조'}, {'reference_guard':True})
+        self.assertIn('{k}번역 {color=red}강조\n{rpt_ref=0.55}',result)
+        self.assertNotIn('{/k}',result)
+        self.assertNotIn('{/color}',result)
+
+    def test_unshadowed_builtin_and_balanced_tags(self):
+        engine,_=runtime((8,5,0))
+        native=engine.text.text.Text.apply_custom_tags
+        result=native([(1,'k=2'),(1,'b'),(0,'text'),(1,'/b'),(0,'{k}'),
+                       (1,'rpt_ref=0.55'),(0,'reference'),(1,'/rpt_ref')])
+        self.assertEqual(result,[(1,'k=2'),(1,'b'),(0,'text'),(1,'/b'),(0,'{k}'),
+                                 (1,'/k'),(1,'size=_rpt_reference_55'),(0,'reference'),(1,'/size')])
+
+    def test_reference_preserves_game_replacement_and_restores_scope_after_exception(self):
+        engine,ns=runtime((8,5,0),game_replace=lambda s:'India' if s=='Republic' else s)
+        native=engine.text.text.Text.apply_custom_tags
+        self.assertEqual(native([(1,'rpt_ref'),(0,'Republic'),(1,'/rpt_ref')]),[(0,'India')])
+        def broken_tag(tag,arg):
+            raise ValueError('fixture failure')
+        ns['config'].self_closing_custom_text_tags['broken']=broken_tag
+        with self.assertRaisesRegex(ValueError,'fixture failure'):
+            native([(1,'rpt_ref'),(1,'broken'),(1,'/rpt_ref')])
+        self.assertEqual(native([(0,'Republic')]),[(0,'인디아')])
 
     def test_hints_precede_reference_in_both_new_and_old_patches(self):
         ns,_,_=hint_runtime({},('fiction.rpy',1))
